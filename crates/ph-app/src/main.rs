@@ -8,6 +8,8 @@
 //! the default audio device (falling back to a silent engine with a visible notice), and shows
 //! the window.
 
+mod agents;
+
 use ph_commands::{Caller, Request};
 use ph_control::{AudioMode, Studio, StudioConfig};
 use ph_core::Project;
@@ -71,21 +73,18 @@ fn parse_args() -> Result<Args, String> {
     Ok(a)
 }
 
-// ===================================================================================================
-// AGENT HOOK (orchestrator: wire this at merge)
-//
-// T4 builds `ph_control::serve_local(&studio)`, the local MCP/JSON-RPC endpoint. It does not exist
-// on this branch. After merging T4, replace the body of this function with the real call and put
-// its connection directory in `hooks.agents`:
-//
-//     let dir = ph_control::serve_local(studio).map_err(|e| eprintln!("agent endpoint: {e}")).ok();
-//     Hooks { agents: dir.map(|d| Arc::new(d) as Arc<dyn ph_ui::AgentDirectory>) }
-//
-// `ph_ui::AgentDirectory` (clients, pending grant prompts, resolve_grant) is what the Agents panel
-// reads; adapt T4's connection registry to it. Nothing else in the UI changes.
-// ===================================================================================================
-fn start_local_agent_endpoint(_studio: &Studio) -> Hooks {
-    Hooks::default()
+/// Opens the local MCP/JSON-RPC endpoint (`patternhaus-cli mcp` attaches to it) and connects
+/// its grant prompts and client list to the Agents panel. Without it the app still runs.
+fn start_local_agent_endpoint(studio: &Studio) -> Hooks {
+    match agents::AppAgents::start(studio) {
+        Ok(a) => Hooks {
+            agents: Some(a as Arc<dyn ph_ui::AgentDirectory>),
+        },
+        Err(e) => {
+            eprintln!("agent endpoint unavailable: {e}");
+            Hooks::default()
+        }
+    }
 }
 
 fn load_or_new(dir: &std::path::Path) -> (Project, bool) {
