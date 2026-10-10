@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "xtask"]
+members = ["crates/*", "tools/*", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -25,6 +25,7 @@ thiserror = "2"
 midly = "0.5"
 proptest = "1"
 tempfile = "3"
+hound = "3"
 symphonia = { version = "0.5", default-features = false, features = ["wav", "aiff", "flac", "mp3", "ogg", "vorbis", "pcm"] }
 assert_no_alloc = "1.1"
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
