@@ -32,8 +32,9 @@ Options:
 | `--library DIR` | An extra sample folder for the browser (repeatable) |
 | `--config DIR` | Where keymap, layout and theme are kept. Default `%APPDATA%\patternhaus` |
 
-Expected: a dark window with the transport bar on top, the browser on the left, the channel rack
-above the playlist and piano roll tabs, and the mixer, inspector, history and agents tabs below.
+Expected: a dark window with the transport bar on top and the browser docked on the left. The
+playlist fills the rest of the window as the background, and the channel rack floats over it at the
+upper left. The piano roll, mixer, history and agents are hidden until you press their keys.
 
 ## Part 1: build the beat
 
@@ -60,8 +61,8 @@ above the playlist and piano roll tabs, and the mixer, inspector, history and ag
    the selected channel as a piano. `-` and `=` shift the octave (shown in the "Keys oct" button).
    `Ctrl+T` turns the typing keyboard off.
 7. **Mixer (F9).** Click insert 4 (the synth's insert, shown in the rack's number box). In the
-   panel on the right choose "+ Add effect": **eq**, then **compressor**. Click an effect to see its
-   knobs. Drag a knob, release: the value is set (double-click resets it). Click "Byp" to bypass.
+   panel on the right choose "+ Add effect": **eq**, then **compressor**. Click an effect to open its
+   window of knobs. Drag a knob, release: the value is set (double-click resets it). Click "Byp" to bypass.
    On insert 5 add a **reverb**. Then click the snare's insert (2), choose "+ Add send", pick
    insert 5, and drag the send knob to about -8 dB. Optional: set the compressor's sidechain with the
    "Sidechain from" box on insert 4.
@@ -88,8 +89,10 @@ above the playlist and piano roll tabs, and the mixer, inspector, history and ag
 
 ## Part 2: shortcuts, remapping, themes, layouts
 
-- **F5 F6 F7 F8 F9** show the Playlist, Channel rack, Piano roll, Browser and Mixer. When one is
-  already in front, the key hides it. F10 Inspector, Ctrl+H History, Ctrl+Shift+A Agents.
+- **F5 F6 F7 F9** show the Playlist, Channel rack, Piano roll and Mixer, and **F8** the docked
+  browser. A hidden window appears in front; one that is open but behind another comes to the front;
+  one that is already in front is hidden. F10 opens the selected channel's instrument window,
+  Ctrl+H History, Ctrl+Shift+A Agents. **Esc** closes the front instrument or effect window.
 - **Ctrl+Z / Ctrl+Y** undo and redo *your own* changes. Ctrl+S saves, Ctrl+N new, Ctrl+O open,
   Ctrl+L clones the selected pattern, Space plays and stops, L switches pattern and song mode,
   Ctrl+M toggles the metronome.
@@ -99,10 +102,23 @@ above the playlist and piano roll tabs, and the mixer, inspector, history and ag
 - View, Theme: Dark or Light. User themes are TOML files of tokens (see
   `crates/ph-ui/themes/dark.toml`); put `theme = "C:/path/to/my-theme.toml"` in
   `settings.toml` in the config folder.
-- **Layouts.** Drag a tab to dock it elsewhere or float it. Right-click a tab, "Move to its own
-  window" makes a real OS window you can put on another monitor; close that window and the panel
-  docks again. View, Layout: "Save for me" (also saved on exit), "Save with this project"
-  (`layout.ron` in the project folder, which takes priority), "Reset to default".
+- **Windows.** Every panel is a floating window inside the workspace:
+  - drag a title bar to move it; drag any edge or corner to resize it (there is a minimum size);
+  - a window snaps to the workspace edges and to other windows when you bring it within a few
+    pixels, and its title bar can never be dragged out of reach;
+  - click anywhere on a window behind another to bring it to the front;
+  - double-click a title bar (or use the square button) to maximize it inside the workspace;
+    do it again to restore. The cross closes it. The first button sends it to its own OS window you
+    can put on another monitor; close that OS window and it returns to the workspace;
+  - the browser is docked at the left; drag its right edge to resize it, F8 to hide it.
+- **Instrument and effect windows.** Click a channel's name in the rack: its instrument window
+  (sampler or Haus Synth) opens. Click another channel and both stay open. In the mixer, click an
+  effect slot: that effect's window opens with all its knobs. Each remembers where you put it.
+  Deleting the channel (or removing the effect) closes its window.
+- **Layouts.** View, Layout: "Save for me" (also saved on exit), "Save with this project"
+  (`layout.ron` in the project folder, which takes priority), "Reset to default". A saved layout
+  keeps every window's position, size, stacking order and whether it is open. Shrink the app window
+  and the windows stay reachable.
 - **DPI.** Move the window between monitors of different scale: text and controls stay sharp.
   The theme's `scale` token multiplies on top of the OS scale.
 
@@ -119,7 +135,7 @@ cargo run --release -p ph-app -- C:\Users\you\beats\first --demo-agent
    the roll outlines the note the agent pointed at (`ui.select`). A toast says what it did.
 2. Keep working (add your own notes, change velocities). The agent keeps going; neither of you
    blocks the other.
-3. Open the **History** tab (Ctrl+H). Rows are tagged `human` (blue) or `agent:demo` (pink), with the
+3. Open the **History** window (Ctrl+H). Rows are tagged `human` (blue) or `agent:demo` (pink), with the
    time. "Undo mine" reverts only your last change. "Undo all by agent:demo" reverts only the
    agent's changes, newest first. The "Undo" button on a row reverts that one transaction.
    Expected after "Undo all by agent:demo": your notes remain, the agent's are gone.
@@ -131,7 +147,7 @@ cargo run --release -p ph-app -- C:\Users\you\beats\first --demo-agent
    - **Skip these objects**: everything else the agent did is undone; your edited note stays.
    - **Force**: your edit is overwritten too, and the note goes away.
    (Try each; repeat step 4 for each choice.)
-5. **Agents tab (Ctrl+Shift+A).** Without the T4 endpoint it says "The local agent endpoint is not
+5. **Agents window (Ctrl+Shift+A).** Without the T4 endpoint it says "The local agent endpoint is not
    running in this build" and shows activity per author. With T4 merged (see the AGENT HOOK in
    `crates/ph-app/src/main.rs`) it lists connected clients with scopes and shows the grant prompt
    (Allow / Read only / Deny) when a new client connects.
@@ -144,4 +160,4 @@ cargo run --release -p ph-app -- C:\Users\you\beats\first --demo-agent
 - Clicking in the browser plays the sample at once; typing-keyboard notes have no noticeable delay.
 - Anything that looks off in the dark or light theme.
 
-Report anything unexpected with the steps that led to it and the contents of the History tab.
+Report anything unexpected with the steps that led to it and the contents of the History window.
