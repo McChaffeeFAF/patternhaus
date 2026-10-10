@@ -13,12 +13,61 @@ use std::time::{Duration, Instant};
 
 type H = Harness<'static, PhApp>;
 
-fn harness(app: PhApp, w: f32, h: f32) -> H {
+/// A harness that renders on the GPU when an adapter exists (a CI box without Vulkan still runs
+/// the logic, it just cannot take pictures).
+fn harness_ppp(app: PhApp, w: f32, h: f32, ppp: f32) -> H {
+    let build = |app: PhApp, gpu: bool| {
+        let b = Harness::builder()
+            .with_size(egui::vec2(w, h))
+            .with_pixels_per_point(ppp);
+        let b = if gpu { b.wgpu() } else { b };
+        b.build_ui_state(|ui, app: &mut PhApp| app.draw(ui), app)
+    };
+    // Building the GPU renderer panics when there is no adapter; the app is moved in, so probe
+    // with a throw-away harness first.
+    let gpu = std::panic::catch_unwind(|| {
+        Harness::builder()
+            .with_size(egui::vec2(64.0, 64.0))
+            .wgpu()
+            .build_ui(|ui| {
+                ui.label("probe");
+            })
+    })
+    .is_ok();
+    build(app, gpu)
+}
+
+/// Offscreen wgpu setup that picks the discrete GPU (kittest's own default prefers a software
+/// rasteriser so snapshots are reproducible), for timing the real renderer.
+fn gpu_setup() -> eframe::egui_wgpu::WgpuSetup {
+    use eframe::egui_wgpu::{self, wgpu};
+    let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+    setup
+        .instance_descriptor
+        .backends
+        .remove(wgpu::Backends::BROWSER_WEBGPU);
+    setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
+        let pick = adapters
+            .iter()
+            .find(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu)
+            .or_else(|| adapters.first())
+            .ok_or_else(|| "no adapter".to_string())?;
+        println!("PERF gpu adapter: {:?}", pick.get_info().name);
+        Ok(pick.clone())
+    }));
+    egui_wgpu::WgpuSetup::CreateNew(setup)
+}
+
+fn harness_gpu(app: PhApp, w: f32, h: f32) -> H {
     Harness::builder()
         .with_size(egui::vec2(w, h))
         .with_pixels_per_point(1.0)
-        .wgpu()
+        .wgpu_setup(gpu_setup())
         .build_ui_state(|ui, app: &mut PhApp| app.draw(ui), app)
+}
+
+fn harness(app: PhApp, w: f32, h: f32) -> H {
+    harness_ppp(app, w, h, 1.0)
 }
 
 fn shots_dir() -> Option<PathBuf> {
@@ -35,7 +84,10 @@ fn shot(h: &mut H, name: &str) {
         h.step();
         std::thread::sleep(Duration::from_millis(25));
     }
-    let img = h.render().expect("offscreen render");
+    let Ok(img) = h.render() else {
+        eprintln!("SKIP {name}: no GPU adapter for offscreen rendering");
+        return;
+    };
     assert!(img.width() > 100 && img.height() > 100);
     // not blank: plenty of pixels differ from the corner colour
     let corner = *img.get_pixel(0, 0);
@@ -125,6 +177,16 @@ fn screenshots_of_the_beat() {
     h.state_mut().set_theme("light");
     focus(&mut h, PanelId::PianoRoll);
     shot(&mut h, "10-light-theme");
+}
+
+#[test]
+fn renders_sharply_at_double_dpi() {
+    let (fx, _) = fixture(true);
+    let _keep = fx.dir;
+    let mut app = fx.app;
+    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    let mut h = harness_ppp(app, 1000.0, 640.0, 2.0);
+    shot(&mut h, "11-hidpi-2x");
 }
 
 fn wait(h: &mut H, f: &dyn Fn(&PhApp) -> bool) -> bool {
@@ -245,7 +307,7 @@ fn big_project_stays_interactive() {
     );
     assert_eq!(app.core.project.channels.len(), 100);
     assert_eq!(app.core.project.patterns.len(), 50);
-    let mut h = harness(app, 1600.0, 1000.0);
+    let mut h = harness_gpu(app, 1600.0, 1000.0);
     h.state_mut().core.sel.pattern = Some(ph_core::PatternId(1));
     h.state_mut().core.fix_selection();
     for _ in 0..5 {
@@ -272,20 +334,24 @@ fn big_project_stays_interactive() {
     h.state_mut().core.sel.channel = Some(ph_core::ChannelId(3));
     h.state_mut().core.fix_selection();
     let b = report(&mut h, "10 000-note piano roll in the full layout");
-    let t = Instant::now();
-    let img = h.render().expect("render");
-    println!(
-        "PERF offscreen wgpu render of the full 1600x1000 window: {:.1} ms ({}x{})",
-        t.elapsed().as_secs_f64() * 1000.0,
-        img.width(),
-        img.height()
-    );
-    let t = Instant::now();
-    let _ = h.render().expect("render");
-    println!(
-        "PERF second offscreen wgpu render: {:.1} ms",
-        t.elapsed().as_secs_f64() * 1000.0
-    );
+    if h.render().is_ok() {
+        // GPU side: scroll the 10 000-note roll every frame and render the whole window offscreen
+        let mut gpu = Vec::new();
+        for i in 0..30 {
+            h.state_mut().core.roll.view.x0 = (i * 5000) as f64;
+            h.step();
+            let t = Instant::now();
+            let _ = h.render().expect("render");
+            gpu.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        let first = gpu.remove(0);
+        gpu.sort_by(|a, b| a.total_cmp(b));
+        println!(
+            "PERF offscreen wgpu render (full 1600x1000 window, scrolling 10k-note roll): first {first:.1} ms (device warm-up), then avg {:.2} ms, max {:.2} ms",
+            gpu.iter().sum::<f64>() / gpu.len() as f64,
+            gpu.last().unwrap()
+        );
+    }
     // generous in debug test builds; the release numbers are what the report quotes
     let budget = if cfg!(debug_assertions) { 120.0 } else { 16.0 };
     assert!(

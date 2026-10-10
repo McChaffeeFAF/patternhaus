@@ -243,7 +243,21 @@ impl AppCore {
         theme: Theme,
         keymap: Keymap,
     ) -> Result<AppCore, String> {
-        let changes = studio.session.subscribe().map_err(|e| e.to_string())?;
+        let raw_changes = studio.session.subscribe().map_err(|e| e.to_string())?;
+        // Wake the UI when a snapshot arrives (an agent edit while the window is idle).
+        let (fwd_tx, changes) = std::sync::mpsc::channel();
+        let wake = ctx.clone();
+        std::thread::Builder::new()
+            .name("ph-ui-changes".into())
+            .spawn(move || {
+                for c in raw_changes {
+                    if fwd_tx.send(c).is_err() {
+                        break;
+                    }
+                    wake.request_repaint();
+                }
+            })
+            .map_err(|e| e.to_string())?;
         // The session's own snapshot (not `studio.project()`, which trails the engine bridge):
         // everything committed before the subscription is in it, everything after arrives on
         // `changes`.

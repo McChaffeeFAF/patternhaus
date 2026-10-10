@@ -74,6 +74,8 @@ pub struct PlaylistState {
     pub clips: Vec<Clip>,
     pub bar: Tick,
     pub n_tracks: u32,
+    /// Where the clip grid was drawn last frame (screen coordinates), for tests.
+    pub last_grid: Rect,
 }
 
 impl Default for PlaylistState {
@@ -89,6 +91,7 @@ impl Default for PlaylistState {
             clips: Vec::new(),
             bar: 3840,
             n_tracks: ph_core::PLAYLIST_TRACKS as u32,
+            last_grid: Rect::NOTHING,
         }
     }
 }
@@ -461,6 +464,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
         Pos2::new(whole.left() + HEADER_W, whole.top() + RULER_H),
         whole.max,
     );
+    st.last_grid = grid;
     let ruler = Rect::from_min_max(
         Pos2::new(grid.left(), whole.top()),
         Pos2::new(grid.right(), grid.top()),

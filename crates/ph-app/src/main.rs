@@ -1,7 +1,7 @@
 //! `ph-app`: the Patternhaus desktop application.
 //!
 //! ```text
-//! ph-app [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--buffer N]
+//! ph-app [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--library DIR]... [--buffer N]
 //! ```
 //!
 //! Opens the project folder (or starts a new project with `project.new`), starts the engine on
@@ -24,6 +24,7 @@ struct Args {
     demo_agent: bool,
     assets: Option<PathBuf>,
     config: Option<PathBuf>,
+    libraries: Vec<PathBuf>,
     buffer: u32,
 }
 
@@ -34,6 +35,7 @@ fn parse_args() -> Result<Args, String> {
         demo_agent: false,
         assets: None,
         config: settings::default_config_dir(),
+        libraries: Vec::new(),
         buffer: 256,
     };
     let mut it = std::env::args().skip(1);
@@ -44,6 +46,9 @@ fn parse_args() -> Result<Args, String> {
             "--demo-agent" => a.demo_agent = true,
             "--assets" => a.assets = Some(it.next().ok_or("--assets needs a folder")?.into()),
             "--config" => a.config = Some(it.next().ok_or("--config needs a folder")?.into()),
+            "--library" => a
+                .libraries
+                .push(it.next().ok_or("--library needs a folder")?.into()),
             "--buffer" => {
                 a.buffer = it
                     .next()
@@ -52,7 +57,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "-h" | "--help" => {
                 println!(
-                    "usage: ph-app [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--buffer N]"
+                    "usage: ph-app [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--library DIR]... [--buffer N]"
                 );
                 std::process::exit(0);
             }
@@ -134,7 +139,7 @@ fn main() -> eframe::Result {
             let studio_cfg = |audio| StudioConfig {
                 project_dir: project_dir.clone(),
                 assets_dir: assets_dir.clone(),
-                library_roots: Vec::new(),
+                library_roots: args.libraries.clone(),
                 exports_dir: None,
                 engine: engine_cfg.clone(),
                 audio,
@@ -174,7 +179,7 @@ fn main() -> eframe::Result {
             let paths = AppPaths {
                 project_dir: project_dir.clone(),
                 assets_dir: assets_dir.clone(),
-                library_roots: Vec::new(),
+                library_roots: args.libraries.clone(),
                 config_dir: args.config.clone(),
             };
             let app = PhApp::new(&cc.egui_ctx, studio, paths, hooks, engine_cfg, notice)?;

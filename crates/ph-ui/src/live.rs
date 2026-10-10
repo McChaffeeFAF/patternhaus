@@ -165,46 +165,55 @@ fn run(
     let mut last = Instant::now();
     let mut peak: Vec<[f32; 2]> = Vec::new();
     let mut idle_polls = 0u32;
+    let mut next_poll = Instant::now();
     loop {
-        match rx.recv_timeout(Duration::from_millis(8)) {
-            Ok(EngineMsg::Stop) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
-            Ok(EngineMsg::Preview {
-                channel,
-                key,
-                velocity,
-                on,
-            }) => engine.preview_note(channel, key, velocity, on),
-            Ok(EngineMsg::Reconfigure(cfg)) => {
-                let _ = engine.reconfigure(cfg);
+        // `thread::sleep` is high resolution on Windows; channel timeouts are not (15 ms ticks).
+        // Messages (typing-keyboard notes) are served every 2 ms, readouts at their own pace.
+        std::thread::sleep(Duration::from_millis(2));
+        loop {
+            match rx.try_recv() {
+                Ok(EngineMsg::Stop) | Err(std::sync::mpsc::TryRecvError::Disconnected) => return,
+                Ok(EngineMsg::Preview {
+                    channel,
+                    key,
+                    velocity,
+                    on,
+                }) => engine.preview_note(channel, key, velocity, on),
+                Ok(EngineMsg::Reconfigure(cfg)) => {
+                    let _ = engine.reconfigure(cfg);
+                }
+                Ok(EngineMsg::Audition {
+                    project,
+                    channel,
+                    key,
+                    hold,
+                }) => {
+                    let my = generation.fetch_add(1, Ordering::SeqCst) + 1;
+                    let (engine, generation, latest) =
+                        (engine.clone(), generation.clone(), latest.clone());
+                    std::thread::spawn(move || {
+                        let _ = engine.set_project(project);
+                        std::thread::sleep(Duration::from_millis(200));
+                        if generation.load(Ordering::SeqCst) != my {
+                            return;
+                        }
+                        engine.preview_note(channel, key, 0.9, true);
+                        std::thread::sleep(hold);
+                        engine.preview_note(channel, key, 0.9, false);
+                        std::thread::sleep(Duration::from_millis(900));
+                        if generation.load(Ordering::SeqCst) == my {
+                            let back = latest.lock().unwrap().clone();
+                            let _ = engine.set_project(back);
+                        }
+                    });
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
             }
-            Ok(EngineMsg::Audition {
-                project,
-                channel,
-                key,
-                hold,
-            }) => {
-                let my = generation.fetch_add(1, Ordering::SeqCst) + 1;
-                let (engine, generation, latest) =
-                    (engine.clone(), generation.clone(), latest.clone());
-                std::thread::spawn(move || {
-                    let _ = engine.set_project(project);
-                    std::thread::sleep(Duration::from_millis(200));
-                    if generation.load(Ordering::SeqCst) != my {
-                        return;
-                    }
-                    engine.preview_note(channel, key, 0.9, true);
-                    std::thread::sleep(hold);
-                    engine.preview_note(channel, key, 0.9, false);
-                    std::thread::sleep(Duration::from_millis(900));
-                    if generation.load(Ordering::SeqCst) == my {
-                        let back = latest.lock().unwrap().clone();
-                        let _ = engine.set_project(back);
-                    }
-                });
-            }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
         let now = Instant::now();
+        if now < next_poll {
+            continue;
+        }
         let dt = now.duration_since(last).as_secs_f32();
         last = now;
         let status = engine.status();
@@ -229,12 +238,14 @@ fn run(
             l.rms = meters.rms;
             l.polls += 1;
         }
+        // poll fast (faster than any display) while something moves, slowly when idle
+        next_poll = Instant::now() + Duration::from_millis(if playing || active { 3 } else { 40 });
         if playing || active {
             idle_polls = 0;
             ctx.request_repaint();
         } else {
             idle_polls += 1;
-            if idle_polls.is_multiple_of(30) {
+            if idle_polls.is_multiple_of(6) {
                 ctx.request_repaint(); // keep DSP load / notices fresh when idle
             }
         }

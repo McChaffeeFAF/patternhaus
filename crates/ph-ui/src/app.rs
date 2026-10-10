@@ -710,6 +710,13 @@ impl eframe::App for PhApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.draw(ui);
     }
+
+    /// The window layout is remembered per user across runs.
+    fn on_exit(&mut self) {
+        if let Some(dir) = self.core.paths.config_dir.clone() {
+            let _ = settings::save_layout(&settings::layout_path(&dir), &self.layout());
+        }
+    }
 }
 
 #[allow(dead_code)]

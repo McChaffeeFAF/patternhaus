@@ -41,6 +41,9 @@ pub struct RackState {
     paint: Option<Paint>,
     vel: Option<VelDrag>,
     reorder: Option<ChannelId>,
+    /// Where each row's step buttons were drawn last frame (screen coordinates); lets tests
+    /// and the manual-test script aim at real pixels.
+    pub geometry: Vec<(ChannelId, Rect, StepLayout)>,
 }
 
 pub fn show(ui: &mut Ui, core: &mut AppCore) {
@@ -136,6 +139,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         .flatten();
 
     let panel_rect = ui.available_rect_before_wrap();
+    let mut geometry = Vec::new();
     let mut removed: Option<ChannelId> = None;
     let mut reorder_to: Option<(ChannelId, usize)> = None;
     let layout = StepLayout {
@@ -331,10 +335,12 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     origin_x: steps_rect.left(),
                     ..layout
                 };
+                geometry.push((ch.id, steps_rect, lay));
                 step_row(ui, core, ch, pattern, n_steps, steps_rect, lay, play_step);
             }
         });
 
+    core.rack.geometry = geometry;
     if let Some(c) = removed {
         core.send(mapping::channel_remove(c));
     }

@@ -301,6 +301,8 @@ pub struct PianoRollState {
     pub pattern_len: Tick,
     lane_h: f32,
     needs_fit: bool,
+    /// Where the note grid was drawn last frame (screen coordinates), for tests.
+    pub last_grid: Rect,
 }
 
 impl Default for PianoRollState {
@@ -322,6 +324,7 @@ impl Default for PianoRollState {
             pattern_len: 3840,
             lane_h: VEL_LANE_H,
             needs_fit: true,
+            last_grid: Rect::NOTHING,
         }
     }
 }
@@ -885,6 +888,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             (whole.bottom() - VEL_LANE_H - 4.0).max(whole.top() + RULER_H + 20.0),
         ),
     );
+    st.last_grid = grid_rect;
     let lane_rect = Rect::from_min_max(
         Pos2::new(grid_rect.left(), grid_rect.bottom() + 4.0),
         whole.max,
