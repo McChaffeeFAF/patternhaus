@@ -122,3 +122,4 @@ self-generated or CC0 content is allowed. `cargo xtask check-provenance` enforce
 | Date | Contract | Change |
 |---|---|---|
 | 2026-10-10 | all | T0 initial versions |
+| 2026-10-10 | ph-node `EventKind::NoteOn.fine_pitch` | Unit documented as **cents**, matching `ph_core::Note::fine_pitch`; Sampler and Synth convert (found in T2 review) |

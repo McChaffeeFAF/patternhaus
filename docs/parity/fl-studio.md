@@ -35,9 +35,9 @@ Behaviour is observed by using FL as a normal user. Never decompile it.
 | Mixer | Sidechain routing | | |
 | Transport | Play / stop / position / tempo | | |
 | Transport | Metronome | | |
-| Instruments | Sampler (one-shot, loop) | | |
-| Instruments | Haus Synth | | |
-| Effects | EQ, compressor, limiter, reverb, delay, filter, saturator | | |
+| Instruments | Sampler (one-shot, loop) | processor `ph.sampler` (`ph_instruments::create`); channel commands: T1 | |
+| Instruments | Haus Synth | processor `ph.synth` (`ph_instruments::create`); channel commands: T1 | |
+| Effects | EQ, compressor, limiter, reverb, delay, filter, saturator | processors `ph.fx.eq`, `ph.fx.compressor`, `ph.fx.limiter`, `ph.fx.reverb`, `ph.fx.delay`, `ph.fx.filter`, `ph.fx.saturator` (`ph_effects::create`); slot commands: T1 | |
 | Keyboard | Typing keyboard to piano | | |
 | Keyboard | F5–F9 window toggles, FL default shortcuts | | |
 | Files | New / open / save / save-as project | | |

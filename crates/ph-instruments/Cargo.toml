@@ -1,0 +1,21 @@
+[package]
+name = "ph-instruments"
+description = "Patternhaus built-in instruments: Sampler and Haus Synth."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ph-core.workspace = true
+ph-node.workspace = true
+ph-dsp.workspace = true
+
+[dev-dependencies]
+assert_no_alloc.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "instruments"
+harness = false

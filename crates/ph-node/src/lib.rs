@@ -140,6 +140,7 @@ pub enum EventKind {
         key: u8,
         velocity: f32,
         pan: f32,
+        /// Per-note detune in **cents** (matches `ph_core::Note::fine_pitch`).
         fine_pitch: f32,
     },
     NoteOff {
