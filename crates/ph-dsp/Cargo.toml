@@ -1,0 +1,10 @@
+[package]
+name = "ph-dsp"
+description = "Patternhaus DSP primitives: smoothing, oscillators, filters, envelopes, LFOs, interpolation, oversampling, dynamics, delay lines and voice allocation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]

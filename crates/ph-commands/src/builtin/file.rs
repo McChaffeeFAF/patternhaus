@@ -12,11 +12,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::Path;
 
-/// Writes a file or folder that may already exist: needs `confirm`.
-const OVERWRITES: Flags = Flags {
-    mutating: false,
-    destructive: true,
-};
+/// Refuses to replace an existing file unless `overwrite` is set, so writing new files needs no
+/// `confirm` (exporting is routine for agents) and replacing one is always explicit.
+fn check_overwrite(path: &Path, overwrite: bool) -> CmdResult<()> {
+    if path.exists() && !overwrite {
+        return Err(CmdError::Other(format!(
+            "{} already exists; pass overwrite: true to replace it",
+            path.display()
+        )));
+    }
+    Ok(())
+}
 
 pub fn register(r: &mut Registry) {
     r.register(typed(
@@ -30,7 +36,7 @@ pub fn register(r: &mut Registry) {
         "file.save_as",
         "Save the project to a folder, replacing the project.json already there.",
         Scope::Full,
-        OVERWRITES,
+        READ,
         save_as,
     ));
     r.register(typed(
@@ -44,7 +50,7 @@ pub fn register(r: &mut Registry) {
         "file.export_audio",
         "Render the song (or a range) to a WAV or FLAC file.",
         Scope::Full,
-        OVERWRITES,
+        READ,
         export_audio,
     ));
     r.register(typed(
@@ -58,7 +64,7 @@ pub fn register(r: &mut Registry) {
         "file.export_midi",
         "Export a pattern, or the whole song, as a MIDI file.",
         Scope::Full,
-        OVERWRITES,
+        READ,
         export_midi,
     ));
 }
@@ -86,9 +92,14 @@ fn save(ctx: &mut CommandCtx<'_>, p: Save) -> CmdResult<CommandOutput> {
 struct SaveAs {
     /// Project folder to save into; created if missing.
     path: String,
+    /// Replace a project already saved in that folder. Default false.
+    #[serde(default)]
+    overwrite: bool,
 }
 
 fn save_as(ctx: &mut CommandCtx<'_>, p: SaveAs) -> CmdResult<CommandOutput> {
+    let dir = ctx.host.resolve_path(&p.path, FileAccess::Write)?;
+    check_overwrite(&dir.join("project.json"), p.overwrite)?;
     write_project(ctx, &p.path)
 }
 
@@ -150,6 +161,9 @@ struct ExportAudio {
     /// Let reverb and delay tails ring out past the end, default true.
     #[serde(default = "yes")]
     include_tail: bool,
+    /// Replace the file if it already exists. Default false.
+    #[serde(default)]
+    overwrite: bool,
 }
 
 fn export_audio(ctx: &mut CommandCtx<'_>, p: ExportAudio) -> CmdResult<CommandOutput> {
@@ -159,6 +173,7 @@ fn export_audio(ctx: &mut CommandCtx<'_>, p: ExportAudio) -> CmdResult<CommandOu
         return invalid("the range must end after it starts");
     }
     let path = ctx.host.resolve_path(&p.path, FileAccess::Write)?;
+    check_overwrite(&path, p.overwrite)?;
     ensure_parent(&path)?;
     let req = RenderRequest {
         path: path.to_string_lossy().into_owned(),
@@ -245,10 +260,14 @@ struct ExportMidi {
     /// Pattern to export; omit to export the whole song from the playlist.
     #[serde(default)]
     pattern: Option<PatternId>,
+    /// Replace the file if it already exists. Default false.
+    #[serde(default)]
+    overwrite: bool,
 }
 
 fn export_midi(ctx: &mut CommandCtx<'_>, p: ExportMidi) -> CmdResult<CommandOutput> {
     let path = ctx.host.resolve_path(&p.path, FileAccess::Write)?;
+    check_overwrite(&path, p.overwrite)?;
     let what = p.pattern.map_or(MidiExport::Song, MidiExport::Pattern);
     let bytes =
         ph_formats::export_midi(ctx.project, what).map_err(|e| CmdError::Host(e.to_string()))?;

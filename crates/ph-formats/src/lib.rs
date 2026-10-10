@@ -1,7 +1,11 @@
-//! File formats: the native project folder (DESIGN §10) and MIDI files.
+//! Patternhaus file formats.
 //!
-//! No audio decoding lives here; sample import belongs to the audio I/O layer.
+//! - the native project folder (DESIGN §10): save/load with migrations;
+//! - MIDI file import/export;
+//! - [`decode`]: audio decoding to [`ph_node::SampleData`] (WAV, AIFF, FLAC, MP3, Ogg Vorbis)
+//!   via `symphonia`, plus WAV `smpl` loop points and root key.
 
+pub mod decode;
 mod folder;
 mod midi;
 

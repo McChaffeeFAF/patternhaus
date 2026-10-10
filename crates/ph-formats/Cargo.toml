@@ -1,6 +1,6 @@
 [package]
 name = "ph-formats"
-description = "Patternhaus file formats: project folder save/load with migrations, MIDI import and export."
+description = "Patternhaus file formats: project folder save/load with migrations, MIDI import/export, audio decoding."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,9 +9,11 @@ rust-version.workspace = true
 
 [dependencies]
 ph-core.workspace = true
+ph-node.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 midly.workspace = true
+symphonia.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

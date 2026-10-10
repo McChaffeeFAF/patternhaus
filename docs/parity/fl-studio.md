@@ -35,9 +35,9 @@ Behaviour is observed by using FL as a normal user. Never decompile it.
 | Mixer | Sidechain routing | `mixer.set_sidechain` | |
 | Transport | Play / stop / position / tempo | `transport.play` `transport.stop` `transport.toggle` `transport.record` `transport.seek` `transport.get_state` `project.set_tempo` `project.set_time_signature` | |
 | Transport | Metronome | `transport.set_metronome` | |
-| Instruments | Sampler (one-shot, loop) | | |
-| Instruments | Haus Synth | | |
-| Effects | EQ, compressor, limiter, reverb, delay, filter, saturator | | |
+| Instruments | Sampler (one-shot, loop) | processor `ph.sampler` (`ph_instruments::create`); `channel.add` `channel.set_instrument` `channel.set_param` | |
+| Instruments | Haus Synth | processor `ph.synth` (`ph_instruments::create`); `channel.add` `channel.set_instrument` `channel.set_param` | |
+| Effects | EQ, compressor, limiter, reverb, delay, filter, saturator | processors `ph.fx.eq`, `ph.fx.compressor`, `ph.fx.limiter`, `ph.fx.reverb`, `ph.fx.delay`, `ph.fx.filter`, `ph.fx.saturator` (`ph_effects::create`); `mixer.add_effect` `mixer.set_effect_param` | |
 | Keyboard | Typing keyboard to piano | | |
 | Keyboard | F5–F9 window toggles, FL default shortcuts | | |
 | Files | New / open / save / save-as project | `project.new` `file.open` `file.save` `file.save_as` | |

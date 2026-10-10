@@ -14,6 +14,9 @@ ph-core = { path = "crates/ph-core" }
 ph-node = { path = "crates/ph-node" }
 ph-commands = { path = "crates/ph-commands" }
 ph-engine = { path = "crates/ph-engine" }
+ph-dsp = { path = "crates/ph-dsp" }
+ph-instruments = { path = "crates/ph-instruments" }
+ph-effects = { path = "crates/ph-effects" }
 ph-formats = { path = "crates/ph-formats" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
@@ -22,6 +25,9 @@ thiserror = "2"
 midly = "0.5"
 proptest = "1"
 tempfile = "3"
+symphonia = { version = "0.5", default-features = false, features = ["wav", "aiff", "flac", "mp3", "ogg", "vorbis", "pcm"] }
+assert_no_alloc = "1.1"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [profile.dev]
 # DSP is unusably slow unoptimised; keep debug info but optimise a little, and dependencies fully.

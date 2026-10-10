@@ -16,14 +16,15 @@ pub fn register(r: &mut Registry) {
     r.register(typed(
         "history.undo",
         "Undo your own most recent change (other authors' work is left alone).",
-        Scope::Compose,
+        // Only ever touches the caller's own work, so any client may undo what it did, whatever its scope.
+        Scope::Read,
         READ,
         stub::<ModeOnly>,
     ));
     r.register(typed(
         "history.redo",
         "Redo your own most recent undo.",
-        Scope::Compose,
+        Scope::Read,
         READ,
         stub::<ModeOnly>,
     ));

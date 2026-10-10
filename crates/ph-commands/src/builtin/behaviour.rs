@@ -969,13 +969,14 @@ fn file_commands_save_open() {
     r.run("file.save", json!({}));
     assert_eq!(std::fs::read(&saved).unwrap(), first, "byte-stable");
 
-    // save_as overwrites, so it needs confirm.
+    // save_as to a new folder needs no confirm; replacing a saved project needs overwrite.
+    r.run("file.save_as", json!({ "path": "copy" }));
+    assert!(r.dir().join("copy/project.json").exists());
     assert!(matches!(
         r.err("file.save_as", json!({ "path": "copy" })),
-        CmdError::NeedsConfirm(_)
+        CmdError::Other(_)
     ));
-    r.confirmed("file.save_as", json!({ "path": "copy" }));
-    assert!(r.dir().join("copy/project.json").exists());
+    r.run("file.save_as", json!({ "path": "copy", "overwrite": true }));
     assert!(matches!(
         r.err("file.save", json!({ "path": "../x" })),
         CmdError::Host(_)
@@ -1011,12 +1012,8 @@ fn file_commands_save_open() {
 fn file_commands_export() {
     let mut r = Rig::new();
     let (pat, _) = small_song(&mut r);
-    // Audio export goes through Host::render.
-    assert!(matches!(
-        r.err("file.export_audio", json!({ "path": "out/mix.wav" })),
-        CmdError::NeedsConfirm(_)
-    ));
-    let out = r.confirmed(
+    // Audio export goes through Host::render; a new file needs no confirm.
+    let out = r.run(
         "file.export_audio",
         json!({ "path": "out/mix.wav", "range": [0, 3840], "sample_rate": 44100, "bit_depth": 16 }),
     );
@@ -1028,7 +1025,7 @@ fn file_commands_export() {
         (Some((0, 3840)), 44100, 16, true)
     );
     assert!(matches!(
-        r.err_confirmed(
+        r.err(
             "file.export_audio",
             json!({ "path": "x.wav", "range": [5, 1] })
         ),
@@ -1037,12 +1034,21 @@ fn file_commands_export() {
 
     // MIDI: export the pattern, import it back as a second pattern.
     r.run("project.set_tempo", json!({ "bpm": 100 }));
-    r.confirmed(
+    r.run(
         "file.export_midi",
         json!({ "path": "out/pat.mid", "pattern": pat }),
     );
-    r.confirmed("file.export_midi", json!({ "path": "out/song.mid" }));
+    r.run("file.export_midi", json!({ "path": "out/song.mid" }));
     assert!(r.dir().join("out/song.mid").exists());
+    // An existing file is never replaced silently.
+    assert!(matches!(
+        r.err("file.export_midi", json!({ "path": "out/song.mid" })),
+        CmdError::Other(_)
+    ));
+    r.run(
+        "file.export_midi",
+        json!({ "path": "out/song.mid", "overwrite": true }),
+    );
     r.run("project.set_tempo", json!({ "bpm": 120 }));
     let out = r.run(
         "file.import_midi",
