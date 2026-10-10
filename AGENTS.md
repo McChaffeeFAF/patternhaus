@@ -120,6 +120,8 @@ CI runs the same commands on Windows, Linux and macOS. Expectations:
 Every file under `assets/` needs an entry in `assets/PROVENANCE.toml`, with `path`,
 `license`, and either `generator` (tool and parameters) or `source` (URL). Only
 self-generated or CC0 content is allowed. `cargo xtask check-provenance` enforces this.
+Drum samples come from `tools/soundgen` (`cargo run -p soundgen -- render` regenerates them and
+`PROVENANCE.toml`; `-- check` fails if `assets/` differs). Synth presets are hand-authored JSON.
 
 ## Contract log
 
