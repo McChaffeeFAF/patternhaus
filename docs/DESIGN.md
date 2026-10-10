@@ -283,14 +283,29 @@ How it works:
 
 ## 9. UI
 
-**Decided 2026-10-10.**
+**Decided 2026-10-10. Window layout revised 2026-10-10** with owner sign-off, after hands-on testing of the M1 build. The owner prefers FL Studio's window handling to the docked layout. The original docked/detachable decision is replaced below.
 
 **Toolkit.** egui on wgpu (eframe), like PhotoCraft. Custom widgets: piano roll, playlist, step grid, mixer strips, knobs, waveform and spectrogram views. Waveform and spectrogram rendering are cached on the GPU.
 
-**Window layout**
-- **Docked and detachable:** browser, channel rack, playlist, piano roll, mixer, and plugin and editor panels dock into saved layouts.
-- Any panel can float or move to another monitor (multi-viewport).
-- Layouts are saved per user and can be saved per project.
+**Window layout: an FL-style floating workspace**
+
+These match the *behaviour* of FL's window system. Its look is not copied.
+- **Floating, overlapping windows inside one workspace:** channel rack, piano roll, playlist, mixer, history, agents, and editor windows. You move, resize and overlap them; clicking brings one to the front.
+- **Maximize and snap:**
+  - double-clicking a title bar maximizes a window within the workspace, and does it again to restore;
+  - windows snap magnetically to the workspace edges and to each other;
+  - windows are always kept reachable inside the workspace.
+- **The playlist** opens maximized as the workspace background by default, like a typical FL setup.
+- **F5–F9 toggle windows:**
+  - pressing the key shows the window and brings it to the front;
+  - if the window is already in front, pressing it again hides it.
+- **One window per instrument and per effect:**
+  - clicking a channel opens that instrument's own window, and clicking an effect slot opens that effect's window;
+  - several can be open at once;
+  - each remembers its position per object.
+- **The browser is docked** at the left edge, with a resizable width. F8 shows and hides it.
+- **Detaching to another monitor** is optional per window (multi-viewport). The default is inside the workspace.
+- **Layouts:** window positions, sizes, z-order and open state are saved per user, and optionally per project.
 
 **Shortcuts and mouse.** FL-compatible defaults:
 - F5–F9 window toggles;
