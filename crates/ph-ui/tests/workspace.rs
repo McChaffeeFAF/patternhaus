@@ -682,3 +682,184 @@ fn the_agents_window_lists_live_connections_before_remembered_ones() {
     );
     let _ = (live, old);
 }
+
+// ---- quitting, new and open with unsaved changes -----------------------------------------
+
+fn close_request(h: &mut H) -> Vec<egui::ViewportCommand> {
+    h.input_mut()
+        .viewports
+        .entry(egui::ViewportId::ROOT)
+        .or_default()
+        .events
+        .push(egui::ViewportEvent::Close);
+    h.step();
+    let cmds = h
+        .output()
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .map(|v| v.commands.clone())
+        .unwrap_or_default();
+    h.step();
+    cmds
+}
+
+fn make_dirty(h: &mut H) {
+    run_cmd(h, ph_ui::mapping::set_tempo(131.0));
+    settle_frames(h, 6);
+    assert!(h.state().core.dirty, "an edit makes the project dirty");
+}
+
+fn is_asking(h: &H) -> bool {
+    matches!(
+        h.state().core.dialog,
+        Some(ph_ui::core::Dialog::Unsaved { .. })
+    )
+}
+
+#[test]
+fn closing_a_clean_project_just_closes() {
+    let (mut h, _ids, _dir) = start();
+    h.state_mut().core.dirty = false;
+    let cmds = close_request(&mut h);
+    assert!(
+        !cmds
+            .iter()
+            .any(|c| matches!(c, egui::ViewportCommand::CancelClose))
+    );
+    assert!(!is_asking(&h));
+}
+
+#[test]
+fn closing_with_unsaved_changes_asks_and_cancel_keeps_the_app_open() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, _dir) = start();
+    make_dirty(&mut h);
+    let cmds = close_request(&mut h);
+    assert!(
+        cmds.iter()
+            .any(|c| matches!(c, egui::ViewportCommand::CancelClose)),
+        "the close was held back: {cmds:?}"
+    );
+    assert!(is_asking(&h));
+    assert!(h.query_by_label("Don't save").is_some());
+    h.get_by_label("Cancel").click();
+    frames(&mut h, 3);
+    assert!(!is_asking(&h), "the dialog closed");
+    assert!(!h.state().quit_confirmed, "and the app stays open");
+    assert!(h.state().core.dirty, "nothing was saved or discarded");
+}
+
+#[test]
+fn save_then_close_writes_the_project_and_lets_the_close_through() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, dir) = start();
+    make_dirty(&mut h);
+    close_request(&mut h);
+    assert!(is_asking(&h));
+    // the dialog's Save, not the transport bar's: it is the lower one
+    let saves: Vec<_> = h.query_all_by_label("Save").collect();
+    assert_eq!(saves.len(), 2, "transport Save and the dialog's Save");
+    saves
+        .into_iter()
+        .max_by(|a, b| a.rect().min.y.total_cmp(&b.rect().min.y))
+        .unwrap()
+        .click();
+    for _ in 0..40 {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        if h.state().quit_confirmed {
+            break;
+        }
+    }
+    assert!(
+        h.state().quit_confirmed,
+        "closing went ahead after the save"
+    );
+    assert!(!h.state().core.dirty);
+    assert!(
+        dir.path().join("project.json").exists(),
+        "the project was saved"
+    );
+}
+
+#[test]
+fn dont_save_closes_without_saving() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, dir) = start();
+    make_dirty(&mut h);
+    close_request(&mut h);
+    h.get_by_label("Don't save").click();
+    frames(&mut h, 3);
+    assert!(h.state().quit_confirmed);
+    assert!(h.state().core.dirty, "still unsaved: it was discarded");
+    assert!(!dir.path().join("project.json").exists());
+}
+
+#[test]
+fn new_and_open_ask_first_when_there_are_unsaved_changes() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, _dir) = start();
+    make_dirty(&mut h);
+    // File > New project asks; Cancel does nothing
+    h.state_mut()
+        .core
+        .app_action("app.new_project", &serde_json::Value::Null);
+    frames(&mut h, 3);
+    assert!(is_asking(&h));
+    h.get_by_label("Cancel").click();
+    frames(&mut h, 3);
+    assert_eq!(
+        h.state().core.project.channels.len(),
+        4,
+        "project untouched"
+    );
+    // Don't save -> a fresh project replaces it
+    h.state_mut()
+        .core
+        .app_action("app.new_project", &serde_json::Value::Null);
+    frames(&mut h, 3);
+    h.get_by_label("Don't save").click();
+    for _ in 0..40 {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        if h.state().core.project.channels.is_empty() {
+            break;
+        }
+    }
+    assert!(h.state().core.project.channels.is_empty(), "a new project");
+    assert!(!h.state().quit_confirmed, "new does not quit");
+    // a clean project needs no question
+    h.state_mut().core.dirty = false;
+    h.state_mut()
+        .core
+        .ask_or_do(ph_ui::core::AfterPrompt::NewProject);
+    frames(&mut h, 3);
+    assert!(!is_asking(&h));
+}
+
+#[test]
+fn open_asks_first_when_there_are_unsaved_changes() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, _dir) = start();
+    make_dirty(&mut h);
+    h.state_mut()
+        .core
+        .app_action("app.open_project", &serde_json::Value::Null);
+    frames(&mut h, 3);
+    h.get_by_label("Open").click();
+    frames(&mut h, 3);
+    assert!(is_asking(&h), "Open asked before replacing the project");
+    match &h.state().core.dialog {
+        Some(ph_ui::core::Dialog::Unsaved {
+            then: ph_ui::core::AfterPrompt::OpenProject { .. },
+        }) => {}
+        other => panic!("{other:?}"),
+    }
+    h.get_by_label("Cancel").click();
+    frames(&mut h, 3);
+    assert_eq!(
+        h.state().core.project.channels.len(),
+        4,
+        "still this project"
+    );
+}

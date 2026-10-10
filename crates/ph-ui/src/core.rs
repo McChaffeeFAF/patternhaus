@@ -114,14 +114,38 @@ pub enum RenameTarget {
     Track(u32),
 }
 
-#[derive(Clone, Debug)]
-pub enum Dialog {
+/// What was asked for while the project had unsaved changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AfterPrompt {
+    Quit,
     NewProject,
     OpenProject { path: String },
-    SaveAs { path: String, overwrite: bool },
-    Export { path: String, overwrite: bool },
-    Rename { target: RenameTarget, text: String },
-    Keymap { capturing: Option<usize> },
+}
+
+#[derive(Clone, Debug)]
+pub enum Dialog {
+    OpenProject {
+        path: String,
+    },
+    /// "Save / Don't save / Cancel" before something that would lose unsaved changes.
+    Unsaved {
+        then: AfterPrompt,
+    },
+    SaveAs {
+        path: String,
+        overwrite: bool,
+    },
+    Export {
+        path: String,
+        overwrite: bool,
+    },
+    Rename {
+        target: RenameTarget,
+        text: String,
+    },
+    Keymap {
+        capturing: Option<usize>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -199,6 +223,7 @@ pub struct Selection {
 }
 
 pub struct AppCore {
+    pub ctx: egui::Context,
     pub studio: Studio,
     pub dispatch: Dispatcher,
     pub link: EngineLink,
@@ -251,6 +276,10 @@ pub struct AppCore {
     pub scrolls: HashMap<crate::workspace::WindowId, ScrollInfo>,
     /// Effect moves and removals the UI performed itself, for the windows to follow.
     pub effect_edits: Vec<EffectEdit>,
+    /// Waiting for a save to finish before doing what the person asked (quit, new, open).
+    pub after_save: Option<AfterPrompt>,
+    /// Ready to do now: the person said "Don't save", or the save they asked for finished.
+    pub ready: Vec<AfterPrompt>,
     /// The whole project was replaced (file.open, new): effect windows cannot follow.
     pub project_replaced: bool,
 }
@@ -299,9 +328,10 @@ impl AppCore {
         // everything committed before the subscription is in it, everything after arrives on
         // `changes`.
         let project = studio.session.project().map_err(|e| e.to_string())?;
-        let link = EngineLink::spawn(studio.engine.clone(), ctx, project.clone());
+        let link = EngineLink::spawn(studio.engine.clone(), ctx.clone(), project.clone());
         let dispatch = Dispatcher::new(studio.session.clone());
         let mut core = AppCore {
+            ctx,
             studio,
             dispatch,
             link,
@@ -351,6 +381,8 @@ impl AppCore {
             scrolls: HashMap::new(),
             effect_edits: Vec::new(),
             project_replaced: false,
+            after_save: None,
+            ready: Vec::new(),
         };
         core.fix_selection();
         Ok(core)
@@ -532,6 +564,9 @@ impl AppCore {
                 if d.request.command == "file.save" || d.request.command == "file.save_as" {
                     self.dirty = false;
                     self.toast(ToastKind::Info, "Saved");
+                    if let Some(p) = self.after_save.take() {
+                        self.ready.push(p);
+                    }
                 }
                 if d.request.command == "file.export_audio" {
                     let path = d.request.params["path"].as_str().unwrap_or("");
@@ -544,7 +579,12 @@ impl AppCore {
                     conflicts,
                 });
             }
-            Err(e) => self.toast(ToastKind::Error, e.to_string()),
+            Err(e) => {
+                if d.request.command.starts_with("file.save") && self.after_save.take().is_some() {
+                    self.toast(ToastKind::Warn, "Not saved, so nothing was closed");
+                }
+                self.toast(ToastKind::Error, e.to_string())
+            }
         }
     }
 
@@ -694,6 +734,15 @@ impl AppCore {
         self.notice_dismissed = true;
     }
 
+    /// Do `what` now, or first ask Save / Don't save / Cancel when that would lose changes.
+    pub fn ask_or_do(&mut self, what: AfterPrompt) {
+        if self.dirty {
+            self.dialog = Some(Dialog::Unsaved { then: what });
+        } else {
+            self.ready.push(what);
+        }
+    }
+
     pub fn open_rename(&mut self, target: RenameTarget) {
         let text = match target {
             RenameTarget::Channel(c) => self.project.channels.get(&c).map(|c| c.name.clone()),
@@ -747,7 +796,7 @@ impl AppCore {
                     path: self.paths.project_dir.to_string_lossy().into_owned(),
                 })
             }
-            "app.new_project" => self.dialog = Some(Dialog::NewProject),
+            "app.new_project" => self.ask_or_do(AfterPrompt::NewProject),
             "app.export" => {
                 self.dialog = Some(Dialog::Export {
                     path: "exports/mix.wav".into(),
