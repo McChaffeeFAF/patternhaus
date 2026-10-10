@@ -3,7 +3,9 @@
 //! From **notes** the estimate is exact input (no signal processing): pitch-class weights by
 //! duration and velocity, Krumhansl-Kessler key profiles, template-matched chords with bass
 //! (inversion) detection. From **audio** the same estimators run on a chroma vector built
-//! from spectral peaks.
+//! from spectral peaks. For the whole-file key estimate the audio first goes through
+//! median-filter harmonic/percussive separation (HPSS, Fitzgerald 2010), so tuned percussion
+//! such as 808 kicks does not pull the estimate toward the drum's pitch.
 
 use crate::{Timing, mono_mix, round};
 use ph_core::{ChannelId, Note, PPQ, PatternId, Project, Tick};
@@ -588,13 +590,150 @@ pub fn chroma_of_audio(mono: &[f32], sample_rate: u32, from_s: f64, to_s: f64) -
     c
 }
 
-/// Key of rendered audio (whole range).
+const HPSS_FFT: usize = 4096;
+const HPSS_HOP: usize = HPSS_FFT / 4;
+/// Median filter lengths (odd): across time for the harmonic part, across frequency for the
+/// percussive part.
+const HPSS_TIME_MEDIAN: usize = 17;
+const HPSS_FREQ_MEDIAN: usize = 17;
+
+/// Below this the harmonic estimate uses a long, low-quantile window across time (see
+/// [`harmonic_part`]).
+const HPSS_LOW_HZ: f64 = 250.0;
+/// Window of the low band's time filter, seconds: longer than a kick-drum period.
+const HPSS_LOW_SECONDS: f64 = 1.0;
+
+fn quantile_of(buf: &mut [f64], num: usize, den: usize) -> f64 {
+    let idx = buf.len() * num / den;
+    *buf.select_nth_unstable_by(idx.min(buf.len() - 1), |a, b| a.total_cmp(b))
+        .1
+}
+
+fn median_of(buf: &mut [f64]) -> f64 {
+    quantile_of(buf, 1, 2)
+}
+
+/// Harmonic part of `mono` by median-filter HPSS: on the STFT magnitude, a median across time
+/// (per bin) keeps sustained tones, a median across frequency (per frame) keeps clicks and
+/// drum hits; a soft mask `H^2 / (H^2 + P^2)`, capped so the output never exceeds H, is applied to the complex STFT and the result is
+/// overlap-added back to a signal. Tuned drums (808 kicks) are sustained sines after their
+/// pitch drop, so the median cannot tell them from a bass note; below 250 Hz the time filter is
+/// therefore a 25th-percentile over about a second, kept only where the bin is steady
+/// (that quantile is at least half the window's peak): held bass notes pass, what surges with
+/// every hit is dropped. Offline, allocating; roughly 0.1-0.3 s per 16 s of audio.
+pub fn harmonic_part(mono: &[f32], sample_rate: u32) -> Vec<f32> {
+    let n = HPSS_FFT;
+    let bins = n / 2 + 1;
+    if mono.len() < n {
+        return mono.to_vec();
+    }
+    let win: Vec<f64> = (0..n)
+        .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f64 / n as f64).cos())
+        .collect();
+    // Pad half a frame at both ends so every sample is covered by the same window overlap.
+    let pad = n / 2;
+    let frames = (mono.len() + 2 * pad - n) / HPSS_HOP + 1;
+    let sample = |i: usize| -> f64 {
+        i.checked_sub(pad)
+            .and_then(|j| mono.get(j))
+            .map_or(0.0, |v| *v as f64)
+    };
+    let mut spec_re = vec![0.0f64; frames * bins];
+    let mut spec_im = vec![0.0f64; frames * bins];
+    let mut mag = vec![0.0f64; frames * bins];
+    let (mut re, mut im) = (vec![0.0; n], vec![0.0; n]);
+    for f in 0..frames {
+        for i in 0..n {
+            re[i] = sample(f * HPSS_HOP + i) * win[i];
+            im[i] = 0.0;
+        }
+        fft(&mut re, &mut im);
+        for k in 0..bins {
+            spec_re[f * bins + k] = re[k];
+            spec_im[f * bins + k] = im[k];
+            mag[f * bins + k] = re[k].hypot(im[k]);
+        }
+    }
+    // Harmonic (median over time) and percussive (median over frequency) magnitudes, folded
+    // straight into the soft mask.
+    let mut mask = vec![0.0f64; frames * bins];
+    let mut buf = Vec::with_capacity(HPSS_TIME_MEDIAN.max(HPSS_FREQ_MEDIAN));
+    let (ht, hf) = (HPSS_TIME_MEDIAN / 2, HPSS_FREQ_MEDIAN / 2);
+    let mut harm = vec![0.0f64; frames * bins];
+    let bin_hz = sample_rate as f64 / n as f64;
+    let low_bins = (HPSS_LOW_HZ / bin_hz) as usize;
+    let low_half = ((HPSS_LOW_SECONDS * sample_rate as f64 / HPSS_HOP as f64) as usize / 2).max(ht);
+    for k in 0..bins {
+        let low = k < low_bins;
+        let half = if low { low_half } else { ht };
+        for f in 0..frames {
+            buf.clear();
+            buf.extend(
+                (f.saturating_sub(half)..(f + half + 1).min(frames)).map(|g| mag[g * bins + k]),
+            );
+            harm[f * bins + k] = if low {
+                // Steady (the quiet quarter is at least half the peak) passes; a bin that
+                // surges and dies away with every hit is a drum, however long its tail.
+                let peak = buf.iter().fold(0.0f64, |a, b| a.max(*b));
+                let q = quantile_of(&mut buf, 1, 4);
+                if q >= 0.5 * peak { q } else { 0.0 }
+            } else {
+                median_of(&mut buf)
+            };
+        }
+    }
+    for f in 0..frames {
+        for k in 0..bins {
+            buf.clear();
+            buf.extend(mag[f * bins + k - k.min(hf)..f * bins + (k + hf + 1).min(bins)].iter());
+            let p = median_of(&mut buf);
+            let h = harm[f * bins + k];
+            let (h2, p2) = (h * h, p * p);
+            let soft = if h2 + p2 > 1e-24 { h2 / (h2 + p2) } else { 1.0 };
+            // Never pass more than the harmonic magnitude itself: a narrowband tone that the
+            // time filter rejects (a drum) must not sneak through just because P is small.
+            let cap = (h / mag[f * bins + k].max(1e-12)).min(1.0);
+            mask[f * bins + k] = soft * cap;
+        }
+    }
+    // Inverse STFT with overlap-add; Hann analysis * Hann synthesis normalised by the
+    // summed squared window.
+    let mut out = vec![0.0f64; mono.len() + 2 * pad];
+    let mut norm = vec![0.0f64; mono.len() + 2 * pad];
+    for f in 0..frames {
+        for k in 0..bins {
+            let m = mask[f * bins + k];
+            re[k] = spec_re[f * bins + k] * m;
+            // Inverse via the conjugate trick: fft(conj(X)) = n * conj(x).
+            im[k] = -(spec_im[f * bins + k] * m);
+            if k > 0 && k < n / 2 {
+                re[n - k] = re[k];
+                im[n - k] = -im[k];
+            }
+        }
+        im[0] = 0.0;
+        im[n / 2] = 0.0;
+        fft(&mut re, &mut im);
+        for i in 0..n {
+            let o = f * HPSS_HOP + i;
+            if o < out.len() {
+                out[o] += re[i] / n as f64 * win[i];
+                norm[o] += win[i] * win[i];
+            }
+        }
+    }
+    (0..mono.len())
+        .map(|i| (out[i + pad] / norm[i + pad].max(1e-9)) as f32)
+        .collect()
+}
+
+/// Key of rendered audio (whole range), estimated from the harmonic part ([`harmonic_part`]).
 pub fn key_from_audio(
     channels: &[Vec<f32>],
     sample_rate: u32,
     timing: &Timing,
 ) -> Option<KeyEstimate> {
-    let mono = mono_mix(channels);
+    let mono = harmonic_part(&mono_mix(channels), sample_rate);
     let secs = mono.len() as f64 / sample_rate as f64;
     let opening = chroma_of_audio(&mono, sample_rate, 0.0, timing.seconds_per_bar().min(secs));
     let hint = chord_from_weights(&opening, None).and_then(|c| pc_index(&c.root));
