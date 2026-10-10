@@ -3,8 +3,10 @@
 //! The test binary installs `AllocDisabler`, so every `rt::no_alloc` section (the device
 //! callback, worker processing) aborts on allocation in these tests.
 
+mod audition;
 mod oracle;
 mod routing;
+mod rt_miri;
 mod rt_safety;
 mod timing;
 mod transport;
@@ -19,7 +21,12 @@ use ph_node::{AssetResolver, Quality, SampleData};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-#[global_allocator]
+// Not under Miri: interpreting std's Windows `System` allocator behind a custom global
+// allocator trips a Stacked/Tree Borrows false positive on over-aligned frees (reproduced
+// without any engine code). Miri checks memory safety; the allocation ban is checked by the
+// normal test runs.
+#[cfg_attr(not(miri), global_allocator)]
+#[cfg_attr(miri, allow(dead_code))]
 static ALLOC: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
 pub const SR: u32 = 48_000;

@@ -21,6 +21,7 @@
 //! [`ParamSet`]s applied at the swap. Only new or changed instruments/effects get fresh,
 //! already-activated instances.
 
+use crate::sched::Sched;
 use crate::stats::StatsBoard;
 use crate::tempo::TempoMap;
 use crate::{EngineError, EngineResult};
@@ -32,7 +33,6 @@ use ph_node::{ActivateInfo, AssetResolver, Event, NodeDescriptor, ParamId, Proce
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicUsize};
 
 /// Events one channel can receive in one block (excess note-ons are dropped).
 pub(crate) const EVENT_CAP: usize = 1024;
@@ -255,17 +255,6 @@ pub(crate) struct PatternStream {
     pub len_samples: i64,
     /// Indexed by channel node.
     pub notes: Vec<Vec<NoteEv>>,
-}
-
-/// Per-block scheduling counters for the worker pool. Reset by the audio thread before
-/// each block; see `pool.rs`.
-pub(crate) struct Sched {
-    pub pending: Vec<AtomicU32>,
-    /// Ready queue: node + 1, 0 = not yet written.
-    pub slots: Vec<AtomicU32>,
-    pub head: AtomicUsize,
-    pub tail: AtomicUsize,
-    pub done: AtomicUsize,
 }
 
 pub(crate) struct Plan {
@@ -1023,13 +1012,7 @@ pub(crate) fn compile(
         transfers,
         params,
         roots,
-        sched: Sched {
-            pending: (0..count).map(|_| AtomicU32::new(0)).collect(),
-            slots: (0..count).map(|_| AtomicU32::new(0)).collect(),
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
-            done: AtomicUsize::new(0),
-        },
+        sched: Sched::new(count),
         board: Arc::new(board),
     };
     Ok((Box::new(plan), shadow))

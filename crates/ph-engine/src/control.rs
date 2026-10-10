@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// was taken, and it becomes `installed`.
 pub(crate) struct Controller {
     pub settings: Settings,
-    mailbox: Arc<Mailbox>,
+    mailbox: Arc<Mailbox<Plan>>,
     installed: Shadow,
     pending: Option<Shadow>,
     next_id: u64,
@@ -26,7 +26,7 @@ pub(crate) struct Controller {
 }
 
 impl Controller {
-    pub fn new(settings: Settings, mailbox: Arc<Mailbox>) -> Self {
+    pub fn new(settings: Settings, mailbox: Arc<Mailbox<Plan>>) -> Self {
         Self {
             settings,
             mailbox,

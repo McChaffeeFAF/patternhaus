@@ -13,18 +13,26 @@
 //! pool; `device` drives `cpal`; `offline` renders with a fake clock; [`assets`] resolves
 //! sample references.
 
+// The loom build compiles only the models (`loom_models.rs`); test-only helpers go unused.
+#![cfg_attr(loom, allow(dead_code))]
+
 pub mod assets;
+mod audition;
 pub mod catalog;
 mod control;
 mod device;
+#[cfg(all(test, loom))]
+mod loom_models;
 mod offline;
 mod plan;
 mod pool;
 mod rt;
 mod runtime;
+mod sched;
 mod stats;
+mod sync;
 pub mod tempo;
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests;
 
 use control::Controller;
@@ -186,6 +194,8 @@ struct Inner {
     buffer_frames: u32,
     /// `project_warnings` of the project at this pointer (recomputed when it changes).
     warnings: (usize, Vec<String>),
+    /// Preview voices to and from the audio thread.
+    audition: Arc<audition::Port>,
 }
 
 /// Command ring capacity (transport, previews) between control and audio threads.
@@ -219,6 +229,7 @@ struct Parts {
     ctl: Controller,
     cmds: rtrb::Producer<Command>,
     collector: Collector,
+    audition: Arc<audition::Port>,
 }
 
 /// Builds a runtime for `settings` with `project` loaded and the transport in `status`.
@@ -236,7 +247,17 @@ fn build(
     let plan = ctl.initial(project, assets)?;
     let (tx, rx) = rtrb::RingBuffer::new(COMMAND_RING);
     let (collector, retire) = Collector::spawn(RETIRE_RING);
-    let mut rt = Runtime::new(plan, mailbox, retire, rx, shared, workers, max_shed);
+    let port = Arc::new(audition::Port::new());
+    let mut rt = Runtime::new(
+        plan,
+        mailbox,
+        retire,
+        rx,
+        shared,
+        workers,
+        max_shed,
+        port.clone(),
+    );
     // carry the transport over (reconfigure)
     if status.mode != PlayMode::Song {
         rt.apply(Command::Transport(TransportCommand::SetMode(status.mode)));
@@ -260,6 +281,7 @@ fn build(
         ctl,
         cmds: tx,
         collector,
+        audition: port,
     })
 }
 
@@ -297,10 +319,10 @@ impl Engine {
                 quality: Quality::Live,
             };
             let parts = build(&p, settings, &*a, sh, workers, 3, &st)?;
-            let _ = tx.send((parts.ctl, parts.cmds, parts.collector));
+            let _ = tx.send((parts.ctl, parts.cmds, parts.collector, parts.audition));
             Ok(parts.rt)
         })?;
-        let (ctl, cmds, collector) = rx
+        let (ctl, cmds, collector, audition) = rx
             .recv()
             .map_err(|_| EngineError::Device("device thread ended unexpectedly".into()))?;
         Ok(Inner {
@@ -315,6 +337,7 @@ impl Engine {
             project,
             device: Some(handle),
             _collector: collector,
+            audition,
         })
     }
 
@@ -355,6 +378,7 @@ impl Engine {
             project,
             device: None,
             _collector: parts.collector,
+            audition: parts.audition,
         };
         Ok((
             Engine {
@@ -418,6 +442,7 @@ impl Engine {
 
     pub fn stats(&self) -> EngineStats {
         let mut g = self.lock();
+        g.audition.collect();
         let ptr = Arc::as_ptr(&g.project) as usize;
         if g.warnings.0 != ptr {
             let w = project_warnings(&g.project, &*g.assets);
@@ -475,6 +500,60 @@ impl Engine {
             velocity,
             on,
         });
+    }
+
+    /// Previews a sample (the browser's click-to-preview) on a dedicated voice outside the
+    /// project: it is added to the output after the master insert at a fixed preview level
+    /// (about -6 dB at velocity 1), so it never reaches the mixer, meters, renders or exports.
+    /// A new audition replaces the previous one. `sample` is a reference the engine's asset
+    /// resolver understands (`factory:drums/haus808/kick`, a project-relative or absolute
+    /// path). The file is decoded and resampled here, on the calling thread.
+    pub fn audition(&self, sample: &str, velocity: f32) -> EngineResult<()> {
+        let assets = self.lock().assets.clone();
+        let data = assets.sample(sample).map_err(EngineError::Asset)?;
+        self.audition_samples(&data, velocity);
+        Ok(())
+    }
+
+    /// Previews an instrument (a browser preset) on the audition voice: renders `key` for
+    /// `seconds` (plus its release tail, up to 3 s) offline on the calling thread, from a
+    /// throw-away one-channel project, then plays the result like [`Engine::audition`]. The
+    /// running project is not touched.
+    pub fn audition_instrument(
+        &self,
+        instrument: &ph_core::InstrumentSpec,
+        key: u8,
+        velocity: f32,
+        seconds: f64,
+    ) -> EngineResult<()> {
+        let (assets, rate) = {
+            let g = self.lock();
+            (g.assets.clone(), g.sample_rate)
+        };
+        let audio = audition::render_instrument(instrument, key, seconds, rate, &*assets)?;
+        let data = ph_node::SampleData {
+            sample_rate: audio.sample_rate as f64,
+            channels: audio.channels,
+            loop_range: None,
+            root_key: None,
+        };
+        self.audition_samples(&data, velocity);
+        Ok(())
+    }
+
+    fn audition_samples(&self, data: &ph_node::SampleData, velocity: f32) {
+        let (rate, port) = {
+            let g = self.lock();
+            (g.sample_rate, g.audition.clone())
+        };
+        let gain = audition::PREVIEW_LEVEL * velocity.clamp(0.0, 1.0);
+        port.post(Box::new(audition::Voice::new(data, rate, gain)));
+    }
+
+    /// Stops the audition with a short fade.
+    pub fn stop_audition(&self) {
+        let port = self.lock().audition.clone();
+        port.post(Box::new(audition::Voice::silence()));
     }
 
     /// Changes device settings (buffer size, device, exclusive mode) with a brief dropout.

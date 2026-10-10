@@ -52,6 +52,7 @@ impl Offline {
             Arc::new(Shared::new(MIXER_INSERTS + 1)),
             workers,
             1,
+            Arc::new(crate::audition::Port::new()),
         );
         Ok(Self { rt, ctl, cmds: tx })
     }

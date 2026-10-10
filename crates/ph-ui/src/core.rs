@@ -8,7 +8,7 @@
 use crate::browser_model::Kind;
 use crate::dispatch::{Dispatcher, Done, Follow};
 use crate::keymap::{Binding, Context, Keymap};
-use crate::live::{EngineLink, Live, audition_project};
+use crate::live::{Audition, EngineLink, Live};
 use crate::mapping;
 use crate::panels::browser::BrowserState;
 use crate::panels::inspector::InspectorState;
@@ -328,7 +328,7 @@ impl AppCore {
         // everything committed before the subscription is in it, everything after arrives on
         // `changes`.
         let project = studio.session.project().map_err(|e| e.to_string())?;
-        let link = EngineLink::spawn(studio.engine.clone(), ctx.clone(), project.clone());
+        let link = EngineLink::spawn(studio.engine.clone(), ctx.clone());
         let dispatch = Dispatcher::new(studio.session.clone());
         let mut core = AppCore {
             ctx,
@@ -482,7 +482,6 @@ impl AppCore {
 
     fn on_change(&mut self, c: Change) {
         self.project = c.project.clone();
-        self.link.set_latest(c.project.clone());
         self.history_dirty = true;
         self.dirty = true;
         if c.txn == 0 {
@@ -698,12 +697,21 @@ impl AppCore {
         self.send(mapping::channel_add(name, inst, None));
     }
 
-    /// Click-to-preview in the browser: plays the entry through a temporary channel.
+    /// Click-to-preview in the browser: plays the entry on the engine's audition voice,
+    /// outside the project (nothing is added to the session or the render plan).
     pub fn audition(&mut self, kind: &Kind) {
-        if let Some(inst) = crate::browser_model::instrument_for(kind) {
-            let (project, channel, key) = audition_project(&self.project, inst);
-            self.link
-                .audition(project, channel, key, Duration::from_millis(1200));
+        match kind {
+            Kind::Sample { reference } => self.link.audition(Audition::Sample(reference.clone())),
+            Kind::Preset { .. } => {
+                if let Some(instrument) = crate::browser_model::instrument_for(kind) {
+                    self.link.audition(Audition::Instrument {
+                        instrument,
+                        key: 60,
+                        hold: Duration::from_millis(1200),
+                    });
+                }
+            }
+            Kind::Folder => {}
         }
     }
 

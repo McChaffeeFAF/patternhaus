@@ -10,11 +10,14 @@
 //! 3. render in chunks of at most `max_frames`, split at loop and range boundaries:
 //!    schedule events (serial), run the graph (serial or on the worker pool), copy the
 //!    master out and add the metronome;
-//! 4. publish position, meters, timing and load.
+//! 4. add the browser's audition voice (outside the graph, after the master; see
+//!    `audition.rs`);
+//! 5. publish position, meters, timing and load.
 //!
 //! Offline rendering drives the same `Runtime` (see `offline.rs`), so real-time and
 //! offline output are the same computation.
 
+use crate::audition::{Player, Port};
 use crate::plan::{
     ACTIVE_CAP, Active, ChannelState, EVENT_CAP, NodeDef, NodeState, NoteEv, PREVIEW_CAP, Plan,
     Preview, Transfer,
@@ -95,7 +98,7 @@ pub(crate) struct Shedding {
 pub(crate) struct Runtime {
     pub plan: Box<Plan>,
     deferred: Option<Box<Plan>>,
-    mailbox: Arc<Mailbox>,
+    mailbox: Arc<Mailbox<Plan>>,
     retire: Retire,
     cmds: rtrb::Consumer<Command>,
     pub shared: Arc<Shared>,
@@ -109,20 +112,24 @@ pub(crate) struct Runtime {
     pub shed: Shedding,
     load: f32,
     buffer_frames: u32,
+    audition_port: Arc<Port>,
+    audition: Player,
 }
 
 // SAFETY: the job's raw plan pointer only refers to `self.plan` during `run_graph`.
 unsafe impl Send for Runtime {}
 
 impl Runtime {
+    #[allow(clippy::too_many_arguments)] // internal constructor, one call site per engine kind
     pub fn new(
         plan: Box<Plan>,
-        mailbox: Arc<Mailbox>,
+        mailbox: Arc<Mailbox<Plan>>,
         retire: Retire,
         cmds: rtrb::Consumer<Command>,
         shared: Arc<Shared>,
         workers: usize,
         max_shed: u8,
+        audition_port: Arc<Port>,
     ) -> Self {
         let n = plan.settings.max_frames;
         let pool = (workers > 0).then(|| Pool::new(workers));
@@ -162,6 +169,8 @@ impl Runtime {
             },
             load: 0.0,
             buffer_frames,
+            audition_port,
+            audition: Player::new(),
         }
     }
 
@@ -176,12 +185,15 @@ impl Runtime {
         let frames = left.len().min(right.len());
         self.poll_plan();
         self.drain_commands();
+        self.audition.poll(&self.audition_port);
         let mut done = 0;
         while done < frames {
             let n = self.next_chunk(frames - done);
             self.run_chunk(n);
             left[done..done + n].copy_from_slice(&self.out[0][..n]);
             right[done..done + n].copy_from_slice(&self.out[1][..n]);
+            self.audition
+                .mix_into(&mut left[done..done + n], &mut right[done..done + n]);
             done += n;
         }
         self.publish(t0, frames);
