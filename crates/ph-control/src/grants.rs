@@ -28,6 +28,9 @@ pub struct Grants {
     file: Option<PathBuf>,
     prompt: Option<Arc<dyn GrantPrompt>>,
     table: Mutex<BTreeMap<String, Grant>>,
+    /// Clients with a prompt open, so parallel first calls from one client ask only once.
+    asking: Mutex<std::collections::BTreeSet<String>>,
+    answered: std::sync::Condvar,
 }
 
 /// `compose,mix` to a grant. Accepts `read`, `compose`, `mix`, `full`.
@@ -68,6 +71,8 @@ impl Grants {
             file: None,
             prompt: None,
             table: Mutex::default(),
+            asking: Mutex::default(),
+            answered: std::sync::Condvar::new(),
         })
     }
 
@@ -88,6 +93,8 @@ impl Grants {
             file,
             prompt,
             table: Mutex::new(table),
+            asking: Mutex::default(),
+            answered: std::sync::Condvar::new(),
         })
     }
 
@@ -103,13 +110,41 @@ impl Grants {
         if let Some(g) = self.table.lock().unwrap().get(client) {
             return g.clone();
         }
-        match self.prompt.as_ref().and_then(|p| p.decide(client)) {
-            Some(g) => {
-                self.set(client, g.clone());
-                g
+        let Some(prompt) = self.prompt.as_ref() else {
+            return self.default.clone();
+        };
+        // One prompt per client at a time: a client that fires several calls at once waits
+        // for the first answer instead of opening a prompt each. Other clients are not held up.
+        {
+            let mut asking = self.asking.lock().unwrap();
+            while asking.contains(client) {
+                asking = self.answered.wait(asking).unwrap();
             }
-            None => self.default.clone(),
+            if let Some(g) = self.table.lock().unwrap().get(client) {
+                return g.clone();
+            }
+            asking.insert(client.to_string());
         }
+        let decided = prompt.decide(client);
+        if let Some(g) = &decided {
+            self.set(client, g.clone());
+        }
+        self.asking.lock().unwrap().remove(client);
+        self.answered.notify_all();
+        decided.unwrap_or_else(|| self.default.clone())
+    }
+
+    /// The grant for `client` without asking anyone: the remembered one, else the default.
+    pub fn peek(&self, client: &str) -> Grant {
+        if self.fixed {
+            return self.default.clone();
+        }
+        self.table
+            .lock()
+            .unwrap()
+            .get(client)
+            .cloned()
+            .unwrap_or_else(|| self.default.clone())
     }
 
     /// Every client with a remembered grant, by name. For the app's Agents panel.
@@ -175,5 +210,30 @@ mod tests {
         let g = Grants::per_client(None, Some(Arc::new(Always(Grant(vec![Scope::Mix])))));
         assert_eq!(g.grant_for("a"), Grant(vec![Scope::Mix]));
         assert_eq!(g.known().len(), 1);
+    }
+
+    #[test]
+    fn parallel_first_calls_from_one_client_prompt_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct Counting(AtomicUsize);
+        impl GrantPrompt for Counting {
+            fn decide(&self, _: &str) -> Option<Grant> {
+                self.0.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                Some(Grant(vec![Scope::Mix]))
+            }
+        }
+        let p = Arc::new(Counting(AtomicUsize::new(0)));
+        let g = Grants::per_client(None, Some(p.clone()));
+        let threads: Vec<_> = (0..4)
+            .map(|_| {
+                let g = g.clone();
+                std::thread::spawn(move || g.grant_for("busy"))
+            })
+            .collect();
+        for t in threads {
+            assert_eq!(t.join().unwrap(), Grant(vec![Scope::Mix]));
+        }
+        assert_eq!(p.0.load(Ordering::SeqCst), 1);
     }
 }

@@ -125,6 +125,7 @@ type RenderKey = (usize, Option<(Tick, Tick)>, bool, u32);
 pub struct Agent {
     studio: StudioHandle,
     grants: Arc<Grants>,
+    connections: Arc<crate::connections::Connections>,
     seen: Mutex<HashMap<String, u64>>,
     cache: Mutex<Option<(RenderKey, Arc<Rendered>)>>,
 }
@@ -164,6 +165,7 @@ impl Agent {
         Arc::new(Agent {
             studio,
             grants,
+            connections: Arc::default(),
             seen: Mutex::default(),
             cache: Mutex::default(),
         })
@@ -175,6 +177,15 @@ impl Agent {
 
     pub fn grants(&self) -> &Arc<Grants> {
         &self.grants
+    }
+
+    /// Who is connected right now (every MCP and JSON-RPC connection of this agent).
+    pub fn connections(&self) -> Vec<crate::connections::ConnectionInfo> {
+        self.connections.list(|c| self.grants.peek(c).0)
+    }
+
+    pub(crate) fn registry(&self) -> &Arc<crate::connections::Connections> {
+        &self.connections
     }
 
     /// The caller identity of a client name, with its grant right now.

@@ -449,7 +449,8 @@ pub fn badge(ui: &mut Ui, text: &str, fill: Color32) {
     let galley =
         ui.painter()
             .layout_no_wrap(text.into(), FontId::proportional(10.0), Color32::BLACK);
-    let (rect, _) = ui.allocate_exact_size(galley.size() + Vec2::new(8.0, 3.0), Sense::hover());
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + Vec2::new(8.0, 3.0), Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
     ui.painter()
         .galley(rect.min + Vec2::new(4.0, 1.5), galley, Color32::BLACK);

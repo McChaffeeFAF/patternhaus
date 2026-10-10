@@ -149,8 +149,14 @@ pub struct ConflictDialog {
 pub struct ClientInfo {
     pub name: String,
     pub scopes: Vec<Scope>,
-    /// Seconds since the client connected.
+    /// Connected right now. A remembered client that is not connected is listed greyed out.
+    pub live: bool,
+    /// Seconds since the client connected (live clients only).
     pub connected_for: u64,
+    /// Seconds since the client last did anything (live clients only).
+    pub idle_for: u64,
+    /// Tool calls the client has made on this connection (live clients only).
+    pub commands: u64,
 }
 
 #[derive(Clone, Debug)]

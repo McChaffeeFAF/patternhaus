@@ -12,6 +12,7 @@
 //! `EngineHost`. T4 (agent interface) and T5 (UI) build on these.
 
 mod agent;
+mod connections;
 mod diff;
 mod endpoint;
 mod events;
@@ -24,6 +25,7 @@ mod node_params;
 mod views;
 
 pub use agent::{Agent, ToolOutput, ToolSpec};
+pub use connections::{ConnGuard, ConnectionInfo, Connections, Protocol};
 pub use diff::{Diff, diff};
 pub use endpoint::{
     LocalServer, connect, default_endpoint, default_grants_file, proxy_stdio, serve_local,

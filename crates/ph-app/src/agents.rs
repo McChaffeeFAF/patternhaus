@@ -3,13 +3,15 @@
 //! - New clients trigger `GrantPrompt::decide` on an endpoint thread; we queue a
 //!   [`GrantRequest`] for the panel and wait (up to [`PROMPT_TIMEOUT`]) for the human's answer.
 //!   No answer, or a denial, leaves the client at the read-only default (DESIGN §5).
-//! - `clients()` lists every client with a remembered grant. A live connection registry is a
-//!   T7 follow-up; until then `connected_for` counts from when this app first saw the client.
+//! - `clients()` lists the live connections first (from the endpoint's connection registry),
+//!   then the remembered clients that are not connected, which the panel greys out.
+//! - The prompt waits on the connection's own blocking thread (the endpoint runs every tool
+//!   call through `spawn_blocking`), so a waiting prompt never stalls other clients.
 
 use ph_commands::{Grant, Scope};
 use ph_control::{
-    GrantPrompt, Grants, LocalServer, Studio, default_endpoint, default_grants_file,
-    serve_local_with,
+    ConnectionInfo, GrantPrompt, Grants, LocalServer, Studio, default_endpoint,
+    default_grants_file, serve_local_with,
 };
 use ph_ui::{AgentDirectory, ClientInfo, GrantRequest};
 use std::collections::BTreeMap;
@@ -82,23 +84,47 @@ impl GrantPrompt for AppAgents {
     }
 }
 
+/// Live connections first, then every remembered client that is not connected right now.
+fn client_list(live: Vec<ConnectionInfo>, remembered: Vec<(String, Grant)>) -> Vec<ClientInfo> {
+    let mut out: Vec<ClientInfo> = live
+        .iter()
+        .map(|c| ClientInfo {
+            name: c.client.clone(),
+            scopes: c.scopes.clone(),
+            live: true,
+            connected_for: c.connected_for().as_secs(),
+            idle_for: c.idle_for().as_secs(),
+            commands: c.commands,
+        })
+        .collect();
+    for (name, grant) in remembered {
+        if !live.iter().any(|c| c.client == name) {
+            out.push(ClientInfo {
+                name,
+                scopes: grant.0,
+                live: false,
+                connected_for: 0,
+                idle_for: 0,
+                commands: 0,
+            });
+        }
+    }
+    out
+}
+
 impl AgentDirectory for AppAgents {
     fn clients(&self) -> Vec<ClientInfo> {
         let Some(grants) = self.grants.get() else {
             return Vec::new();
         };
-        grants
-            .clients()
-            .into_iter()
-            .map(|(name, grant)| {
-                let since = self.seen(&name);
-                ClientInfo {
-                    name,
-                    scopes: grant.0,
-                    connected_for: since.elapsed().as_secs(),
-                }
-            })
-            .collect()
+        let live = self
+            .server
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|s| s.connections())
+            .unwrap_or_default();
+        client_list(live, grants.clients())
     }
 
     fn pending_grants(&self) -> Vec<GrantRequest> {
@@ -126,6 +152,29 @@ impl AgentDirectory for AppAgents {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::SystemTime;
+
+    #[test]
+    fn live_clients_come_first_then_the_remembered_ones() {
+        let now = SystemTime::now();
+        let live = vec![ConnectionInfo {
+            id: 1,
+            client: "Claude Code".into(),
+            protocol: ph_control::Protocol::Mcp,
+            scopes: vec![Scope::Compose],
+            connected_at: now,
+            last_activity: now,
+            commands: 7,
+        }];
+        let remembered = vec![
+            ("Aider".to_string(), Grant(vec![Scope::Read])),
+            ("Claude Code".to_string(), Grant(vec![Scope::Compose])),
+        ];
+        let list = client_list(live, remembered);
+        assert_eq!(list.len(), 2, "a connected client is not listed twice");
+        assert!(list[0].live && list[0].name == "Claude Code" && list[0].commands == 7);
+        assert!(!list[1].live && list[1].name == "Aider");
+    }
 
     #[test]
     fn prompt_waits_for_the_ui_answer() {

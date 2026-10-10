@@ -620,7 +620,8 @@ fn the_solo_display_follows_the_session_when_an_agent_solos() {
     frames(&mut h, 3);
     assert!(h.state().core.solo_channels.is_empty());
     // an agent solos a channel and an insert; no snapshot is published for either
-    let agent = ph_commands::Caller::agent("tester", ph_commands::Grant(vec![ph_commands::Scope::Full]));
+    let agent =
+        ph_commands::Caller::agent("tester", ph_commands::Grant(vec![ph_commands::Scope::Full]));
     for r in [
         ph_ui::mapping::channel_solo(ids.kick, true),
         ph_ui::mapping::mixer_solo(3, true),
@@ -639,4 +640,45 @@ fn the_solo_display_follows_the_session_when_an_agent_solos() {
         .unwrap();
     settle_frames(&mut h, 6);
     assert!(h.state().core.solo_channels.is_empty());
+}
+
+struct FakeAgents;
+
+impl ph_ui::AgentDirectory for FakeAgents {
+    fn clients(&self) -> Vec<ph_ui::ClientInfo> {
+        let c = |name: &str, live: bool| ph_ui::ClientInfo {
+            name: name.into(),
+            scopes: vec![ph_commands::Scope::Compose],
+            live,
+            connected_for: 42,
+            idle_for: 3,
+            commands: 9,
+        };
+        // remembered first on purpose: the panel must still put live clients on top
+        vec![c("Old Agent", false), c("Live Agent", true)]
+    }
+    fn pending_grants(&self) -> Vec<ph_ui::GrantRequest> {
+        vec![]
+    }
+    fn resolve_grant(&self, _: u64, _: Option<Vec<ph_commands::Scope>>) {}
+}
+
+#[test]
+fn the_agents_window_lists_live_connections_before_remembered_ones() {
+    let (mut h, _ids, _dir) = start();
+    h.state_mut().core.hooks.agents = Some(std::sync::Arc::new(FakeAgents));
+    h.state_mut().ws.show(WindowId::Agents);
+    frames(&mut h, 4);
+    let live = h.get_by_label("Live Agent");
+    let old = h.get_by_label("Old Agent");
+    assert!(
+        live.rect().min.y < old.rect().min.y,
+        "live clients are listed first"
+    );
+    assert!(h.query_by_label("disconnected").is_some());
+    assert!(
+        h.query_by_label_contains("9 command(s)").is_some(),
+        "live rows show the command count"
+    );
+    let _ = (live, old);
 }
