@@ -1,0 +1,23 @@
+{
+  "osc1_wave": 2,
+  "osc1_level": 1.0,
+  "osc2_wave": 0,
+  "osc2_level": 0.5,
+  "osc2_fine": 3,
+  "f1_on": 1,
+  "f1_cutoff": 2600,
+  "f1_res": 0.1,
+  "f1_keytrack": 0.7,
+  "f1_env": 2.5,
+  "fenv_attack": 0.001,
+  "fenv_decay": 0.5,
+  "fenv_sustain": 0.1,
+  "fenv_release": 0.3,
+  "amp_attack": 0.001,
+  "amp_decay": 2.0,
+  "amp_sustain": 0.1,
+  "amp_release": 0.35,
+  "amp_curve": 0.6,
+  "vel_amp": 0.9,
+  "volume": -7.2
+}

@@ -12,6 +12,8 @@
 #![allow(clippy::needless_range_loop)]
 
 mod common;
+mod preset_data;
+pub mod presets;
 pub mod sampler;
 pub mod synth;
 
@@ -24,6 +26,7 @@ pub fn create(
     spec: &InstrumentSpec,
     assets: &dyn AssetResolver,
 ) -> Result<Box<dyn Processor>, String> {
+    let mut preset_values: Vec<(String, f64)> = Vec::new();
     let (mut p, params): (Box<dyn Processor>, _) = match spec {
         InstrumentSpec::Sampler {
             sample,
@@ -43,8 +46,13 @@ pub fn create(
             s.set_param(id, *root_key as f64);
             (Box::new(s), params)
         }
-        // Presets arrive with the factory content (T6); `params` already carry the sound.
-        InstrumentSpec::Synth { preset: _, params } => (Box::new(synth::Synth::new()), params),
+        // A preset loads first; the spec's own `params` then override it.
+        InstrumentSpec::Synth { preset, params } => {
+            if let Some(name) = preset {
+                preset_values = presets::synth_preset(name)?;
+            }
+            (Box::new(synth::Synth::new()), params)
+        }
         InstrumentSpec::MultiSampler { .. } => {
             return Err("Haus Sampler (multi-sampler) is not available until M3".into());
         }
@@ -52,12 +60,14 @@ pub fn create(
             return Err("external plugin instruments are not available until M2".into());
         }
     };
-    for (key, value) in params {
+    let overrides = params.iter().map(|(k, v)| (k.as_str(), *v));
+    let preset_iter = preset_values.iter().map(|(k, v)| (k.as_str(), *v));
+    for (key, value) in preset_iter.chain(overrides) {
         let id = p
             .descriptor()
             .param_id(key)
             .ok_or_else(|| format!("{} has no parameter `{key}`", p.descriptor().id))?;
-        p.set_param(id, *value);
+        p.set_param(id, value);
     }
     Ok(p)
 }

@@ -1,0 +1,20 @@
+{
+  "osc1_wave": 0,
+  "osc1_level": 1.0,
+  "f1_on": 1,
+  "f1_cutoff": 3000,
+  "f1_res": 0.55,
+  "f1_drive": 3,
+  "menv_attack": 0.001,
+  "menv_decay": 0.22,
+  "menv_sustain": 0.0,
+  "menv_release": 0.1,
+  "mod1_src": 5,
+  "mod1_dst": 1,
+  "mod1_amt": -0.8,
+  "amp_attack": 0.001,
+  "amp_decay": 0.35,
+  "amp_sustain": 0.0,
+  "amp_release": 0.1,
+  "volume": -3.6
+}
