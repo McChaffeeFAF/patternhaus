@@ -272,3 +272,27 @@ fn key_and_chords_from_audio_accuracy() {
         "{chords_ok}/{chords_total}"
     );
 }
+
+#[test]
+fn muted_notes_are_not_analysed() {
+    use ph_core::{Edit, InstrumentSpec, NoteSpec, Project};
+    let mut ed = Edit::new(&Project::empty("t"));
+    let pat = ed.add_pattern("p").unwrap();
+    let ch = ed
+        .add_channel(
+            "c",
+            InstrumentSpec::Synth {
+                preset: None,
+                params: Default::default(),
+            },
+        )
+        .unwrap();
+    let a = ed.add_note(pat, ch, NoteSpec::new(60, 0, 240)).unwrap();
+    ed.add_note(pat, ch, NoteSpec::new(64, 240, 240)).unwrap();
+    assert_eq!(pattern_notes(ed.project(), pat).len(), 2);
+    ed.update_note(pat, ch, a, |n| n.muted = true).unwrap();
+    let p = ed.project().clone();
+    let keys: Vec<u8> = pattern_notes(&p, pat).iter().map(|n| n.key).collect();
+    assert_eq!(keys, vec![64], "the muted C is not heard, so not analysed");
+    assert_eq!(song_notes(&p).len(), 1);
+}

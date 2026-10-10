@@ -185,3 +185,37 @@ fn same_project_same_output_across_runs() {
     let b = run_sim(&base, &sc, 48_000, 256, 256, 4);
     assert_bits_eq(&a, &b, "two runs");
 }
+
+#[test]
+fn a_muted_note_is_not_played() {
+    let base = beat();
+    let drums = base.pattern_order[0];
+    let kick = base.channel_order[0];
+    let first = *base.patterns[&drums].notes[&kick].keys().next().unwrap();
+    let mut muted = Edit::new(&base);
+    muted
+        .update_note(drums, kick, first, |n| n.muted = true)
+        .unwrap();
+    let muted = muted.finish().0;
+    let mut removed = Edit::new(&base);
+    removed.remove_note(drums, kick, first).unwrap();
+    let removed = removed.finish().0;
+    let rs = RenderSettings {
+        mode: PlayMode::Song,
+        range: None,
+        sample_rate: SR,
+        quality: Quality::Live,
+        include_tail: false,
+        block_frames: 256,
+    };
+    let r = |p: &Project| render_offline(p, &rs, &GenAssets).unwrap();
+    let (full, m, x) = (r(&base), r(&muted), r(&removed));
+    assert_eq!(
+        m.channels, x.channels,
+        "muting sounds exactly like deleting"
+    );
+    assert_ne!(
+        full.channels, m.channels,
+        "and differs from the unmuted note"
+    );
+}

@@ -347,6 +347,9 @@ pub struct NoteSpec {
     pub pan: f32,
     #[serde(default)]
     pub fine_pitch: f32,
+    /// Added muted (not played).
+    #[serde(default)]
+    pub muted: bool,
 }
 
 fn default_velocity() -> f32 {
@@ -362,6 +365,7 @@ impl NoteSpec {
             velocity: default_velocity(),
             pan: 0.0,
             fine_pitch: 0.0,
+            muted: false,
         }
     }
 }
@@ -578,6 +582,7 @@ impl Edit {
             velocity: spec.velocity,
             pan: spec.pan,
             fine_pitch: spec.fine_pitch,
+            muted: spec.muted,
         };
         self.put_typed(ObjectPath::Note(pattern, channel, id), Some(&note))?;
         Ok(id)

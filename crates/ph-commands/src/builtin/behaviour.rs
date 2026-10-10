@@ -425,6 +425,40 @@ fn pattern_commands() {
 }
 
 #[test]
+fn muting_a_note_is_an_ordinary_undoable_update_and_survives_copies() {
+    let mut r = Rig::new();
+    let pat = r.pattern();
+    let other = r.pattern();
+    let ch = r.synth("Lead");
+    let ids = r.notes(pat, ch, &[(60, 0, 240), (64, 480, 240)]);
+    assert!(!r.note(pat, ch, ids[0]).muted);
+    r.run(
+        "note.update",
+        json!({ "pattern": pat, "channel": ch, "updates": [{ "id": ids[0], "muted": true }] }),
+    );
+    assert!(r.note(pat, ch, ids[0]).muted);
+    assert!(!r.note(pat, ch, ids[1]).muted, "only the named note");
+    // other edits leave the flag alone
+    r.run(
+        "note.move",
+        json!({ "pattern": pat, "channel": ch, "ids": [ids[0]], "delta_ticks": 240 }),
+    );
+    assert!(r.note(pat, ch, ids[0]).muted);
+    // copies and duplicated patterns keep it
+    let out = r.run(
+        "note.copy",
+        json!({ "pattern": pat, "channel": ch, "to_pattern": other, "to_channel": ch, "ids": [ids[0]] }),
+    );
+    let copy = out.result["notes"][0].as_u64().unwrap() as u32;
+    assert!(r.note(other, ch, copy).muted);
+    r.run(
+        "note.update",
+        json!({ "pattern": pat, "channel": ch, "updates": [{ "id": ids[0], "muted": false }] }),
+    );
+    assert!(!r.note(pat, ch, ids[0]).muted);
+}
+
+#[test]
 fn note_commands() {
     let mut r = Rig::new();
     let pat = r.pattern();

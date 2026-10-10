@@ -176,3 +176,30 @@ fn pattern_length_rounds_to_bar() {
         .unwrap();
     assert_eq!(ed.project().pattern_length(pat).unwrap(), PPQ * 8);
 }
+
+#[test]
+fn note_muted_is_additive_and_migration_safe() {
+    // a note written before `muted` existed loads as not muted
+    let old = r#"{"id":3,"key":60,"start":0,"length":240,"velocity":0.5}"#;
+    let n: Note = serde_json::from_str(old).unwrap();
+    assert!(!n.muted);
+    // an unmuted note serialises exactly as it did before the field existed
+    let text = serde_json::to_string(&n).unwrap();
+    assert!(!text.contains("muted"), "{text}");
+    // a muted one round-trips
+    let m = Note { muted: true, ..n };
+    let back: Note = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+    assert_eq!(back, m);
+    // and a spec defaults to unmuted
+    let spec: NoteSpec = serde_json::from_str(r#"{"key":60,"start":0,"length":240}"#).unwrap();
+    assert!(!spec.muted);
+    // the field survives an Edit and an undo of it
+    let (_, a, _, pat, ch) = demo();
+    let id = *a.pattern(pat).unwrap().notes[&ch].keys().next().unwrap();
+    let mut ed = Edit::new(&a);
+    ed.update_note(pat, ch, id, |n| n.muted = true).unwrap();
+    let (b, patches) = ed.finish();
+    assert!(b.pattern(pat).unwrap().notes[&ch][&id].muted);
+    let again = crate::patch::apply(&b, &patches.inverse()).unwrap();
+    assert_eq!(again, a);
+}
