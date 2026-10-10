@@ -4,7 +4,7 @@
 //! Nothing here keeps window state of its own. Positions, sizes, stacking and visibility all
 //! live in the model; the only thing remembered between frames is where a drag started.
 
-use crate::core::{AppCore, PanelId};
+use crate::core::{AppCore, PanelId, ScrollInfo};
 use crate::panels;
 use crate::workspace::{Edges, Rect as WRect, TITLE_H, WindowId, Workspace};
 use egui::{
@@ -20,9 +20,31 @@ const BAND_IN: f32 = 3.0;
 const CORNER: f32 = 12.0;
 const BUTTON: f32 = 20.0;
 
-/// The title of a window; object windows are named after their object.
+/// The name shown for an effect: its descriptor's name ("EQ"), else its raw id.
+pub fn effect_name(effect: &ph_core::EffectSpec) -> String {
+    let raw = match effect {
+        ph_core::EffectSpec::Builtin { name, .. } => name.as_str(),
+        ph_core::EffectSpec::Plugin { plugin_id, .. } => plugin_id.as_str(),
+    };
+    match ph_engine::catalog::effect_descriptor(effect) {
+        Ok(d) if !d.name.is_empty() => d.name,
+        _ if !raw.is_empty() => raw.to_string(),
+        _ => "Effect".to_string(),
+    }
+}
+
+/// The insert's name, or "Insert N" (or "Master") when it has none.
+pub fn insert_title(core: &AppCore, i: u32) -> String {
+    match core.project.mixer.get(i as usize) {
+        Some(m) if !m.name.trim().is_empty() => m.name.clone(),
+        _ if i == 0 => "Master".into(),
+        _ => format!("Insert {i}"),
+    }
+}
+
+/// The title of a window; object windows are named after their object. Never empty.
 pub fn title_of(core: &AppCore, id: WindowId) -> String {
-    match id {
+    let t = match id {
         WindowId::Playlist => PanelId::Playlist.title().into(),
         WindowId::ChannelRack => PanelId::ChannelRack.title().into(),
         WindowId::PianoRoll => PanelId::PianoRoll.title().into(),
@@ -32,7 +54,11 @@ pub fn title_of(core: &AppCore, id: WindowId) -> String {
         WindowId::Instrument(c) => match core.project.channels.get(&c) {
             Some(ch) => format!(
                 "{} - {}",
-                ch.name,
+                if ch.name.trim().is_empty() {
+                    format!("Channel {}", c.0)
+                } else {
+                    ch.name.clone()
+                },
                 match ch.instrument {
                     InstrumentSpec::Sampler { .. } => "Sampler",
                     InstrumentSpec::Synth { .. } => "Haus Synth",
@@ -43,24 +69,54 @@ pub fn title_of(core: &AppCore, id: WindowId) -> String {
             None => "Instrument".into(),
         },
         WindowId::Effect(i, slot) => {
-            let insert = core.project.mixer.get(i.0 as usize);
-            let fx = insert
+            let fx = core
+                .project
+                .mixer
+                .get(i.0 as usize)
                 .and_then(|m| m.effects.get(slot as usize))
-                .map(|s| match &s.effect {
-                    ph_core::EffectSpec::Builtin { name, .. } => name.clone(),
-                    ph_core::EffectSpec::Plugin { plugin_id, .. } => plugin_id.clone(),
-                })
+                .map(|s| effect_name(&s.effect))
                 .unwrap_or_else(|| "Effect".into());
-            match insert {
-                Some(m) if !m.name.is_empty() => format!("{fx} - {}", m.name),
-                _ => format!("{fx} - insert {}", i.0),
-            }
+            format!("{} - {fx}", insert_title(core, i.0))
         }
+    };
+    if t.trim().is_empty() {
+        "Window".into()
+    } else {
+        t
     }
 }
 
-/// The contents of a window; the panels are unchanged from the docked shell.
+/// The contents of a window; the panels are unchanged from the docked shell. Windows whose
+/// content can outgrow them sit in a scroll area, so nothing is cut off. The piano roll, the
+/// playlist and the channel rack (its step grid) pan and zoom on their own.
 pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
+    // (scroll sideways too, scroll area id) - instrument and effect windows wrap their knob
+    // rows instead of scrolling sideways
+    let scroll_x = match id {
+        WindowId::Instrument(_) | WindowId::Effect(..) => Some(false),
+        WindowId::Mixer | WindowId::History | WindowId::Agents => Some(true),
+        WindowId::Playlist | WindowId::ChannelRack | WindowId::PianoRoll => None,
+    };
+    let Some(x) = scroll_x else {
+        show_raw(ui, core, id);
+        return;
+    };
+    core.view_size = ui.available_size();
+    let out = egui::ScrollArea::new([x, true])
+        .auto_shrink(false)
+        .id_salt(("ph_scroll", id))
+        .show(ui, |ui| show_raw(ui, core, id));
+    core.scrolls.insert(
+        id,
+        ScrollInfo {
+            offset: out.state.offset,
+            content: out.content_size,
+            viewport: out.inner_rect.size(),
+        },
+    );
+}
+
+fn show_raw(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
     match id {
         WindowId::Playlist => panels::playlist::show(ui, core),
         WindowId::ChannelRack => panels::rack::show(ui, core),
@@ -112,6 +168,9 @@ pub fn show_workspace(ui: &mut Ui, ws: &mut Workspace, core: &mut AppCore) -> Re
             continue;
         }
         let eff = ws.effective_rect(id).unwrap();
+        // keep the title readable when a window in front covers its usual place
+        let title_w = title_of(core, id).chars().count() as f32 * 7.0;
+        let title_x = ws.title_start(id, title_w, BUTTON * 3.0 + 8.0);
         let (ev, layer) = show_window(
             &ctx,
             work,
@@ -120,6 +179,7 @@ pub fn show_workspace(ui: &mut Ui, ws: &mut Workspace, core: &mut AppCore) -> Re
             eff,
             state.maximized,
             front == Some(id),
+            title_x,
             core,
         );
         if ev.pressed {
@@ -175,6 +235,7 @@ fn show_window(
     model_rect: WRect,
     maximized: bool,
     is_front: bool,
+    title_x: f32,
     core: &mut AppCore,
 ) -> (Events, egui::LayerId) {
     let theme = core.theme.clone();
@@ -287,7 +348,7 @@ fn show_window(
                 ev.maximize = true;
             }
             p.with_clip_rect(drag_rect.intersect(clip)).text(
-                Pos2::new(title_rect.left() + 10.0, title_rect.center().y),
+                Pos2::new(title_rect.left() + title_x, title_rect.center().y),
                 Align2::LEFT_CENTER,
                 &title,
                 FontId::proportional(12.5),

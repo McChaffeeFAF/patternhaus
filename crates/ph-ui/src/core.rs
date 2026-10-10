@@ -18,6 +18,7 @@ use crate::piano_roll::{Flash, PianoRollState, PrAction, PrOut, Tool};
 use crate::playlist::{PlOut, PlaylistState};
 use crate::theme::Theme;
 use crate::typing::TypingState;
+use crate::workspace::WindowId;
 use ph_commands::{
     Change, CmdError, HistoryEntry, Pending, Request, Scope, UiRequest, UndoConflict,
 };
@@ -235,6 +236,30 @@ pub struct AppCore {
     pub solo_inserts: BTreeSet<u32>,
     pub now: f64,
     pub dirty: bool,
+    /// Size of the window content currently being drawn (windows that scroll give their
+    /// panels an unbounded `available_size`, so panels that lay out to a size read this).
+    pub view_size: egui::Vec2,
+    /// Last scroll state of each scrolling window: offset, content size and viewport size.
+    pub scrolls: HashMap<crate::workspace::WindowId, ScrollInfo>,
+    /// Effect moves and removals the UI performed itself, for the windows to follow.
+    pub effect_edits: Vec<EffectEdit>,
+    /// The whole project was replaced (file.open, new): effect windows cannot follow.
+    pub project_replaced: bool,
+}
+
+/// A window's scroll area, as last drawn.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct ScrollInfo {
+    pub offset: egui::Vec2,
+    pub content: egui::Vec2,
+    pub viewport: egui::Vec2,
+}
+
+/// A change to an insert's effect list that the UI itself made (so its windows follow directly).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum EffectEdit {
+    Move { insert: u32, from: u32, to: u32 },
+    Remove { insert: u32, slot: u32 },
 }
 
 impl AppCore {
@@ -313,6 +338,10 @@ impl AppCore {
             solo_inserts: BTreeSet::new(),
             now: 0.0,
             dirty: false,
+            view_size: egui::Vec2::ZERO,
+            scrolls: HashMap::new(),
+            effect_edits: Vec::new(),
+            project_replaced: false,
         };
         core.fix_selection();
         Ok(core)
@@ -412,6 +441,7 @@ impl AppCore {
             self.flashes.clear();
             self.solo_channels.clear();
             self.solo_inserts.clear();
+            self.project_replaced = true;
             self.dirty = false;
         } else {
             self.txn_times.insert(c.txn, std::time::SystemTime::now());
@@ -492,24 +522,30 @@ impl AppCore {
         }
     }
 
+    /// `ui.open_panel` / `ui.close_panel` names: a panel, `instrument:<channel>` or
+    /// `effect:<insert>:<slot>`.
+    fn queue_panel(&mut self, name: &str, a: PanelAction) {
+        if let Some(p) = PanelId::from_name(name) {
+            self.panel_requests.push((p, a));
+        } else if let Some(w) = WindowId::parse(name) {
+            self.window_requests.push((w, a));
+        }
+    }
+
     fn on_ui_request(&mut self, r: UiRequest) {
         match r {
-            UiRequest::Open { panel } => {
-                if let Some(p) = PanelId::from_name(&panel) {
-                    self.panel_requests.push((p, PanelAction::Open));
-                }
-            }
-            UiRequest::Close { panel } => {
-                if let Some(p) = PanelId::from_name(&panel) {
-                    self.panel_requests.push((p, PanelAction::Close));
-                }
-            }
+            UiRequest::Open { panel } => self.queue_panel(&panel, PanelAction::Open),
+            UiRequest::Close { panel } => self.queue_panel(&panel, PanelAction::Close),
             UiRequest::Select { paths } => {
                 self.agent_select = paths.iter().copied().collect();
                 self.agent_select_at = self.now;
                 for p in paths {
                     match p {
-                        ObjectPath::Channel(c) => self.sel.channel = Some(c),
+                        ObjectPath::Channel(c) => {
+                            self.sel.channel = Some(c);
+                            self.window_requests
+                                .push((WindowId::Instrument(c), PanelAction::Open));
+                        }
                         ObjectPath::Pattern(x) => self.sel.pattern = Some(x),
                         ObjectPath::Insert(i) => self.sel.insert = i.0,
                         ObjectPath::Note(pat, ch, _) => {
@@ -526,6 +562,10 @@ impl AppCore {
             UiRequest::PianoRoll { pattern, channel } => {
                 self.sel.pattern = Some(pattern);
                 self.sel.channel = Some(channel);
+                self.agent_select = [ObjectPath::Pattern(pattern), ObjectPath::Channel(channel)]
+                    .into_iter()
+                    .collect();
+                self.agent_select_at = self.now;
                 self.roll.focus(pattern, channel);
                 self.panel_requests
                     .push((PanelId::PianoRoll, PanelAction::Open));

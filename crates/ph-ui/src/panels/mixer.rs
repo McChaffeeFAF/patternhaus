@@ -2,7 +2,7 @@
 //! sends, route-to-master and sidechain for the selected insert, and generic effect panels
 //! built from `ph_engine::catalog` descriptors.
 
-use crate::core::{AppCore, PanelAction, RenameTarget};
+use crate::core::{AppCore, EffectEdit, PanelAction, RenameTarget};
 use crate::mapping;
 use crate::theme::rgb;
 use crate::widgets::{self, Edit, fader, knob, param_grid, toggle};
@@ -47,7 +47,14 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     let strip_h = (ui.available_height() - 22.0).clamp(220.0, 380.0);
 
     // strips on the left, effects / sends / the selected effect's knobs on the right
-    let full = ui.available_size();
+    // inside the window's scroll area the available size is unbounded, so use the window's own
+    // size, but never squeeze the strips and the detail pane below a usable minimum
+    let view = if core.view_size.x <= 1.0 {
+        ui.available_size()
+    } else {
+        core.view_size
+    };
+    let full = egui::vec2(view.x.max(460.0), view.y.max(300.0));
     let detail_w = (full.x * 0.42).clamp(300.0, 560.0).min(full.x * 0.6);
     let strips_w = (full.x - detail_w - 10.0).max(120.0);
     ui.horizontal_top(|ui| {
@@ -360,19 +367,30 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
                         if idx > 0 && ui.small_button("^").on_hover_text("Move up").clicked() {
                             core.send(mapping::effect_move(ins as u32, idx, idx - 1));
-                            close_effect_windows(core, ins as u32, idx - 1, idx);
+                            core.effect_edits.push(EffectEdit::Move {
+                                insert: ins as u32,
+                                from: idx as u32,
+                                to: idx as u32 - 1,
+                            });
                             core.sel.effect = Some(idx - 1);
                         }
                         if idx + 1 < m.effects.len()
                             && ui.small_button("v").on_hover_text("Move down").clicked()
                         {
                             core.send(mapping::effect_move(ins as u32, idx, idx + 1));
-                            close_effect_windows(core, ins as u32, idx, idx + 1);
+                            core.effect_edits.push(EffectEdit::Move {
+                                insert: ins as u32,
+                                from: idx as u32,
+                                to: idx as u32 + 1,
+                            });
                             core.sel.effect = Some(idx + 1);
                         }
                         if ui.small_button("x").on_hover_text("Remove").clicked() {
                             core.send(mapping::effect_remove(ins as u32, idx));
-                            close_effect_windows(core, ins as u32, idx, m.effects.len());
+                            core.effect_edits.push(EffectEdit::Remove {
+                                insert: ins as u32,
+                                slot: idx as u32,
+                            });
                             core.sel.effect = None;
                         }
                     });
@@ -449,17 +467,6 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
         });
 }
 
-/// Slots shift when an effect moves or is removed, so the windows for the slots it touched
-/// close rather than silently showing another effect.
-fn close_effect_windows(core: &mut AppCore, insert: u32, from: usize, to_incl: usize) {
-    for slot in from..=to_incl {
-        core.window_requests.push((
-            WindowId::Effect(InsertId(insert), slot as u32),
-            PanelAction::Close,
-        ));
-    }
-}
-
 /// The contents of an effect window: the slot's bypass and mix, and every parameter knob.
 pub fn effect_window(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize) {
     let theme = core.theme.clone();
@@ -493,10 +500,8 @@ pub fn effect_window(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize)
         ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
     });
     ui.separator();
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .id_salt(("fxwin", insert, index))
-        .show(ui, |ui| effect_panel(ui, core, insert, index, &slot.effect));
+    // the window itself scrolls (see `windows::show_content`)
+    effect_panel(ui, core, insert, index, &slot.effect);
 }
 
 fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effect: &EffectSpec) {

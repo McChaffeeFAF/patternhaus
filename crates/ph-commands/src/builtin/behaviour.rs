@@ -1152,6 +1152,38 @@ fn ui_commands() {
 }
 
 #[test]
+fn ui_panels_accept_instrument_and_effect_windows() {
+    let mut r = Rig::new();
+    let (_pat, ch) = small_song(&mut r);
+    r.run("mixer.add_effect", json!({ "insert": 1, "effect": { "kind": "builtin", "name": "limiter" }, "index": 0, "mix": 0.5 }));
+    r.run(
+        "ui.open_panel",
+        json!({ "panel": format!("instrument:{ch}") }),
+    );
+    r.run("ui.open_panel", json!({ "panel": "effect:1:0" }));
+    r.run("ui.close_panel", json!({ "panel": "effect:1:0" }));
+    r.run("ui.open_panel", json!({ "panel": "agents" }));
+    assert_eq!(r.h.ui.len(), 4);
+    for bad in [
+        "instrument:999",
+        "instrument:x",
+        "effect:1:5",
+        "effect:1",
+        "effect:99:0",
+        "nope",
+    ] {
+        assert!(
+            matches!(
+                r.err("ui.open_panel", json!({ "panel": bad })),
+                CmdError::BadParams { .. }
+            ),
+            "{bad}"
+        );
+    }
+    assert_eq!(r.h.ui.len(), 4);
+}
+
+#[test]
 fn query_commands() {
     let mut r = Rig::new();
     let (pat, ch) = small_song(&mut r);

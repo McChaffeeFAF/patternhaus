@@ -5,17 +5,19 @@
 //! offscreen tests share the same code.
 
 use crate::core::{
-    AppCore, AppPaths, Dialog, Hooks, PanelAction, PanelId, RenameTarget, ToastKind,
+    AppCore, AppPaths, Dialog, EffectEdit, Hooks, PanelAction, PanelId, RenameTarget, ToastKind,
 };
 use crate::keymap::{Chord, Context};
 use crate::mapping;
 use crate::panels;
 use crate::settings::{self, Layout};
 use crate::windows;
-use crate::workspace::{Rect as WRect, WindowId, Workspace};
+use crate::workspace::{Rect as WRect, WindowId, Workspace, match_effects};
 use egui::{Align2, Color32, Id, RichText, Ui};
 use ph_control::Studio;
+use ph_core::InsertId;
 use ph_engine::EngineConfig;
+use std::sync::Arc;
 
 pub struct PhApp {
     pub core: AppCore,
@@ -28,6 +30,10 @@ pub struct PhApp {
     pub work_rect: egui::Rect,
     theme_applied: bool,
     last_title: String,
+    /// The kinds of each insert's effects as the windows last saw them (to follow an effect
+    /// that moved), and the snapshot they were read from.
+    fx_kinds: std::collections::HashMap<u32, Vec<String>>,
+    fx_seen: Option<std::sync::Arc<ph_core::Project>>,
 }
 
 impl PhApp {
@@ -76,6 +82,8 @@ impl PhApp {
             work_rect: egui::Rect::NOTHING,
             theme_applied: false,
             last_title: String::new(),
+            fx_kinds: Default::default(),
+            fx_seen: None,
         })
     }
 
@@ -175,6 +183,60 @@ impl PhApp {
         }
     }
 
+    /// Effect windows follow their effect (DESIGN section 9). Moves and removals the UI made
+    /// itself are applied directly; a new snapshot (an agent, an undo) is matched by insert and
+    /// effect kind. A window closes only when its effect is really gone.
+    fn follow_effects(&mut self) {
+        if std::mem::take(&mut self.core.project_replaced) {
+            self.core.effect_edits.clear();
+            self.fx_kinds.clear();
+            self.fx_seen = None;
+            self.ws.prune_objects(|_| true, |_, _| false);
+        }
+        for e in std::mem::take(&mut self.core.effect_edits) {
+            match e {
+                EffectEdit::Move { insert, from, to } => {
+                    self.ws
+                        .remap_effects(InsertId(insert), &Workspace::move_map(from, to));
+                    if let Some(k) = self.fx_kinds.get_mut(&insert)
+                        && (from as usize) < k.len()
+                        && (to as usize) < k.len()
+                    {
+                        let x = k.remove(from as usize);
+                        k.insert(to as usize, x);
+                    }
+                }
+                EffectEdit::Remove { insert, slot } => {
+                    let len = self.fx_kinds.get(&insert).map_or(0, |k| k.len() as u32);
+                    self.ws.remap_effects(
+                        InsertId(insert),
+                        &Workspace::remove_map(slot, len.max(slot + 1)),
+                    );
+                    if let Some(k) = self.fx_kinds.get_mut(&insert)
+                        && (slot as usize) < k.len()
+                    {
+                        k.remove(slot as usize);
+                    }
+                }
+            }
+        }
+        let p = self.core.project.clone();
+        if self.fx_seen.as_ref().is_some_and(|s| Arc::ptr_eq(s, &p)) {
+            return;
+        }
+        for (i, m) in p.mixer.iter().enumerate() {
+            let kinds: Vec<String> = m.effects.iter().map(|s| effect_kind(&s.effect)).collect();
+            if let Some(old) = self.fx_kinds.get(&(i as u32))
+                && *old != kinds
+            {
+                let map = match_effects(old, &kinds);
+                self.ws.remap_effects(InsertId(i as u32), &map);
+            }
+            self.fx_kinds.insert(i as u32, kinds);
+        }
+        self.fx_seen = Some(p);
+    }
+
     /// A project snapshot may delete the object behind an instrument or effect window.
     fn prune_windows(&mut self) {
         let p = self.core.project.clone();
@@ -258,6 +320,7 @@ impl PhApp {
         }
         let now = ctx.input(|i| i.time);
         self.core.update(now);
+        self.follow_effects();
         self.prune_windows();
         self.process_panel_requests();
         self.handle_keys(&ctx);
@@ -713,6 +776,14 @@ impl PhApp {
                 }
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
+    }
+}
+
+/// What identifies an effect inside its insert: its kind.
+fn effect_kind(e: &ph_core::EffectSpec) -> String {
+    match e {
+        ph_core::EffectSpec::Builtin { name, .. } => name.clone(),
+        ph_core::EffectSpec::Plugin { plugin_id, .. } => format!("plugin:{plugin_id}"),
     }
 }
 
