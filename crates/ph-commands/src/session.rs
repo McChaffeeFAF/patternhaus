@@ -323,8 +323,7 @@ impl Session {
             )));
         }
         let entry = &self.history[pos];
-        let revert =
-            crate::undo::plan_revert(&self.project, entry, &self.history[pos + 1..], mode)?;
+        let revert = crate::undo::plan_revert(&self.project, &self.history, pos, mode)?;
         let (kind, summary) = match &entry.kind {
             // Redoing: the transactions that undo reverted are live again.
             EntryKind::Undo { of } => {

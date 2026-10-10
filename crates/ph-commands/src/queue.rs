@@ -231,3 +231,179 @@ fn control_loop(mut session: Session, mut host: Box<dyn Host + Send>, rx: Receiv
 fn publish(subscribers: &mut Vec<Sender<Change>>, change: Change) {
     subscribers.retain(|s| s.send(change.clone()).is_ok());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ph_core::PatternId;
+    use serde_json::json;
+
+    fn spawn() -> SessionHandle {
+        SessionHandle::spawn(
+            Session::new(Arc::new(Registry::with_builtins()), Project::empty("q")),
+            NullHost::default(),
+        )
+    }
+
+    fn setup(h: &SessionHandle) -> (u32, u32) {
+        let who = Caller::human();
+        let pat = h
+            .execute(&who, Request::new("pattern.add", json!({})))
+            .unwrap()
+            .result["pattern"]
+            .as_u64()
+            .unwrap() as u32;
+        let ch = h
+            .execute(
+                &who,
+                Request::new(
+                    "channel.add",
+                    json!({ "name": "K", "instrument": { "kind": "synth", "preset": null } }),
+                ),
+            )
+            .unwrap()
+            .result["channel"]
+            .as_u64()
+            .unwrap() as u32;
+        (pat, ch)
+    }
+
+    #[test]
+    fn many_threads_are_serialized_in_arrival_order() {
+        let h = spawn();
+        let (pat, ch) = setup(&h);
+        let changes = h.subscribe().unwrap();
+        const THREADS: usize = 8;
+        const EACH: usize = 25;
+        let workers: Vec<_> = (0..THREADS)
+            .map(|t| {
+                let h = h.clone();
+                std::thread::spawn(move || {
+                    let who = if t % 2 == 0 {
+                        Caller::human()
+                    } else {
+                        Caller::agent(&format!("bot{t}"), Grant(vec![Scope::Compose]))
+                    };
+                    (0..EACH)
+                        .map(|i| {
+                            let notes = [json!({ "key": 30 + t, "start": i * 240, "length": 240 })];
+                            h.execute(
+                                &who,
+                                Request::new(
+                                    "note.add",
+                                    json!({ "pattern": pat, "channel": ch, "notes": notes }),
+                                ),
+                            )
+                            .unwrap()
+                            .txn
+                            .unwrap()
+                        })
+                        .collect::<Vec<u64>>()
+                })
+            })
+            .collect();
+        let per_thread: Vec<Vec<u64>> = workers.into_iter().map(|w| w.join().unwrap()).collect();
+
+        // Each thread saw its own requests applied in the order it sent them.
+        for txns in &per_thread {
+            assert!(txns.windows(2).all(|w| w[0] < w[1]), "{txns:?}");
+        }
+        // No transaction was lost or duplicated.
+        let mut all: Vec<u64> = per_thread.concat();
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), THREADS * EACH);
+        let project = h.project().unwrap();
+        assert_eq!(
+            project.pattern(PatternId(pat)).unwrap().note_count(),
+            THREADS * EACH
+        );
+        assert_eq!(h.history().unwrap().len(), 2 + THREADS * EACH);
+
+        // The subscriber heard every change, in order, each with a consistent snapshot.
+        let heard: Vec<Change> = changes.try_iter().collect();
+        assert_eq!(heard.len(), THREADS * EACH);
+        assert!(heard.windows(2).all(|w| w[0].txn < w[1].txn));
+        for (i, c) in heard.iter().enumerate() {
+            let notes = c.project.pattern(PatternId(pat)).unwrap().note_count();
+            assert_eq!(notes, i + 1, "snapshot {i} matches its change");
+            assert_eq!(c.paths.len(), 1);
+        }
+        assert!(Arc::ptr_eq(&heard.last().unwrap().project, &project));
+    }
+
+    #[test]
+    fn undo_and_batch_go_through_the_same_queue() {
+        let h = spawn();
+        let (pat, ch) = setup(&h);
+        let changes = h.subscribe().unwrap();
+        let claude = Caller::agent("claude", Grant(vec![Scope::Compose]));
+        let out = h
+            .batch(
+                &claude,
+                vec![
+                    Request::new("project.set_tempo", json!({ "bpm": 90 })),
+                    Request::new(
+                        "note.add",
+                        json!({ "pattern": pat, "channel": ch, "notes": [{ "key": 40, "start": 0, "length": 240 }] }),
+                    ),
+                ],
+            )
+            .unwrap();
+        assert_eq!(out[0].txn, out[1].txn);
+        let c = changes.recv().unwrap();
+        assert_eq!(c.author, claude.author);
+        assert_eq!(c.txn, out[0].txn.unwrap());
+        assert_eq!(c.paths.len(), 2);
+        assert!(c.summary.unwrap().contains("tempo"));
+
+        let report = h.undo(&claude.author, UndoMode::Stop).unwrap().unwrap();
+        let c = changes.recv().unwrap();
+        assert_eq!(c.txn, report.txn);
+        assert_eq!(c.project.settings.bpm, 130.0);
+        assert!(h.redo(&claude.author, UndoMode::Stop).unwrap().is_some());
+        assert_eq!(changes.recv().unwrap().project.settings.bpm, 90.0);
+
+        // A rejected request publishes nothing and the queue keeps working.
+        assert!(
+            h.execute(
+                &claude,
+                Request::new("project.set_tempo", json!({ "bpm": 1 }))
+            )
+            .is_err()
+        );
+        assert!(changes.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_panicking_request_does_not_kill_the_queue() {
+        let h = spawn();
+        let pending = h.submit(|_, _| -> u32 { panic!("boom") });
+        assert!(pending.wait().is_err());
+        assert_eq!(h.call(|_, _| 7).unwrap(), 7);
+    }
+
+    #[test]
+    fn replacing_the_project_is_published_and_dropped_subscribers_are_forgotten() {
+        let h = spawn();
+        let kept = h.subscribe().unwrap();
+        drop(h.subscribe().unwrap());
+        h.call(|s, _| s.reset(Project::empty("other"))).unwrap();
+        let c = kept.recv().unwrap();
+        assert_eq!((c.txn, c.project.settings.title.as_str()), (0, "other"));
+        // Still fine after the dead subscriber is pruned.
+        let who = Caller::human();
+        h.execute(
+            &who,
+            Request::new("project.set_tempo", json!({ "bpm": 99 })),
+        )
+        .unwrap();
+        assert_eq!(kept.recv().unwrap().project.settings.bpm, 99.0);
+    }
+
+    #[test]
+    fn handles_are_send_and_clone() {
+        fn assert_send<T: Send + Clone + 'static>() {}
+        assert_send::<SessionHandle>();
+    }
+}

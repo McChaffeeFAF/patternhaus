@@ -56,10 +56,13 @@ pub(crate) struct Revert {
 /// leaving alone whatever others changed since.
 pub(crate) fn plan_revert(
     project: &Project,
-    entry: &HistoryEntry,
-    later: &[HistoryEntry],
+    history: &[HistoryEntry],
+    pos: usize,
     mode: UndoMode,
 ) -> CmdResult<Revert> {
+    let entry = &history[pos];
+    let later = &history[pos + 1..];
+    let owner = effective_author(history, entry);
     let force = mode == UndoMode::Force;
     let mut work = project.clone();
     let mut out = Vec::new();
@@ -85,13 +88,24 @@ pub(crate) fn plan_revert(
                 }
             }
         } else {
+            let touched = |ptr: &str| {
+                later.iter().any(|e| {
+                    e.patches
+                        .iter()
+                        .any(|p| p.path == patch.path && patch_touches(p, ptr))
+                        && effective_author(history, e) != owner
+                })
+            };
             merge(
                 patch.before.as_ref(),
                 patch.after.as_ref(),
                 current.as_ref(),
                 "",
-                true,
-                force,
+                &Ctx {
+                    top: true,
+                    force,
+                    touched: &touched,
+                },
                 &mut fields,
             )
         };
@@ -118,7 +132,43 @@ pub(crate) fn plan_revert(
             });
         }
         for field in fields {
-            note_conflict(&mut conflicts, patch.path, field, later);
+            note_conflict(&mut conflicts, patch.path, field, history, later);
+        }
+    }
+
+    // A skipped conflict can leave a channel or pattern in place whose order-list entry was
+    // already reverted away (its deletion was refused). Put such entries back where they were
+    // so every object stays listed.
+    for path in [ObjectPath::ChannelOrder, ObjectPath::PatternOrder] {
+        let ids = |v: Option<Value>| -> Vec<u64> {
+            v.and_then(|v| v.as_array().cloned())
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default()
+        };
+        let exists = |w: &Project, id: u64| match path {
+            ObjectPath::ChannelOrder => w.channels.contains_key(&ph_core::ChannelId(id as u32)),
+            _ => w.patterns.contains_key(&ph_core::PatternId(id as u32)),
+        };
+        let (original, current) = (ids(get(project, path)), get(&work, path));
+        let mut fixed = ids(current.clone());
+        let mut changed = false;
+        for (i, id) in original.iter().enumerate() {
+            if !fixed.contains(id) && exists(&work, *id) {
+                fixed.insert(i.min(fixed.len()), *id);
+                changed = true;
+            }
+        }
+        if changed {
+            let after = Some(Value::Array(fixed.into_iter().map(Value::from).collect()));
+            let mut trial = work.clone();
+            if set(&mut trial, path, after.as_ref()).is_ok() {
+                work = trial;
+                out.push(Patch {
+                    path,
+                    before: current,
+                    after,
+                });
+            }
         }
     }
 
@@ -131,14 +181,27 @@ pub(crate) fn plan_revert(
     })
 }
 
+/// Whose work an entry is. A normal entry is its author's; an undo or redo is the work it
+/// reverts, so a person undoing an agent's edits does not count as editing those objects.
+fn effective_author(history: &[HistoryEntry], e: &HistoryEntry) -> Author {
+    match &e.kind {
+        EntryKind::Do => e.author.clone(),
+        EntryKind::Undo { of } | EntryKind::Redo { of } => of
+            .first()
+            .and_then(|t| history.iter().find(|h| h.txn == *t))
+            .map_or_else(|| e.author.clone(), |t| effective_author(history, t)),
+    }
+}
+
 /// Records one conflicting field (`""` = the whole object), merged into the object's entry.
 fn note_conflict(
     conflicts: &mut Vec<UndoConflict>,
     path: ObjectPath,
     field: String,
+    history: &[HistoryEntry],
     later: &[HistoryEntry],
 ) {
-    let who = changed_by(later, path, &field);
+    let who = changed_by(history, later, path, &field);
     let c = match conflicts.iter().position(|c| c.path == path) {
         Some(i) => &mut conflicts[i],
         None => {
@@ -161,7 +224,12 @@ fn note_conflict(
 }
 
 /// Authors of later patches that changed `field` of `path` (any change, for `""`).
-fn changed_by(later: &[HistoryEntry], path: ObjectPath, field: &str) -> Vec<Author> {
+fn changed_by(
+    history: &[HistoryEntry],
+    later: &[HistoryEntry],
+    path: ObjectPath,
+    field: &str,
+) -> Vec<Author> {
     let mut who = Vec::new();
     for e in later {
         let touched = e.patches.iter().any(|p| {
@@ -170,11 +238,34 @@ fn changed_by(later: &[HistoryEntry], path: ObjectPath, field: &str) -> Vec<Auth
                     || p.before.as_ref().and_then(|v| v.pointer(field))
                         != p.after.as_ref().and_then(|v| v.pointer(field)))
         });
-        if touched && !who.contains(&e.author) {
-            who.push(e.author.clone());
+        let author = effective_author(history, e);
+        if touched && !who.contains(&author) {
+            who.push(author);
         }
     }
     who
+}
+
+/// What a merge needs to know besides the three values.
+struct Ctx<'a> {
+    /// At the object itself (not a field inside it).
+    top: bool,
+    force: bool,
+    /// Did another author change this field (`""` = the object) in a later transaction?
+    /// Their change counts even when it left the same value behind: undo must not wipe out
+    /// an edit someone made on purpose.
+    touched: &'a dyn Fn(&str) -> bool,
+}
+
+/// Does `p` change the field at JSON pointer `ptr` (`""` = anything)?
+fn patch_touches(p: &Patch, ptr: &str) -> bool {
+    if ptr.is_empty() {
+        return true;
+    }
+    match (&p.before, &p.after) {
+        (Some(b), Some(a)) => b.pointer(ptr) != a.pointer(ptr),
+        _ => true, // created or deleted: every field changed
+    }
 }
 
 /// Three-way merge of one JSON value. Returns the value to put there (`None` = absent) and
@@ -184,14 +275,15 @@ fn merge(
     after: Option<&Value>,
     current: Option<&Value>,
     ptr: &str,
-    top: bool,
-    force: bool,
+    cx: &Ctx<'_>,
     conflicts: &mut Vec<String>,
 ) -> Option<Value> {
+    let (top, force) = (cx.top, cx.force);
+    let cx = &Ctx { top: false, ..*cx };
     if before == after {
         return current.cloned(); // this transaction did not change it
     }
-    if after == current {
+    if after == current && !(cx.touched)(ptr) {
         return before.cloned(); // nobody changed it since: plain revert
     }
     if before == current {
@@ -211,7 +303,7 @@ fn merge(
         let mut merged = Map::new();
         for k in keys {
             let sub = format!("{ptr}/{k}");
-            if let Some(v) = merge(b.get(k), a.get(k), c.get(k), &sub, false, force, conflicts) {
+            if let Some(v) = merge(b.get(k), a.get(k), c.get(k), &sub, cx, conflicts) {
                 merged.insert(k.clone(), v);
             }
         }
@@ -293,8 +385,11 @@ mod tests {
             Some(&a),
             Some(&c),
             "",
-            true,
-            force,
+            &Ctx {
+                top: true,
+                force,
+                touched: &|_| false,
+            },
             &mut conflicts,
         );
         (r, conflicts)
@@ -369,31 +464,29 @@ mod tests {
         let mut c = Vec::new();
         let obj = json!({"v": 1});
         // Created by me, modified by someone else.
-        let r = merge(
-            None,
-            Some(&obj),
-            Some(&json!({"v": 2})),
-            "",
-            true,
-            false,
-            &mut c,
-        );
+        let r = merge(None, Some(&obj), Some(&json!({"v": 2})), "", &TOP, &mut c);
         assert_eq!(r, Some(json!({"v": 2})));
         assert_eq!(c, vec![""]);
         // Created by me, deleted by someone else.
         let mut c = Vec::new();
-        let r = merge(None, Some(&obj), None, "", true, false, &mut c);
+        let r = merge(None, Some(&obj), None, "", &TOP, &mut c);
         assert_eq!(r, None);
         assert_eq!(c, vec![""]);
         // Untouched since: removed cleanly.
         let mut c = Vec::new();
-        let r = merge(None, Some(&obj), Some(&obj), "", true, false, &mut c);
+        let r = merge(None, Some(&obj), Some(&obj), "", &TOP, &mut c);
         assert_eq!((r, c.len()), (None, 0));
         // Deleted by me, nobody touched it: restored.
         let mut c = Vec::new();
-        let r = merge(Some(&obj), None, None, "", true, false, &mut c);
+        let r = merge(Some(&obj), None, None, "", &TOP, &mut c);
         assert_eq!((r, c.len()), (Some(obj), 0));
     }
+
+    const TOP: Ctx<'static> = Ctx {
+        top: true,
+        force: false,
+        touched: &|_| false,
+    };
 
     fn order(b: &[u64], a: &[u64], c: &[u64]) -> Result<Vec<u64>, ()> {
         let v = |x: &[u64]| Value::from(x.to_vec());

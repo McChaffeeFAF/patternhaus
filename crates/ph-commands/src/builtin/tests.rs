@@ -185,3 +185,181 @@ fn conflicting_undo_stops_and_names_the_object() {
     }
     assert_eq!(s.project().settings.bpm, 120.0);
 }
+
+fn agent() -> Caller {
+    Caller::agent("claude", Grant(vec![Scope::Compose]))
+}
+
+#[test]
+fn undoing_an_insertion_merges_into_the_order_list() {
+    let (mut s, mut h) = session();
+    let (human, claude) = (Caller::human(), agent());
+    let add = |s: &mut Session, h: &mut NullHost, who: &Caller, name: &str| {
+        let out = run(
+            s,
+            h,
+            who,
+            "channel.add",
+            json!({ "name": name, "instrument": { "kind": "synth", "preset": null } }),
+        );
+        out.result["channel"].as_u64().unwrap() as u32
+    };
+    let a = add(&mut s, &mut h, &human, "A");
+    let b = add(&mut s, &mut h, &claude, "B");
+    let c = add(&mut s, &mut h, &human, "C");
+    s.undo(&claude.author).unwrap().unwrap();
+    let order: Vec<u32> = s.project().channel_order.iter().map(|c| c.0).collect();
+    assert_eq!(
+        order,
+        vec![a, c],
+        "only the agent's channel leaves the rack"
+    );
+    assert!(s.project().channel(ChannelId(b)).is_err());
+    // Redo puts it back where it was, between the human's two.
+    s.redo(&claude.author).unwrap().unwrap();
+    let order: Vec<u32> = s.project().channel_order.iter().map(|c| c.0).collect();
+    assert_eq!(order, vec![a, b, c]);
+}
+
+#[test]
+fn undoing_a_removal_restores_the_old_index() {
+    let (mut s, mut h) = session();
+    let (human, claude) = (Caller::human(), agent());
+    for n in ["A", "B", "C"] {
+        run(
+            &mut s,
+            &mut h,
+            &human,
+            "channel.add",
+            json!({ "name": n, "instrument": { "kind": "synth", "preset": null } }),
+        );
+    }
+    run(
+        &mut s,
+        &mut h,
+        &claude,
+        "channel.remove",
+        json!({ "channel": 1 }),
+    );
+    run(
+        &mut s,
+        &mut h,
+        &human,
+        "channel.move",
+        json!({ "channel": 2, "index": 0 }),
+    );
+    s.undo(&claude.author).unwrap().unwrap();
+    let order: Vec<u32> = s.project().channel_order.iter().map(|c| c.0).collect();
+    assert_eq!(order, vec![2, 1, 0], "channel 1 returns to its old index 1");
+}
+
+#[test]
+fn undoing_a_creation_someone_else_deleted_or_edited_is_a_conflict() {
+    let (mut s, mut h) = session();
+    let (human, claude) = (Caller::human(), agent());
+    let (pat, ch) = beat(&mut s, &mut h, &human);
+    let note = |s: &mut Session, h: &mut NullHost, key: u32| {
+        s.execute(
+            &claude,
+            Request::new(
+                "note.add",
+                json!({ "pattern": pat, "channel": ch, "notes": [{ "key": key, "start": 0, "length": 240 }] }),
+            ),
+            h,
+        )
+        .unwrap()
+        .result["notes"][0]
+            .as_u64()
+            .unwrap() as u32
+    };
+    let (n1, n2) = (note(&mut s, &mut h, 36), note(&mut s, &mut h, 40));
+    run(
+        &mut s,
+        &mut h,
+        &human,
+        "note.remove",
+        json!({ "pattern": pat, "channel": ch, "ids": [n1] }),
+    );
+    run(
+        &mut s,
+        &mut h,
+        &human,
+        "note.set_velocity",
+        json!({ "pattern": pat, "channel": ch, "ids": [n2], "velocity": 0.1 }),
+    );
+
+    let before = s.project().clone();
+    // The newest agent transaction made n2, which the human then edited.
+    match s.undo(&claude.author) {
+        Err(CmdError::UndoConflict(c)) => {
+            assert_eq!(c.len(), 1);
+            assert_eq!(
+                c[0].path,
+                ObjectPath::Note(PatternId(pat), ChannelId(ch), NoteId(n2))
+            );
+            assert_eq!(c[0].changed_by, vec![Author::Human]);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(s.project(), &before);
+
+    // Skip leaves the edited note in place; the other (already deleted) creation also
+    // conflicts, so undoing the whole of the agent's work with Skip changes nothing at all.
+    let reports = s
+        .undo_author(&claude.author, &claude.author, UndoMode::Skip)
+        .unwrap();
+    assert_eq!(reports.iter().map(|r| r.conflicts.len()).sum::<usize>(), 2);
+    assert_eq!(s.project().pattern(PatternId(pat)).unwrap().note_count(), 1);
+
+    // Force removes the human-edited note too (a fresh session shows it in isolation).
+    let (mut s, mut h) = session();
+    let (pat, ch) = beat(&mut s, &mut h, &human);
+    let id = s
+        .execute(&claude, Request::new("note.add", json!({ "pattern": pat, "channel": ch, "notes": [{ "key": 40, "start": 0, "length": 240 }] })), &mut h)
+        .unwrap()
+        .result["notes"][0]
+        .as_u64()
+        .unwrap() as u32;
+    run(
+        &mut s,
+        &mut h,
+        &human,
+        "note.set_velocity",
+        json!({ "pattern": pat, "channel": ch, "ids": [id], "velocity": 0.1 }),
+    );
+    s.undo_with(&claude.author, UndoMode::Force)
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.project().pattern(PatternId(pat)).unwrap().note_count(), 0);
+}
+
+#[test]
+fn undoing_a_deletion_restores_the_object() {
+    let (mut s, mut h) = session();
+    let (human, claude) = (Caller::human(), agent());
+    let (pat, ch) = beat(&mut s, &mut h, &human);
+    run(
+        &mut s,
+        &mut h,
+        &human,
+        "note.add",
+        json!({ "pattern": pat, "channel": ch, "notes": [{ "key": 36, "start": 0, "length": 240 }] }),
+    );
+    run(
+        &mut s,
+        &mut h,
+        &claude,
+        "note.remove",
+        json!({ "pattern": pat, "channel": ch, "ids": [0] }),
+    );
+    run(
+        &mut s,
+        &mut h,
+        &human,
+        "project.set_tempo",
+        json!({ "bpm": 100 }),
+    );
+    s.undo(&claude.author).unwrap().unwrap();
+    assert_eq!(s.project().pattern(PatternId(pat)).unwrap().note_count(), 1);
+    assert_eq!(s.project().settings.bpm, 100.0);
+}

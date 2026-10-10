@@ -13,6 +13,8 @@ mod registry;
 mod session;
 mod session_cmd;
 mod undo;
+#[cfg(test)]
+mod undo_props;
 
 pub use builtin::register_builtin;
 pub use host::*;

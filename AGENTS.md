@@ -77,7 +77,11 @@ the audio thread. Tests run the engine under `assert_no_alloc`.
    - **Flags:** `READ`, `MUTATES` or `DESTRUCTIVE`. *Destructive* means irreversible: it
      overwrites or deletes a file, or discards unsaved work. Undoable deletions are not
      destructive.
-5. Tests: the schema test is automatic. Add at least one behaviour test (golden test once
+5. Commands that must act on the `Session` itself (history, session-local view state such as
+   solo, replacing the whole project) are registered the same way, with a params struct,
+   scope and flags, but the session runs them: add the id to `SESSION_COMMANDS` in
+   `session_cmd.rs` and a handler in `session_cmd::run`. They cannot be batched.
+6. Tests: the schema test is automatic. Add at least one behaviour test (golden test once
    T7 lands), and add the command to `docs/parity/fl-studio.md` if it maps to an FL feature.
 
 ## How to add a processor (instrument or effect)
@@ -122,3 +126,4 @@ self-generated or CC0 content is allowed. `cargo xtask check-provenance` enforce
 | Date | Contract | Change |
 |---|---|---|
 | 2026-10-10 | all | T0 initial versions |
+| 2026-10-10 | `Session` (T1) | Added, no break: `UndoMode`; `undo_txn_with`, `undo_with`, `redo_with`, `undo_author`, `reset`, `solo()`; `undo_txn` keeps its signature but is now the field-level three-way revert (conflicts name fields and authors). `Session::batch` routes session-handled commands (`history.*`, `channel.solo`, `mixer.solo`, `file.open`) to the session. Added `SessionHandle` (co-editing queue) and the `ph-formats` crate. |
