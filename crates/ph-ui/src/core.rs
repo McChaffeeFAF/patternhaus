@@ -221,6 +221,10 @@ pub struct AppCore {
     pub dialog: Option<Dialog>,
     pub hooks: Hooks,
     pub panel_requests: Vec<(PanelId, PanelAction)>,
+    /// Requests for one specific window (an instrument or effect window).
+    pub window_requests: Vec<(crate::workspace::WindowId, PanelAction)>,
+    /// Escape: close the focused instrument or effect window.
+    pub close_focused_requested: bool,
     /// Keymap context under the pointer (set by the panels as they draw).
     pub hover_context: Context,
     pub engine_config: EngineConfig,
@@ -298,6 +302,8 @@ impl AppCore {
             dialog: None,
             hooks,
             panel_requests: Vec::new(),
+            window_requests: Vec::new(),
+            close_focused_requested: false,
             hover_context: Context::Global,
             engine_config,
             paths,
@@ -662,6 +668,7 @@ impl AppCore {
                     self.panel_requests.push((p, PanelAction::Toggle));
                 }
             }
+            "app.close_window" => self.close_focused_requested = true,
             "app.save_as" => {
                 self.dialog = Some(Dialog::SaveAs {
                     path: self.paths.project_dir.to_string_lossy().into_owned(),

@@ -6,7 +6,9 @@ mod common;
 use common::*;
 use egui::Key;
 use egui_kittest::Harness;
+use ph_core::InsertId;
 use ph_ui::core::PanelId;
+use ph_ui::workspace::WindowId;
 use ph_ui::{PhApp, demo_agent, mapping};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -105,6 +107,21 @@ fn focus(h: &mut H, p: PanelId) {
     h.step();
 }
 
+/// Hides every floating window except these (the playlist background stays), then shows them in
+/// the given order, the last one in front.
+fn only(h: &mut H, keep: &[WindowId]) {
+    let ws = &mut h.state_mut().ws;
+    for id in ws.ids().collect::<Vec<_>>() {
+        if id != WindowId::Playlist {
+            ws.hide(id);
+        }
+    }
+    for id in keep {
+        ws.show(*id);
+    }
+    h.step();
+}
+
 #[test]
 fn screenshots_of_the_beat() {
     let (fx, ids) = fixture(true);
@@ -119,7 +136,7 @@ fn screenshots_of_the_beat() {
     app.core.fix_selection();
     let mut h = harness(app, 1600.0, 1000.0);
 
-    // the default layout: browser, rack, playlist, mixer
+    // the default layout: browser docked, playlist as the background, the rack floating
     shot(&mut h, "01-overview-dark");
     focus(&mut h, PanelId::PianoRoll);
     // an agent edits the kick while we look: its notes flash with an author badge
@@ -131,19 +148,42 @@ fn screenshots_of_the_beat() {
     h.state_mut().core.sel.pattern = Some(ids.bassline);
     h.state_mut().core.fix_selection();
     shot(&mut h, "02b-piano-roll-bass");
-    focus(&mut h, PanelId::Inspector);
-    h.state_mut().core.sel.channel = Some(ids.bass);
+    only(&mut h, &[WindowId::Instrument(ids.bass)]);
     shot(&mut h, "03-instrument-synth");
-    h.state_mut().core.sel.channel = Some(ids.kick);
+    only(&mut h, &[WindowId::Instrument(ids.kick)]);
     shot(&mut h, "04-instrument-sampler-waveform");
     focus(&mut h, PanelId::History);
     shot(&mut h, "05-history");
     focus(&mut h, PanelId::Agents);
     shot(&mut h, "06-agents");
+    only(&mut h, &[]);
     focus(&mut h, PanelId::Playlist);
     shot(&mut h, "07-playlist");
-    focus(&mut h, PanelId::Mixer);
+    // the mixer keeps strips and routing; an effect slot opens its own window with the knobs
+    only(&mut h, &[WindowId::Mixer, WindowId::Effect(InsertId(4), 1)]);
     shot(&mut h, "08-mixer-effects");
+
+    // a busy workspace: overlapping windows, two instrument windows open side by side
+    only(
+        &mut h,
+        &[
+            WindowId::ChannelRack,
+            WindowId::PianoRoll,
+            WindowId::Instrument(ids.kick),
+            WindowId::Instrument(ids.bass),
+            WindowId::Effect(InsertId(4), 0),
+        ],
+    );
+    {
+        let ws = &mut h.state_mut().ws;
+        ws.drag_move(WindowId::ChannelRack, 20.0, 20.0);
+        ws.drag_move(WindowId::PianoRoll, 330.0, 170.0);
+        ws.drag_move(WindowId::Instrument(ids.kick), 20.0, 300.0);
+        ws.drag_move(WindowId::Instrument(ids.bass), 560.0, 60.0);
+        ws.drag_move(WindowId::Effect(InsertId(4), 0), 900.0, 330.0);
+        ws.focus(WindowId::Instrument(ids.bass));
+    }
+    shot(&mut h, "12-busy-workspace");
 
     // conflict dialog on top of the history: the human edits the agent's newest note, then
     // asks to undo the agent
@@ -200,8 +240,8 @@ fn wait(h: &mut H, f: &dyn Fn(&PhApp) -> bool) -> bool {
     false
 }
 
-fn docked(h: &H, p: PanelId) -> bool {
-    h.state().dock.iter_all_tabs().any(|(_, t)| *t == p)
+fn shown(h: &H, p: PanelId) -> bool {
+    h.state().panel_visible(p)
 }
 
 #[test]
@@ -230,24 +270,24 @@ fn keys_drive_commands_through_real_egui_events() {
         "space stops it"
     );
 
-    // F7: the piano roll starts as a background tab, so the first press brings it to the front
-    // and the second hides it; the third shows it again.
-    assert!(docked(&h, PanelId::PianoRoll));
+    // F7: the piano roll starts hidden, so the first press shows it in front and the second
+    // hides it; the third shows it again.
+    assert!(!shown(&h, PanelId::PianoRoll));
     h.key_press(Key::F7);
     h.step();
     h.step();
-    assert!(docked(&h, PanelId::PianoRoll));
+    assert!(shown(&h, PanelId::PianoRoll));
     h.key_press(Key::F7);
     h.step();
     h.step();
     assert!(
-        !docked(&h, PanelId::PianoRoll),
+        !shown(&h, PanelId::PianoRoll),
         "second F7 hides the front piano roll"
     );
     h.key_press(Key::F7);
     h.step();
     h.step();
-    assert!(docked(&h, PanelId::PianoRoll));
+    assert!(shown(&h, PanelId::PianoRoll));
 
     // Ctrl+Z reverts the human's last change, Ctrl+Y brings it back
     let before = h.state().core.project.settings.bpm;
@@ -328,12 +368,12 @@ fn big_project_stays_interactive() {
         );
         avg
     };
-    let a = report(&mut h, "100 channels, 50 patterns, default layout");
+    let a = report(&mut h, "100 channels, 50 patterns, default workspace");
     focus(&mut h, PanelId::PianoRoll);
     h.state_mut().core.sel.pattern = Some(ph_core::PatternId(0));
     h.state_mut().core.sel.channel = Some(ph_core::ChannelId(3));
     h.state_mut().core.fix_selection();
-    let b = report(&mut h, "10 000-note piano roll in the full layout");
+    let b = report(&mut h, "10 000-note piano roll in a floating window");
     if h.render().is_ok() {
         // GPU side: scroll the 10 000-note roll every frame and render the whole window offscreen
         let mut gpu = Vec::new();

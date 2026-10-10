@@ -1,5 +1,5 @@
-//! The application shell: menus, transport, docked panels, dialogs, toasts, key handling and
-//! panels that float in their own OS windows.
+//! The application shell: menus, transport, the docked browser, the floating-window workspace,
+//! dialogs, toasts and key handling.
 //!
 //! [`PhApp::draw`] draws one whole frame into a `Ui`, so the real window (`eframe`) and the
 //! offscreen tests share the same code.
@@ -11,64 +11,23 @@ use crate::keymap::{Chord, Context};
 use crate::mapping;
 use crate::panels;
 use crate::settings::{self, Layout};
-use crate::theme::Theme;
+use crate::windows;
+use crate::workspace::{Rect as WRect, WindowId, Workspace};
 use egui::{Align2, Color32, Id, RichText, Ui};
-use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use ph_control::Studio;
 use ph_engine::EngineConfig;
-use std::collections::BTreeSet;
 
 pub struct PhApp {
     pub core: AppCore,
-    pub dock: DockState<PanelId>,
-    pub detached: BTreeSet<PanelId>,
+    /// The window manager; the source of truth for every floating window.
+    pub ws: Workspace,
+    /// No saved layout was found, so the defaults are laid out to the real window size on the
+    /// first frame.
+    fresh_layout: bool,
+    /// Where the workspace was drawn on screen last frame (window rectangles are relative to it).
+    pub work_rect: egui::Rect,
     theme_applied: bool,
     last_title: String,
-}
-
-struct Viewer<'a> {
-    core: &'a mut AppCore,
-    detach: Vec<PanelId>,
-}
-
-pub fn show_panel(ui: &mut Ui, core: &mut AppCore, panel: PanelId) {
-    match panel {
-        PanelId::Browser => panels::browser::show(ui, core),
-        PanelId::ChannelRack => panels::rack::show(ui, core),
-        PanelId::PianoRoll => panels::piano_roll::show(ui, core),
-        PanelId::Playlist => panels::playlist::show(ui, core),
-        PanelId::Mixer => panels::mixer::show(ui, core),
-        PanelId::History => panels::history::show(ui, core),
-        PanelId::Agents => panels::agents::show(ui, core),
-        PanelId::Inspector => panels::inspector::show(ui, core),
-    }
-}
-
-impl TabViewer for Viewer<'_> {
-    type Tab = PanelId;
-
-    fn id(&mut self, tab: &mut PanelId) -> Id {
-        Id::new(("panel", tab.name()))
-    }
-
-    fn title(&mut self, tab: &mut PanelId) -> egui::WidgetText {
-        tab.title().into()
-    }
-
-    fn ui(&mut self, ui: &mut Ui, tab: &mut PanelId) {
-        show_panel(ui, self.core, *tab);
-    }
-
-    fn scroll_bars(&self, _tab: &PanelId) -> [bool; 2] {
-        [false, false] // panels scroll themselves
-    }
-
-    fn context_menu(&mut self, ui: &mut Ui, tab: &mut PanelId, _path: egui_dock::NodePath) {
-        if ui.button("Move to its own window").clicked() {
-            self.detach.push(*tab);
-            ui.close();
-        }
-    }
 }
 
 impl PhApp {
@@ -89,9 +48,10 @@ impl PhApp {
                     .as_deref()
                     .and_then(|c| settings::load_layout(&settings::layout_path(c)))
             });
-        let (dock, detached) = match layout {
-            Some(l) => (l.dock, l.detached),
-            None => (settings::default_dock(), BTreeSet::new()),
+        let fresh_layout = layout.is_none();
+        let ws = match layout {
+            Some(l) => l.workspace,
+            None => Workspace::new(WRect::new(0.0, 0.0, 1400.0, 800.0)),
         };
         let mut core = AppCore::new(
             studio,
@@ -111,62 +71,67 @@ impl PhApp {
         }
         Ok(PhApp {
             core,
-            dock,
-            detached,
+            ws,
+            fresh_layout,
+            work_rect: egui::Rect::NOTHING,
             theme_applied: false,
             last_title: String::new(),
         })
     }
 
-    // ---- panels ----------------------------------------------------------------------------
+    // ---- windows ---------------------------------------------------------------------------
 
-    fn is_docked(&self, p: PanelId) -> bool {
-        self.dock.find_tab(&p).is_some()
+    /// The workspace window a named panel maps onto. The browser is docked, not a window, and
+    /// the old inspector is now the selected channel's instrument window.
+    fn window_of(&self, p: PanelId) -> Option<WindowId> {
+        match p {
+            PanelId::Browser => None,
+            PanelId::ChannelRack => Some(WindowId::ChannelRack),
+            PanelId::PianoRoll => Some(WindowId::PianoRoll),
+            PanelId::Playlist => Some(WindowId::Playlist),
+            PanelId::Mixer => Some(WindowId::Mixer),
+            PanelId::History => Some(WindowId::History),
+            PanelId::Agents => Some(WindowId::Agents),
+            PanelId::Inspector => self.core.sel.channel.map(WindowId::Instrument),
+        }
     }
 
-    pub fn open_panel(&mut self, p: PanelId) {
-        if self.detached.contains(&p) {
-            return; // already in its own window
+    pub fn panel_visible(&self, p: PanelId) -> bool {
+        match (p, self.window_of(p)) {
+            (PanelId::Browser, _) => self.ws.browser.visible,
+            (_, Some(w)) => self.ws.is_visible(w),
+            _ => false,
         }
-        match self.dock.find_tab(&p) {
-            Some(path) => {
-                let _ = self.dock.set_active_tab(path);
-            }
-            None => self.dock.push_to_focused_leaf(p),
+    }
+
+    /// Show a panel's window and bring it to the front.
+    pub fn open_panel(&mut self, p: PanelId) {
+        match self.window_of(p) {
+            Some(w) => self.ws.show(w),
+            None if p == PanelId::Browser => self.ws.browser.visible = true,
+            None => {}
         }
     }
 
     pub fn close_panel(&mut self, p: PanelId) {
-        self.detached.remove(&p);
-        if let Some(path) = self.dock.find_tab(&p) {
-            self.dock.remove_tab(path);
+        match self.window_of(p) {
+            Some(w) => self.ws.hide(w),
+            None if p == PanelId::Browser => self.ws.browser.visible = false,
+            None => {}
         }
     }
 
-    /// F5-F9 behaviour: show the panel, or hide it when it is already the one in front.
+    /// F5-F9 behaviour: show the panel, raise it if it is behind, or hide it when it is
+    /// already the one in front.
     pub fn toggle_panel(&mut self, p: PanelId) {
-        if self.detached.contains(&p) {
-            self.close_panel(p);
-            return;
-        }
-        match self.dock.find_tab(&p) {
-            Some(path) => {
-                let active = self
-                    .dock
-                    .leaf(egui_dock::NodePath {
-                        surface: path.surface,
-                        node: path.node,
-                    })
-                    .ok()
-                    .and_then(|l| l.tabs.get(l.active.0))
-                    .is_some_and(|t| *t == p);
-                if active {
-                    self.close_panel(p);
-                } else {
-                    let _ = self.dock.set_active_tab(path);
-                }
+        match self.window_of(p) {
+            Some(w) => {
+                self.ws.toggle(w);
             }
-            None => self.dock.push_to_focused_leaf(p),
+            None if p == PanelId::Browser => {
+                self.ws.toggle_browser();
+            }
+            None => {}
         }
     }
 
@@ -178,17 +143,61 @@ impl PhApp {
                 PanelAction::Toggle => self.toggle_panel(p),
             }
         }
+        for (w, a) in std::mem::take(&mut self.core.window_requests) {
+            match a {
+                PanelAction::Open => {
+                    if self.object_exists(w) {
+                        self.ws.show(w);
+                    }
+                }
+                PanelAction::Close => self.ws.hide(w),
+                PanelAction::Toggle => {
+                    if self.object_exists(w) {
+                        self.ws.toggle(w);
+                    }
+                }
+            }
+        }
+        if std::mem::take(&mut self.core.close_focused_requested) {
+            self.ws.close_front_object();
+        }
+    }
+
+    fn object_exists(&self, w: WindowId) -> bool {
+        let p = &self.core.project;
+        match w {
+            WindowId::Instrument(c) => p.channels.contains_key(&c),
+            WindowId::Effect(i, s) => p
+                .mixer
+                .get(i.0 as usize)
+                .is_some_and(|m| (s as usize) < m.effects.len()),
+            _ => true,
+        }
+    }
+
+    /// A project snapshot may delete the object behind an instrument or effect window.
+    fn prune_windows(&mut self) {
+        let p = self.core.project.clone();
+        self.ws.prune_objects(
+            |c| p.channels.contains_key(&c),
+            |i, s| {
+                p.mixer
+                    .get(i.0 as usize)
+                    .is_some_and(|m| (s as usize) < m.effects.len())
+            },
+        );
     }
 
     pub fn reset_layout(&mut self) {
-        self.dock = settings::default_dock();
-        self.detached.clear();
+        let a = self.ws.area();
+        let browser = self.ws.browser;
+        self.ws = Workspace::new(a);
+        self.ws.browser = browser;
     }
 
     fn layout(&self) -> Layout {
         Layout {
-            dock: self.dock.clone(),
-            detached: self.detached.clone(),
+            workspace: self.ws.clone(),
         }
     }
 
@@ -233,8 +242,23 @@ impl PhApp {
             self.core.theme.apply(&ctx);
             self.theme_applied = true;
         }
+        if self.fresh_layout {
+            // lay the defaults out for the real window: the screen minus the bars and browser
+            self.fresh_layout = false;
+            let r = ctx.content_rect();
+            let area = WRect::new(
+                0.0,
+                0.0,
+                (r.width() - self.ws.browser.width).max(400.0),
+                (r.height() - 120.0).max(300.0),
+            );
+            let browser = self.ws.browser;
+            self.ws = Workspace::new(area);
+            self.ws.browser = browser;
+        }
         let now = ctx.input(|i| i.time);
         self.core.update(now);
+        self.prune_windows();
         self.process_panel_requests();
         self.handle_keys(&ctx);
 
@@ -248,25 +272,23 @@ impl PhApp {
             )
             .show(ui, |ui| panels::transport::show(ui, &mut self.core));
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        if self.ws.browser.visible {
+            let r = egui::Panel::left("browser")
+                .resizable(true)
+                .default_size(self.ws.browser.width)
+                .size_range(140.0..=640.0)
+                .frame(
+                    egui::Frame::new()
+                        .fill(theme.colors.panel)
+                        .inner_margin(egui::Margin::same(6)),
+                )
+                .show(ui, |ui| panels::browser::show(ui, &mut self.core));
+            self.ws.set_browser_width(r.response.rect.width());
+        }
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(theme.colors.bg))
             .show(ui, |ui| {
-                let mut viewer = Viewer {
-                    core: &mut self.core,
-                    detach: Vec::new(),
-                };
-                DockArea::new(&mut self.dock)
-                    .style(Style::from_egui(ui.style().as_ref()))
-                    .show_add_buttons(false)
-                    .show_close_buttons(true)
-                    .show_inside(ui, &mut viewer);
-                let detach = std::mem::take(&mut viewer.detach);
-                for p in detach {
-                    if let Some(path) = self.dock.find_tab(&p) {
-                        self.dock.remove_tab(path);
-                    }
-                    self.detached.insert(p);
-                }
+                self.work_rect = windows::show_workspace(ui, &mut self.ws, &mut self.core);
             });
 
         self.detached_windows(&ctx);
@@ -285,25 +307,35 @@ impl PhApp {
         }
     }
 
+    /// Windows the user sent to their own OS window (multi-viewport).
     fn detached_windows(&mut self, ctx: &egui::Context) {
-        for p in self.detached.clone() {
+        let detached: Vec<_> = self
+            .ws
+            .ids()
+            .filter(|id| self.ws.get(*id).is_some_and(|w| w.visible && w.detached))
+            .collect();
+        for id in detached {
             let mut close = false;
             let builder = egui::ViewportBuilder::default()
-                .with_title(format!("Patternhaus - {}", p.title()))
+                .with_title(format!(
+                    "Patternhaus - {}",
+                    windows::title_of(&self.core, id)
+                ))
                 .with_inner_size([960.0, 620.0]);
             ctx.show_viewport_immediate(
-                egui::ViewportId::from_hash_of(("panel", p.name())),
+                egui::ViewportId::from_hash_of(("panel", id)),
                 builder,
                 |ui, _class| {
-                    egui::CentralPanel::default().show(ui, |ui| show_panel(ui, &mut self.core, p));
+                    egui::CentralPanel::default()
+                        .show(ui, |ui| windows::show_content(ui, &mut self.core, id));
                     if ui.input(|i| i.viewport().close_requested()) {
                         close = true;
                     }
                 },
             );
             if close {
-                self.detached.remove(&p);
-                self.open_panel(p);
+                self.ws.set_detached(id, false);
+                self.ws.show(id);
             }
         }
     }
@@ -409,9 +441,16 @@ impl PhApp {
             });
             ui.menu_button("View", |ui| {
                 for p in PanelId::ALL {
-                    let open = self.is_docked(p) || self.detached.contains(&p);
+                    if p == PanelId::Inspector {
+                        continue; // instrument windows open from the channel rack
+                    }
+                    let open = self.panel_visible(p);
                     if ui.checkbox(&mut { open }, p.title()).clicked() {
-                        self.toggle_panel(p);
+                        if open {
+                            self.close_panel(p);
+                        } else {
+                            self.open_panel(p);
+                        }
                     }
                 }
                 ui.separator();
@@ -718,9 +757,3 @@ impl eframe::App for PhApp {
         }
     }
 }
-
-#[allow(dead_code)]
-fn _assert_theme_send(_: &Theme) {}
-
-#[allow(dead_code)]
-fn _node(_: NodeIndex) {}

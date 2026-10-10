@@ -6,6 +6,7 @@ use crate::mapping;
 use crate::steps::{self, Step, StepLayout};
 use crate::theme::{lerp, rgb};
 use crate::widgets::{self, Edit, knob, toggle};
+use crate::workspace::WindowId;
 use egui::{
     Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2,
 };
@@ -222,6 +223,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 if nr.clicked() {
                     core.sel.channel = Some(ch.id);
                     core.fix_selection();
+                    core.window_requests
+                        .push((WindowId::Instrument(ch.id), PanelAction::Open));
                 }
                 if nr.double_clicked() {
                     core.panel_requests
@@ -424,8 +427,8 @@ fn channel_menu(
             ui.close();
         }
         if ui.button("Instrument settings").clicked() {
-            core.panel_requests
-                .push((PanelId::Inspector, PanelAction::Open));
+            core.window_requests
+                .push((WindowId::Instrument(ch.id), PanelAction::Open));
             ui.close();
         }
         ui.separator();

@@ -45,7 +45,7 @@ Behaviour is observed by using FL as a normal user. Never decompile it.
 | Files | Export WAV / FLAC | `file.export_audio` (renders through `Host::render`) | |
 | Files | MIDI import / export | `file.import_midi` `file.export_midi` | |
 | History | Undo / redo | `history.undo` `history.redo` `history.undo_author` `history.undo_txn` `history.list` | differs: per-author (DESIGN §3) |
-| UI | Docked panels, floating and multi-monitor windows, saved layouts | `ph-ui` `app` (egui_dock; tab menu "Move to its own window"; layouts per user and per project) | |
+| UI | Floating windows, snapping, maximize, instrument and effect windows, multi-monitor windows, saved layouts | `ph-ui` `workspace` (pure window-manager model) and `windows` (egui rendering): floating, overlapping, snapping windows; maximize; detach to an OS window; layouts per user and per project | |
 | UI | Browser: factory kits, presets, project and library files; click to preview; drag to the rack | `ph-ui` `panels::browser`; `channel.add` | |
 | UI | Step velocity view | `step.set_velocity` | |
 | UI | Dark and light themes, user theme files | TOML tokens, `ph-ui` `theme` | |
