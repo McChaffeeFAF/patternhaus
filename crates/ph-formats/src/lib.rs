@@ -3,9 +3,11 @@
 //! - the native project folder (DESIGN §10): save/load with migrations;
 //! - MIDI file import/export;
 //! - [`decode`]: audio decoding to [`ph_node::SampleData`] (WAV, AIFF, FLAC, MP3, Ogg Vorbis)
-//!   via `symphonia`, plus WAV `smpl` loop points and root key.
+//!   via `symphonia`, plus WAV `smpl` loop points and root key;
+//! - [`encode`]: audio export to WAV (16/24/32f) and FLAC (16/24), TPDF dither at 16 bits.
 
 pub mod decode;
+pub mod encode;
 mod folder;
 mod midi;
 
