@@ -282,8 +282,8 @@ mod tests {
             let bytes = encode_wav(&a, 44100, fmt, 7).unwrap();
             let d = decode_bytes(&bytes, Some("wav")).unwrap();
             assert_eq!(d.channels.len(), 2);
-            for c in 0..2 {
-                for (x, y) in a[c].iter().zip(&d.channels[c]) {
+            for (src, dec) in a.iter().zip(&d.channels) {
+                for (x, y) in src.iter().zip(dec) {
                     assert!((x - y).abs() <= tol + 1e-7, "{fmt:?}: {x} vs {y}");
                 }
             }
