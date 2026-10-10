@@ -1,0 +1,226 @@
+# Patternhaus default keymap. FL Studio's *functional* shortcuts, so muscle memory carries over.
+#
+# Every binding names a command: either a command id from the registry (transport.toggle,
+# history.undo, file.save, ...) with optional `params`, or an `app.*` UI action (panel toggles,
+# piano-roll tools, ...). Edit a copy at <config dir>/patternhaus/keymap.toml: your bindings
+# replace defaults with the same key and context; a binding with command = "" removes one.
+#
+# key      "Ctrl+Shift+Z", "F5", "Space", "Alt+P". Ctrl is Cmd on macOS.
+# context  global (default) | piano_roll | playlist | channel_rack | mixer
+#          Context bindings win over global ones while the pointer is over that panel.
+
+# ---- transport ----
+[[bind]]
+key = "Space"
+command = "transport.toggle"
+
+[[bind]]
+key = "L"
+command = "app.toggle_mode"
+
+[[bind]]
+key = "Ctrl+M"
+command = "app.toggle_metronome"
+
+[[bind]]
+key = "Ctrl+Z"
+command = "history.undo"
+
+[[bind]]
+key = "Ctrl+Y"
+command = "history.redo"
+
+[[bind]]
+key = "Ctrl+Shift+Z"
+command = "history.redo"
+
+# ---- windows (FL: F5 playlist, F6 channel rack, F7 piano roll, F8 browser, F9 mixer) ----
+[[bind]]
+key = "F5"
+command = "app.toggle_panel"
+params = { panel = "playlist" }
+
+[[bind]]
+key = "F6"
+command = "app.toggle_panel"
+params = { panel = "channel_rack" }
+
+[[bind]]
+key = "F7"
+command = "app.toggle_panel"
+params = { panel = "piano_roll" }
+
+[[bind]]
+key = "F8"
+command = "app.toggle_panel"
+params = { panel = "browser" }
+
+[[bind]]
+key = "F9"
+command = "app.toggle_panel"
+params = { panel = "mixer" }
+
+[[bind]]
+key = "F10"
+command = "app.toggle_panel"
+params = { panel = "inspector" }
+
+[[bind]]
+key = "Ctrl+H"
+command = "app.toggle_panel"
+params = { panel = "history" }
+
+[[bind]]
+key = "Ctrl+Shift+A"
+command = "app.toggle_panel"
+params = { panel = "agents" }
+
+# ---- files ----
+[[bind]]
+key = "Ctrl+S"
+command = "file.save"
+
+[[bind]]
+key = "Ctrl+Shift+S"
+command = "app.save_as"
+
+[[bind]]
+key = "Ctrl+O"
+command = "app.open_project"
+
+[[bind]]
+key = "Ctrl+N"
+command = "app.new_project"
+
+[[bind]]
+key = "Ctrl+R"
+command = "app.export"
+
+# ---- patterns ----
+[[bind]]
+key = "Ctrl+L"
+command = "app.clone_pattern"
+
+[[bind]]
+key = "Ctrl+Shift+N"
+command = "pattern.add"
+
+# ---- piano roll ----
+# Tools use Alt because the typing keyboard plays notes on P, D, E, ...
+[[bind]]
+key = "Alt+P"
+command = "app.roll.tool"
+params = { tool = "draw" }
+context = "piano_roll"
+
+[[bind]]
+key = "Alt+E"
+command = "app.roll.tool"
+params = { tool = "select" }
+context = "piano_roll"
+
+[[bind]]
+key = "Alt+D"
+command = "app.roll.tool"
+params = { tool = "delete" }
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+B"
+command = "app.roll.duplicate"
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+Q"
+command = "app.roll.quantize"
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+A"
+command = "app.roll.select_all"
+context = "piano_roll"
+
+[[bind]]
+key = "Delete"
+command = "app.roll.delete"
+context = "piano_roll"
+
+[[bind]]
+key = "Backspace"
+command = "app.roll.delete"
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+C"
+command = "app.roll.copy"
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+X"
+command = "app.roll.cut"
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+V"
+command = "app.roll.paste"
+context = "piano_roll"
+
+[[bind]]
+key = "ArrowUp"
+command = "app.roll.transpose"
+params = { semitones = 1 }
+context = "piano_roll"
+
+[[bind]]
+key = "ArrowDown"
+command = "app.roll.transpose"
+params = { semitones = -1 }
+context = "piano_roll"
+
+[[bind]]
+key = "Shift+ArrowUp"
+command = "app.roll.transpose"
+params = { semitones = 12 }
+context = "piano_roll"
+
+[[bind]]
+key = "Shift+ArrowDown"
+command = "app.roll.transpose"
+params = { semitones = -12 }
+context = "piano_roll"
+
+# ---- playlist ----
+[[bind]]
+key = "Ctrl+B"
+command = "app.playlist.duplicate"
+context = "playlist"
+
+[[bind]]
+key = "Delete"
+command = "app.playlist.delete"
+context = "playlist"
+
+[[bind]]
+key = "Backspace"
+command = "app.playlist.delete"
+context = "playlist"
+
+[[bind]]
+key = "Ctrl+A"
+command = "app.playlist.select_all"
+context = "playlist"
+
+# ---- typing keyboard ----
+[[bind]]
+key = "Ctrl+T"
+command = "app.toggle_typing_piano"
+
+[[bind]]
+key = "Minus"
+command = "app.octave"
+params = { delta = -1 }
+
+[[bind]]
+key = "Equals"
+command = "app.octave"
+params = { delta = 1 }

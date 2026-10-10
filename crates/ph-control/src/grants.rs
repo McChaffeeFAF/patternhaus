@@ -112,6 +112,16 @@ impl Grants {
         }
     }
 
+    /// Every client with a remembered grant, by name. For the app's Agents panel.
+    pub fn clients(&self) -> Vec<(String, Grant)> {
+        self.table
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(n, g)| (n.clone(), g.clone()))
+            .collect()
+    }
+
     /// Sets and remembers a client's grant (persisted when there is a settings file).
     pub fn set(&self, client: &str, grant: Grant) {
         let mut t = self.table.lock().unwrap();
