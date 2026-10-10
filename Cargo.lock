@@ -1095,6 +1095,7 @@ dependencies = [
  "ph-instruments",
  "ph-node",
  "rtrb",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
