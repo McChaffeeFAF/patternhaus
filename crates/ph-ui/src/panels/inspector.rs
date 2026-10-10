@@ -167,26 +167,21 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         });
 
     // dropping a sample on the panel replaces the sampler's sample
-    if ui.input(|i| i.pointer.any_released()) {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            if panel_rect.contains(pos) {
-                if let InstrumentSpec::Sampler {
-                    root_key, params, ..
-                } = &ch.instrument
-                {
-                    if let Some(d) = egui::DragAndDrop::take_payload::<Dragged>(ui.ctx()) {
-                        if let Kind::Sample { reference } = &d.kind {
-                            let inst = InstrumentSpec::Sampler {
-                                sample: Some(reference.clone()),
-                                root_key: *root_key,
-                                params: params.clone(),
-                            };
-                            core.send(mapping::channel_set_instrument(ch.id, &inst));
-                        }
-                    }
-                }
-            }
-        }
+    if ui.input(|i| i.pointer.any_released())
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+        && panel_rect.contains(pos)
+        && let InstrumentSpec::Sampler {
+            root_key, params, ..
+        } = &ch.instrument
+        && let Some(d) = egui::DragAndDrop::take_payload::<Dragged>(ui.ctx())
+        && let Kind::Sample { reference } = &d.kind
+    {
+        let inst = InstrumentSpec::Sampler {
+            sample: Some(reference.clone()),
+            root_key: *root_key,
+            params: params.clone(),
+        };
+        core.send(mapping::channel_set_instrument(ch.id, &inst));
     }
 }
 

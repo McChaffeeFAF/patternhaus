@@ -20,10 +20,10 @@ pub fn keymap_path(config: &Path) -> PathBuf {
     config.join("keymap.toml")
 }
 pub fn layout_path(config: &Path) -> PathBuf {
-    config.join("layout.json")
+    config.join("layout.ron")
 }
 pub fn project_layout_path(project_dir: &Path) -> PathBuf {
-    project_dir.join("layout.json")
+    project_dir.join("layout.ron")
 }
 pub fn settings_path(config: &Path) -> PathBuf {
     config.join("settings.toml")
@@ -115,13 +115,21 @@ pub fn save_layout(path: &Path, layout: &Layout) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    let text = serde_json::to_string_pretty(layout).map_err(|e| e.to_string())?;
+    // RON, not JSON: the dock tree holds `Rect::NOTHING` (infinite floats) that JSON cannot carry.
+    let text = ron::ser::to_string_pretty(layout, ron::ser::PrettyConfig::default())
+        .map_err(|e| e.to_string())?;
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
 pub fn load_layout(path: &Path) -> Option<Layout> {
     let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    match ron::from_str(&text) {
+        Ok(l) => Some(l),
+        Err(e) => {
+            eprintln!("ignoring layout {}: {e}", path.display());
+            None
+        }
+    }
 }
 
 /// The layout a fresh install opens with.
@@ -165,7 +173,7 @@ mod tests {
     #[test]
     fn layouts_round_trip_through_json() {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("layout.json");
+        let path = dir.path().join("layout.ron");
         let layout = Layout {
             dock: default_dock(),
             detached: [PanelId::Mixer].into(),

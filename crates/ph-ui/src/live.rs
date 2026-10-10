@@ -234,7 +234,7 @@ fn run(
             ctx.request_repaint();
         } else {
             idle_polls += 1;
-            if idle_polls % 30 == 0 {
+            if idle_polls.is_multiple_of(30) {
                 ctx.request_repaint(); // keep DSP load / notices fresh when idle
             }
         }

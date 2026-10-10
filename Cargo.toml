@@ -39,6 +39,7 @@ eframe = { version = "0.36", default-features = false, features = ["wgpu", "defa
 egui_dock = { version = "0.21", features = ["serde"] }
 egui_kittest = { version = "0.36", features = ["wgpu", "snapshot"] }
 toml = "1"
+ron = "0.12"
 
 [profile.dev]
 # DSP is unusably slow unoptimised; keep debug info but optimise a little, and dependencies fully.

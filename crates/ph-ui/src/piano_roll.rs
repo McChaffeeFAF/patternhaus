@@ -300,6 +300,7 @@ pub struct PianoRollState {
     /// Pattern length in ticks, for drawing the end marker.
     pub pattern_len: Tick,
     lane_h: f32,
+    needs_fit: bool,
 }
 
 impl Default for PianoRollState {
@@ -320,6 +321,7 @@ impl Default for PianoRollState {
             ticks_per_bar: 3840,
             pattern_len: 3840,
             lane_h: VEL_LANE_H,
+            needs_fit: true,
         }
     }
 }
@@ -330,6 +332,7 @@ impl PianoRollState {
         if self.pattern != Some(pattern) || self.channel != Some(channel) {
             self.selection.clear();
             self.drag = Drag::None;
+            self.needs_fit = true;
         }
         self.pattern = Some(pattern);
         self.channel = Some(channel);
@@ -361,6 +364,27 @@ impl PianoRollState {
                 self.want.clear();
             }
         }
+    }
+
+    /// Frames the pattern: whole length across the grid, notes centred vertically.
+    pub fn fit(&mut self, grid: Vec2) {
+        let len = self.pattern_len.max(self.ticks_per_bar).max(1) as f64;
+        self.view.px_per_tick = ((grid.x as f64 - 24.0) / len).clamp(0.01, 0.5);
+        self.view.x0 = 0.0;
+        let (lo, hi) = self
+            .cache
+            .notes
+            .iter()
+            .fold((127u8, 0u8), |(lo, hi), n| (lo.min(n.key), hi.max(n.key)));
+        let centre = if self.cache.notes.is_empty() {
+            60.0
+        } else {
+            (lo as f64 + hi as f64) / 2.0
+        };
+        let rows = (grid.y / self.view.key_h) as f64;
+        self.view.y0 = centre + rows / 2.0 + 0.5;
+        self.view.clamp_y(grid.y);
+        self.needs_fit = false;
     }
 
     /// The effective grid in ticks.
@@ -873,6 +897,9 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         Pos2::new(grid_rect.left(), whole.top()),
         Pos2::new(grid_rect.right(), grid_rect.top()),
     );
+    if st.needs_fit {
+        st.fit(grid_rect.size());
+    }
     st.view.clamp_y(grid_rect.height());
 
     // ---- input -------------------------------------------------------------------------
@@ -950,10 +977,10 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                 }
             }
         }
-        if released[0] {
-            if let Some(key) = ui.data_mut(|d| d.remove_temp::<u8>(resp.id)) {
-                out.push(PrOut::Preview { key, on: false });
-            }
+        if released[0]
+            && let Some(key) = ui.data_mut(|d| d.remove_temp::<u8>(resp.id))
+        {
+            out.push(PrOut::Preview { key, on: false });
         }
     }
 
@@ -1002,9 +1029,9 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     for i in first.max(0)..=last {
         let t = i as Tick * sub;
         let x = origin.x + view.x_of(t as f64);
-        let c = if t % bar == 0 {
+        let c = if t.is_multiple_of(bar) {
             col.grid_bar
-        } else if t % 960 == 0 {
+        } else if t.is_multiple_of(960) {
             col.grid_major
         } else {
             col.grid_minor
@@ -1029,31 +1056,31 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     );
 
     // ghost notes from other channels
-    if st.ghosts {
-        if let Ok(pat) = cx.project.pattern(pattern) {
-            let mut mesh = egui::Mesh::default();
-            let ghost = col.ghost.gamma_multiply(0.45);
-            for (ch, notes) in &pat.notes {
-                if *ch == channel {
-                    continue;
-                }
-                for n in notes.values() {
-                    let r = view
-                        .note_rect(n.key, n.start, n.length)
-                        .translate(origin.to_vec2());
-                    if r.intersects(grid_rect) {
-                        mesh.add_colored_rect(
-                            Rect::from_min_max(
-                                r.min,
-                                Pos2::new(r.max.x.max(r.min.x + 1.0), r.max.y - 1.0),
-                            ),
-                            ghost,
-                        );
-                    }
+    if st.ghosts
+        && let Ok(pat) = cx.project.pattern(pattern)
+    {
+        let mut mesh = egui::Mesh::default();
+        let ghost = col.ghost.gamma_multiply(0.45);
+        for (ch, notes) in &pat.notes {
+            if *ch == channel {
+                continue;
+            }
+            for n in notes.values() {
+                let r = view
+                    .note_rect(n.key, n.start, n.length)
+                    .translate(origin.to_vec2());
+                if r.intersects(grid_rect) {
+                    mesh.add_colored_rect(
+                        Rect::from_min_max(
+                            r.min,
+                            Pos2::new(r.max.x.max(r.min.x + 1.0), r.max.y - 1.0),
+                        ),
+                        ghost,
+                    );
                 }
             }
-            gp.add(Shape::mesh(mesh));
         }
+        gp.add(Shape::mesh(mesh));
     }
 
     // notes

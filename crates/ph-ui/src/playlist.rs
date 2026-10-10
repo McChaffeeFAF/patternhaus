@@ -530,12 +530,12 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             if (released[0] || released[1]) && st.is_dragging() {
                 res.out.extend(st.release(rel, cx.project));
             }
-            if resp.double_clicked() && grid.contains(pp) {
-                if let Some((id, _)) = st.clip_at(rel) {
-                    if let Some(c) = st.clip(id) {
-                        res.out.push(PlOut::OpenPattern(c.pattern));
-                    }
-                }
+            if resp.double_clicked()
+                && grid.contains(pp)
+                && let Some((id, _)) = st.clip_at(rel)
+                && let Some(c) = st.clip(id)
+            {
+                res.out.push(PlOut::OpenPattern(c.pattern));
             }
         }
     }
@@ -644,7 +644,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
     while (n * step) as f64 <= t1 {
         let t = n * step;
         let x = grid.left() + st.x_of(t as f64);
-        let c = if t % bar == 0 {
+        let c = if t.is_multiple_of(bar) {
             col.grid_bar
         } else {
             col.grid_minor

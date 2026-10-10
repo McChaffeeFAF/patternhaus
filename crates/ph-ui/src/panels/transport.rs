@@ -86,12 +86,11 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         if r.changed() {
             ui.data_mut(|d| d.insert_temp(id, v));
         }
-        if r.drag_stopped() || r.lost_focus() {
-            if let Some(v) = ui.data_mut(|d| d.remove_temp::<f64>(id)) {
-                if (v - bpm).abs() > 1e-9 {
-                    core.send(mapping::set_tempo(v));
-                }
-            }
+        if (r.drag_stopped() || r.lost_focus())
+            && let Some(v) = ui.data_mut(|d| d.remove_temp::<f64>(id))
+            && (v - bpm).abs() > 1e-9
+        {
+            core.send(mapping::set_tempo(v));
         }
         r.on_hover_text("Drag or type a tempo");
 
@@ -140,15 +139,14 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             .small_button("Clone")
             .on_hover_text("Clone pattern (Ctrl+L)")
             .clicked()
+            && let Some(p) = core.sel.pattern
         {
-            if let Some(p) = core.sel.pattern {
-                core.send(mapping::pattern_clone(p));
-            }
+            core.send(mapping::pattern_clone(p));
         }
-        if ui.small_button("Rename").clicked() {
-            if let Some(p) = core.sel.pattern {
-                core.open_rename(crate::core::RenameTarget::Pattern(p));
-            }
+        if ui.small_button("Rename").clicked()
+            && let Some(p) = core.sel.pattern
+        {
+            core.open_rename(crate::core::RenameTarget::Pattern(p));
         }
         ui.separator();
 
@@ -221,24 +219,24 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     });
 
     // non-blocking notice: the engine thinks a bigger buffer would help
-    if let Some(frames) = live.stats.suggest_buffer_frames {
-        if !core.notice_dismissed {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!(
-                        "Audio is struggling at {} frames. Use a larger buffer ({frames})?",
-                        live.stats.buffer_frames
-                    ))
-                    .color(c.warn),
-                );
-                if ui.small_button(format!("Use {frames}")).clicked() {
-                    core.set_buffer(frames);
-                }
-                if ui.small_button("Dismiss").clicked() {
-                    core.notice_dismissed = true;
-                }
-            });
-        }
+    if let Some(frames) = live.stats.suggest_buffer_frames
+        && !core.notice_dismissed
+    {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "Audio is struggling at {} frames. Use a larger buffer ({frames})?",
+                    live.stats.buffer_frames
+                ))
+                .color(c.warn),
+            );
+            if ui.small_button(format!("Use {frames}")).clicked() {
+                core.set_buffer(frames);
+            }
+            if ui.small_button("Dismiss").clicked() {
+                core.notice_dismissed = true;
+            }
+        });
     }
 }
 

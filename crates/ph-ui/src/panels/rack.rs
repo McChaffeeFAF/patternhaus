@@ -89,10 +89,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         });
         ui.label("Steps");
         let r = ui.add(egui::DragValue::new(&mut pat_steps).range(1..=256));
-        if r.drag_stopped() || r.lost_focus() {
-            if pat_steps != n_steps {
-                core.send(mapping::pattern_length_steps(pattern, pat_steps));
-            }
+        if (r.drag_stopped() || r.lost_focus()) && pat_steps != n_steps {
+            core.send(mapping::pattern_length_steps(pattern, pat_steps));
         }
         if toggle(
             ui,
@@ -177,22 +175,22 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 if gr.drag_started() {
                     core.rack.reorder = Some(ch.id);
                 }
-                if core.rack.reorder == Some(ch.id) {
-                    if let Some(pp) = ui.input(|i| i.pointer.latest_pos()) {
-                        let target = (((pp.y - panel_rect.top()) / ROW_H).max(0.0) as usize)
-                            .min(channels.len() - 1);
-                        let y = row_rect.top() + (target as f32 - idx as f32) * ROW_H;
-                        ui.painter().line_segment(
-                            [
-                                Pos2::new(row_rect.left(), y),
-                                Pos2::new(row_rect.left() + 300.0, y),
-                            ],
-                            Stroke::new(2.0, theme.colors.accent),
-                        );
-                        if gr.drag_stopped() || ui.input(|i| i.pointer.any_released()) {
-                            reorder_to = Some((ch.id, target));
-                            core.rack.reorder = None;
-                        }
+                if core.rack.reorder == Some(ch.id)
+                    && let Some(pp) = ui.input(|i| i.pointer.latest_pos())
+                {
+                    let target = (((pp.y - panel_rect.top()) / ROW_H).max(0.0) as usize)
+                        .min(channels.len() - 1);
+                    let y = row_rect.top() + (target as f32 - idx as f32) * ROW_H;
+                    ui.painter().line_segment(
+                        [
+                            Pos2::new(row_rect.left(), y),
+                            Pos2::new(row_rect.left() + 300.0, y),
+                        ],
+                        Stroke::new(2.0, theme.colors.accent),
+                    );
+                    if gr.drag_stopped() || ui.input(|i| i.pointer.any_released()) {
+                        reorder_to = Some((ch.id, target));
+                        core.rack.reorder = None;
                     }
                 }
                 x += 16.0;
@@ -346,26 +344,23 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
 
     // dropping a browser entry on the rack makes a channel
     let released = ui.input(|i| i.pointer.any_released());
-    if released {
-        if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            if panel_rect.contains(pos) {
-                if let Some(d) = egui::DragAndDrop::take_payload::<Dragged>(ui.ctx()) {
-                    core.add_channel_from(&d.name, &d.kind);
-                }
-            }
-        }
+    if released
+        && let Some(pos) = ui.input(|i| i.pointer.interact_pos())
+        && panel_rect.contains(pos)
+        && let Some(d) = egui::DragAndDrop::take_payload::<Dragged>(ui.ctx())
+    {
+        core.add_channel_from(&d.name, &d.kind);
     }
-    if egui::DragAndDrop::has_payload_of_type::<Dragged>(ui.ctx()) {
-        if let Some(pos) = ui.input(|i| i.pointer.hover_pos()) {
-            if panel_rect.contains(pos) {
-                ui.painter().rect_stroke(
-                    panel_rect,
-                    CornerRadius::same(4),
-                    Stroke::new(2.0, theme.colors.accent),
-                    StrokeKind::Inside,
-                );
-            }
-        }
+    if egui::DragAndDrop::has_payload_of_type::<Dragged>(ui.ctx())
+        && let Some(pos) = ui.input(|i| i.pointer.hover_pos())
+        && panel_rect.contains(pos)
+    {
+        ui.painter().rect_stroke(
+            panel_rect,
+            CornerRadius::same(4),
+            Stroke::new(2.0, theme.colors.accent),
+            StrokeKind::Inside,
+        );
     }
 }
 
@@ -477,48 +472,46 @@ fn step_row(
             && (primary_pressed || secondary_pressed)
             && core.rack.paint.is_none()
             && core.rack.vel.is_none()
+            && let Some(s) = over(p)
         {
-            if let Some(s) = over(p) {
-                core.sel.channel = Some(ch.id);
-                core.fix_selection();
-                if core.rack.velocity_view && primary_pressed && row[s as usize].is_on() {
-                    core.rack.vel = Some(VelDrag {
-                        pattern,
-                        channel: ch.id,
-                        step: s,
-                        value: ((rect.bottom() - p.y) / rect.height()).clamp(0.0, 1.0),
-                    });
+            core.sel.channel = Some(ch.id);
+            core.fix_selection();
+            if core.rack.velocity_view && primary_pressed && row[s as usize].is_on() {
+                core.rack.vel = Some(VelDrag {
+                    pattern,
+                    channel: ch.id,
+                    step: s,
+                    value: ((rect.bottom() - p.y) / rect.height()).clamp(0.0, 1.0),
+                });
+            } else {
+                let value = if secondary_pressed {
+                    false
                 } else {
-                    let value = if secondary_pressed {
-                        false
-                    } else {
-                        !row[s as usize].is_on()
-                    };
-                    core.rack.paint = Some(Paint {
-                        pattern,
-                        channel: ch.id,
-                        value,
-                        touched: [s].into(),
-                    });
-                    // let the user hear the pad (not for turning steps off)
-                    if value {
-                        core.preview(ch.id, default_key(ch), true);
-                    }
+                    !row[s as usize].is_on()
+                };
+                core.rack.paint = Some(Paint {
+                    pattern,
+                    channel: ch.id,
+                    value,
+                    touched: [s].into(),
+                });
+                // let the user hear the pad (not for turning steps off)
+                if value {
+                    core.preview(ch.id, default_key(ch), true);
                 }
             }
         }
         if down {
-            if let Some(pt) = &mut core.rack.paint {
-                if pt.channel == ch.id {
-                    if let Some(s) = over(Pos2::new(p.x, rect.center().y)) {
-                        pt.touched.insert(s);
-                    }
-                }
+            if let Some(pt) = &mut core.rack.paint
+                && pt.channel == ch.id
+                && let Some(s) = over(Pos2::new(p.x, rect.center().y))
+            {
+                pt.touched.insert(s);
             }
-            if let Some(v) = &mut core.rack.vel {
-                if v.channel == ch.id {
-                    v.value = ((rect.bottom() - p.y) / rect.height()).clamp(0.0, 1.0);
-                }
+            if let Some(v) = &mut core.rack.vel
+                && v.channel == ch.id
+            {
+                v.value = ((rect.bottom() - p.y) / rect.height()).clamp(0.0, 1.0);
             }
         }
     }
@@ -562,17 +555,17 @@ fn step_row(
             Pos2::new(x, rect.top()),
             Vec2::new(lay.w - 2.0, rect.height()),
         );
-        let group_dark = (i / 4) % 2 == 0;
+        let group_dark = (i / 4).is_multiple_of(2);
         let base = if group_dark {
             theme.colors.key_white
         } else {
             theme.colors.row_alt
         };
         let mut on = s.is_on();
-        if let Some(p) = pt {
-            if p.touched.contains(&i) {
-                on = p.value;
-            }
+        if let Some(p) = pt
+            && p.touched.contains(&i)
+        {
+            on = p.value;
         }
         painter.rect_filled(r, CornerRadius::same(3), base);
         if core.rack.velocity_view {

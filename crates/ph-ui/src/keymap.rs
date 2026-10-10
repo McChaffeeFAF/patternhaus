@@ -181,10 +181,10 @@ impl Keymap {
                 .iter()
                 .find(|b| b.context == ctx && b.chord.matches(key, mods))
         };
-        if panel != Context::Global {
-            if let Some(b) = find(panel) {
-                return Some(b);
-            }
+        if panel != Context::Global
+            && let Some(b) = find(panel)
+        {
+            return Some(b);
         }
         find(Context::Global)
     }
@@ -214,11 +214,11 @@ impl Keymap {
                 "key = \"{}\"\ncommand = \"{}\"\n",
                 b.chord, b.command
             ));
-            if !b.params.is_null() {
-                if let Ok(t) = toml::to_string(&b.params) {
-                    let inline = t.trim().replace('\n', ", ");
-                    s.push_str(&format!("params = {{ {inline} }}\n"));
-                }
+            if !b.params.is_null()
+                && let Ok(t) = toml::to_string(&b.params)
+            {
+                let inline = t.trim().replace('\n', ", ");
+                s.push_str(&format!("params = {{ {inline} }}\n"));
             }
             if b.context != Context::Global {
                 let c = match b.context {

@@ -175,6 +175,61 @@ pub fn pump_until(app: &mut PhApp, ms: u64, mut done: impl FnMut(&mut PhApp) -> 
     false
 }
 
+/// 100 channels, 50 patterns, a pattern with 10 000 notes and a long playlist.
+pub fn big_project() -> Project {
+    use ph_commands::{NullHost, Registry, Session};
+    use serde_json::json;
+    use std::sync::Arc;
+    let mut s = Session::new(Arc::new(Registry::with_builtins()), Project::empty("Big"));
+    let mut h = NullHost::default();
+    let who = Caller::human();
+    let mut run = |c: &str, p: serde_json::Value| {
+        s.execute(&who, Request::new(c, p), &mut h).unwrap();
+    };
+    for _ in 0..50 {
+        run("pattern.add", json!({}));
+    }
+    for i in 0..100 {
+        let inst = if i % 4 == 3 {
+            json!({"kind": "synth", "preset": "bass/sub"})
+        } else {
+            json!({"kind": "sampler", "sample": "factory:drums/haus808/kick", "root_key": 60})
+        };
+        run(
+            "channel.add",
+            json!({"name": format!("Channel {}", i + 1), "instrument": inst, "insert": 1 + (i % 32)}),
+        );
+    }
+    let total = 64u64 * 3840;
+    let notes: Vec<_> = (0..10_000u64)
+        .map(|i| {
+            json!({"key": 36 + ((i * 31) % 61) as u8,
+                   "start": (i * 7919 * 15) % total / 120 * 120,
+                   "length": 120 + (i % 4) * 120,
+                   "velocity": 0.3 + (i % 7) as f32 * 0.1})
+        })
+        .collect();
+    run("pattern.set_length", json!({"pattern": 0, "length": total}));
+    run(
+        "note.add",
+        json!({"pattern": 0, "channel": 3, "notes": notes}),
+    );
+    for ch in 0..100u32 {
+        let steps: Vec<bool> = (0..16).map(|s| (s + ch) % 4 == 0).collect();
+        run(
+            "step.set",
+            json!({"pattern": 1, "channel": ch, "steps": steps}),
+        );
+    }
+    for bar in 0..64u64 {
+        run(
+            "playlist.add_clip",
+            json!({"track": bar % 8, "pattern": bar % 50, "start": bar * 3840}),
+        );
+    }
+    s.project().as_ref().clone()
+}
+
 /// Waits until every command the UI sent has been answered and its snapshot arrived.
 pub fn settle(app: &mut PhApp) {
     pump_until(app, 400, |a| a.core.dispatch.in_flight() == 0);

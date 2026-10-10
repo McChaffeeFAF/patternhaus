@@ -314,8 +314,15 @@ impl AppCore {
     }
 
     pub fn toast(&mut self, kind: ToastKind, text: impl Into<String>) {
+        let text = text.into();
+        if let Some(last) = self.toasts.last_mut()
+            && last.text == text
+        {
+            last.at = self.now; // same message again: keep one toast, refresh its timer
+            return;
+        }
         self.toasts.push(Toast {
-            text: text.into(),
+            text,
             kind,
             at: self.now,
         });
@@ -425,27 +432,26 @@ impl AppCore {
         {
             self.sel.pattern = p.pattern_order.first().copied();
         }
-        if let (Some(pat), Some(ch)) = (self.sel.pattern, self.sel.channel) {
-            if self.roll.pattern.is_none()
+        if let (Some(pat), Some(ch)) = (self.sel.pattern, self.sel.channel)
+            && (self.roll.pattern.is_none()
                 || self.roll.pattern != Some(pat)
-                || self.roll.channel != Some(ch)
-            {
-                self.roll.focus(pat, ch);
-            }
+                || self.roll.channel != Some(ch))
+        {
+            self.roll.focus(pat, ch);
         }
     }
 
     fn on_done(&mut self, d: Done) {
         match d.result {
             Ok(ex) => {
-                if d.follow == Follow::SelectNotes {
-                    if let Some(ids) = ex.result.get("notes").and_then(|v| v.as_array()) {
-                        self.roll.want = ids
-                            .iter()
-                            .filter_map(|v| v.as_u64())
-                            .map(|n| NoteId(n as u32))
-                            .collect();
-                    }
+                if d.follow == Follow::SelectNotes
+                    && let Some(ids) = ex.result.get("notes").and_then(|v| v.as_array())
+                {
+                    self.roll.want = ids
+                        .iter()
+                        .filter_map(|v| v.as_u64())
+                        .map(|n| NoteId(n as u32))
+                        .collect();
                 }
                 if d.request.command == "file.save" || d.request.command == "file.save_as" {
                     self.dirty = false;

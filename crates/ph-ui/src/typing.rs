@@ -128,7 +128,7 @@ mod tests {
         assert_eq!(midi_key(Key::U, 5), Some(83));
         assert_eq!(midi_key(Key::Z, 4), Some(48));
         assert_eq!(midi_key(Key::A, 5), None);
-        assert_eq!(midi_key(Key::P, 8), None); // 8*12+28 > 127
+        assert_eq!(midi_key(Key::P, 9), None); // 9*12+28 > 127
     }
 
     #[test]

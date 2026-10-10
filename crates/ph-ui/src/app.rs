@@ -594,14 +594,13 @@ impl PhApp {
                     .default_width(560.0)
                     .show(ctx, |ui| {
                         ui.label("Click Rebind, then press the new key. Changes apply at once; Save writes your keymap file.");
-                        if let Some(i) = capturing {
-                            if let Some(chord) = captured_chord(ui) {
+                        if let Some(i) = capturing
+                            && let Some(chord) = captured_chord(ui) {
                                 if let Some(old) = self.core.keymap.bindings.get(i).cloned() {
                                     self.core.keymap.rebind(&old, chord);
                                 }
                                 capturing = None;
                             }
-                        }
                         egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
                             egui::Grid::new("keymap_grid").striped(true).show(ui, |ui| {
                                 for (i, b) in self.core.keymap.bindings.clone().iter().enumerate() {

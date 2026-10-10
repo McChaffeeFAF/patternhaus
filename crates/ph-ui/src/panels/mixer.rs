@@ -40,25 +40,39 @@ fn insert_label(i: usize, m: &MixerInsert) -> String {
 
 pub fn show(ui: &mut Ui, core: &mut AppCore) {
     super::track_hover(ui, core, crate::keymap::Context::Mixer);
-    let theme = core.theme.clone();
     let project = core.project.clone();
     let live = core.live();
     let n = project.mixer.len();
-    let _ = &theme;
-    let strip_h = (ui.available_height() * 0.52).clamp(250.0, 340.0);
+    let strip_h = (ui.available_height() - 22.0).clamp(220.0, 380.0);
 
-    egui::ScrollArea::horizontal()
-        .id_salt("mixer_strips")
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            ui.horizontal_top(|ui| {
-                for i in 0..n {
-                    strip(ui, core, i, strip_h, &live);
-                }
-            });
-        });
-    ui.separator();
-    detail(ui, core);
+    // strips on the left, effects / sends / the selected effect's knobs on the right
+    let full = ui.available_size();
+    let detail_w = (full.x * 0.42).clamp(300.0, 560.0).min(full.x * 0.6);
+    let strips_w = (full.x - detail_w - 10.0).max(120.0);
+    ui.horizontal_top(|ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(strips_w, full.y),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                egui::ScrollArea::horizontal()
+                    .id_salt("mixer_strips")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.horizontal_top(|ui| {
+                            for i in 0..n {
+                                strip(ui, core, i, strip_h, &live);
+                            }
+                        });
+                    });
+            },
+        );
+        ui.separator();
+        ui.allocate_ui_with_layout(
+            egui::vec2(detail_w, full.y),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| detail(ui, core),
+        );
+    });
 }
 
 fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::Live) {
@@ -263,7 +277,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    RichText::new(format!("Insert {ins}: {}", insert_label(ins, &m))).strong(),
+                    RichText::new(format!("{}  (insert {ins})", insert_label(ins, &m))).strong(),
                 );
                 if ins > 0 {
                     let mut route = m.route_to_master;
@@ -306,9 +320,8 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                 }
             });
             ui.separator();
-            ui.columns(2, |cols| {
+            {
                 // ---- effect slots
-                let ui = &mut cols[0];
                 widgets::section_label(ui, "EFFECTS", &theme);
                 for (idx, slot) in m.effects.iter().enumerate() {
                     let name = match &slot.effect {
@@ -419,7 +432,8 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                 });
 
                 // ---- effect panel
-                let ui = &mut cols[1];
+                ui.add_space(8.0);
+                widgets::section_label(ui, "EFFECT PARAMETERS", &theme);
                 match core
                     .sel
                     .effect
@@ -433,7 +447,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         );
                     }
                 }
-            });
+            }
         });
     let _ = (PanelId::Mixer, PanelAction::Open);
 }

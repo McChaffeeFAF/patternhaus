@@ -132,25 +132,25 @@ fn drag_logic(
         });
     }
     let mut state: Option<DragState> = ui.data(|d| d.get_temp(id));
-    if resp.dragged() {
-        if let Some(s) = state.as_mut() {
-            let fine = if ui.input(|i| i.modifiers.shift) {
-                0.1
-            } else {
-                1.0
-            };
-            let dy = -resp.drag_delta().y as f64;
-            s.value = (s.value + dy / pixels_for_full_range * (max - min) * fine).clamp(min, max);
-            ui.data_mut(|d| d.insert_temp(id, *s));
-            return (Edit::Live(s.value), s.value);
-        }
+    if resp.dragged()
+        && let Some(s) = state.as_mut()
+    {
+        let fine = if ui.input(|i| i.modifiers.shift) {
+            0.1
+        } else {
+            1.0
+        };
+        let dy = -resp.drag_delta().y as f64;
+        s.value = (s.value + dy / pixels_for_full_range * (max - min) * fine).clamp(min, max);
+        ui.data_mut(|d| d.insert_temp(id, *s));
+        return (Edit::Live(s.value), s.value);
     }
     if resp.drag_stopped() {
         ui.data_mut(|d| d.remove::<DragState>(id));
-        if let Some(s) = state {
-            if (s.value - s.start).abs() > f64::EPSILON {
-                return (Edit::Commit(s.value), s.value);
-            }
+        if let Some(s) = state
+            && (s.value - s.start).abs() > f64::EPSILON
+        {
+            return (Edit::Commit(s.value), s.value);
         }
     }
     (Edit::None, state.map_or(value, |s| s.value))
