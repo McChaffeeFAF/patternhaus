@@ -1,0 +1,13 @@
+[package]
+name = "ph-formats"
+description = "Patternhaus file formats: audio decoding (and, later, project, MIDI and interchange formats)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ph-node.workspace = true
+symphonia.workspace = true
+thiserror.workspace = true
