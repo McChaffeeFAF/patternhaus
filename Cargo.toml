@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/McChaffeeFAF/patternhaus"
+rust-version = "1.90"
+
+[workspace.dependencies]
+ph-core = { path = "crates/ph-core" }
+ph-node = { path = "crates/ph-node" }
+ph-commands = { path = "crates/ph-commands" }
+ph-engine = { path = "crates/ph-engine" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+schemars = "1"
+thiserror = "2"
+
+[profile.dev]
+# DSP is unusably slow unoptimised; keep debug info but optimise a little, and dependencies fully.
+opt-level = 1
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+debug = "line-tables-only"

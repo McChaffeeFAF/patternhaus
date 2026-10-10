@@ -1,0 +1,13 @@
+[package]
+name = "ph-engine"
+description = "Patternhaus audio engine: render plans, graph scheduling, real-time and offline rendering."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ph-core.workspace = true
+ph-node.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "ph-node"
+description = "Patternhaus processor interface: the contract every built-in instrument and effect implements."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true

@@ -64,6 +64,7 @@ ph-engine (graph, scheduler, render) ┤
    └─ ph-audio-io (devices, MIDI)    │
 ph-formats (project, WAV/FLAC/MP3/OGG, MIDI, DAWproject, FLP import)
 ph-analysis (LUFS, spectrum, onsets, key/chords, mix health, snapshot images: agent perception, section 5)
+ph-node (Processor trait: the internal plugin interface every built-in implements; mirrors CLAP)
 ph-sampler + ph-sampler-formats (SFZ, SF2, DS, EXS, NKI)  → also shipped as a CLAP/VST3 plugin
 ph-script (Luau host + KSP compatibility interpreter, section 8)
 ph-plugin-server (out-of-process plugin host binary + protocol: isolation, 32-bit bridge, VST2 add-on, section 6)
