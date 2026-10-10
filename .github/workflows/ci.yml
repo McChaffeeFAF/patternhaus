@@ -20,6 +20,9 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
       - run: cargo xtask check
+      - uses: Swatinem/rust-cache@v2
+      - name: factory assets match soundgen output
+        run: cargo run --release -p soundgen -- check
 
   test:
     name: test (${{ matrix.os }})

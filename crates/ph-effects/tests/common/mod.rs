@@ -322,8 +322,12 @@ pub fn stress_no_alloc(make: &dyn Fn() -> Box<dyn Processor>, input: bool, notes
     }
 }
 
-/// Feed a loud signal, then silence; processing the silence must not be slower than the
-/// loud part (subnormal numbers in decaying state are 10–100× slower on x86).
+/// Feed a loud signal, then a long silence. The decaying tail must never produce a subnormal
+/// sample (subnormals are 10–100× slower on x86 and mean state is not being flushed).
+///
+/// That check is deterministic. The wall-clock comparison (silence must not cost more than
+/// 2× the loud part) is noisy on shared CI runners, so it only runs when
+/// `PH_TIMING_TESTS=1` is set, e.g. locally before a DSP change is merged.
 pub fn assert_no_denormal_slowdown(make: &dyn Fn() -> Box<dyn Processor>, notes: bool) {
     use std::time::Instant;
     let block = 256;
@@ -362,9 +366,9 @@ pub fn assert_no_denormal_slowdown(make: &dyn Fn() -> Box<dyn Processor>, notes:
     let _ = render(p.as_mut(), loud_frames, block, &ev, Some(&loud), None);
     let loud_per_sample = t0.elapsed().as_secs_f64() / loud_frames as f64;
     // skip the first second of the tail (still audible), time the long decay
-    let _ = render(p.as_mut(), 48000, block, &[], Some(&quiet), None);
+    let first_tail = render(p.as_mut(), 48000, block, &[], Some(&quiet), None);
     let t1 = Instant::now();
-    let _ = render(
+    let long_tail = render(
         p.as_mut(),
         quiet_frames - 48000,
         block,
@@ -373,10 +377,20 @@ pub fn assert_no_denormal_slowdown(make: &dyn Fn() -> Box<dyn Processor>, notes:
         None,
     );
     let quiet_per_sample = t1.elapsed().as_secs_f64() / (quiet_frames - 48000) as f64;
-    let ratio = quiet_per_sample / loud_per_sample;
-    assert!(
-        ratio < 2.0,
-        "{}: silence costs {ratio:.2}× the loud signal (denormals?)",
-        p.descriptor().id
-    );
+    let id = &p.descriptor().id;
+    for (c, ch) in first_tail.iter().chain(long_tail.iter()).enumerate() {
+        if let Some(i) = ch.iter().position(|x| x.is_subnormal()) {
+            panic!(
+                "{id}: subnormal sample {:e} in the tail (channel {c}, frame {i})",
+                ch[i]
+            );
+        }
+    }
+    if std::env::var("PH_TIMING_TESTS").as_deref() == Ok("1") {
+        let ratio = quiet_per_sample / loud_per_sample;
+        assert!(
+            ratio < 2.0,
+            "{id}: silence costs {ratio:.2}× the loud signal (denormals?)"
+        );
+    }
 }

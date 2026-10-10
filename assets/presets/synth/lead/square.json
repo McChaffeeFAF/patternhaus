@@ -1,0 +1,21 @@
+{
+  "osc1_wave": 1,
+  "osc1_level": 1,
+  "osc1_pw": 0.5,
+  "osc2_wave": 1,
+  "osc2_level": 0.6,
+  "osc2_fine": 7,
+  "osc2_pw": 0.35,
+  "f1_on": 1,
+  "f1_cutoff": 3600,
+  "f1_res": 0.2,
+  "f1_keytrack": 0.4,
+  "amp_attack": 0.005,
+  "amp_decay": 0.2,
+  "amp_sustain": 0.85,
+  "amp_release": 0.18,
+  "voice_mode": 1,
+  "glide_mode": 1,
+  "glide_time": 0.06,
+  "volume": -8.8
+}

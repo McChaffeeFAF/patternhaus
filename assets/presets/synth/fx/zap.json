@@ -1,0 +1,21 @@
+{
+  "osc1_wave": 1,
+  "osc1_level": 1,
+  "osc1_pw": 0.25,
+  "noise_level": 0.25,
+  "f1_on": 1,
+  "f1_cutoff": 5000,
+  "f1_res": 0.4,
+  "f1_drive": 3,
+  "lfo1_shape": 3,
+  "lfo1_rate": 14.0,
+  "lfo1_retrig": 1,
+  "mod1_src": 1,
+  "mod1_dst": 1,
+  "mod1_amt": 0.3,
+  "amp_attack": 0.001,
+  "amp_decay": 0.3,
+  "amp_sustain": 0.0,
+  "amp_release": 0.1,
+  "volume": -6.1
+}
