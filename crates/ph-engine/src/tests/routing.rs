@@ -45,6 +45,10 @@ fn render(p: &Project) -> [Vec<f32>; 2] {
     [b.channels[0].clone(), b.channels[1].clone()]
 }
 
+/// The DC channel at full volume and centre pan: 0.5 on each side, less the Circular pan
+/// law's 3 dB (fl-behaviour-notes §2).
+const CENTRE: f32 = 0.5 * std::f32::consts::FRAC_1_SQRT_2;
+
 /// Level in the middle of the held note.
 fn level(x: &[Vec<f32>; 2]) -> (f32, f32) {
     (x[0][12_000], x[1][12_000])
@@ -53,7 +57,10 @@ fn level(x: &[Vec<f32>; 2]) -> (f32, f32) {
 #[test]
 fn direct_path_has_unity_gain() {
     let (l, r) = level(&render(&dc_project(|_, _| {})));
-    assert!((l - 0.5).abs() < 1e-3 && (r - 0.5).abs() < 1e-3, "{l} {r}");
+    assert!(
+        (l - CENTRE).abs() < 1e-3 && (r - CENTRE).abs() < 1e-3,
+        "{l} {r}"
+    );
 }
 
 #[test]
@@ -72,7 +79,7 @@ fn sends_and_route_to_master() {
     });
     let (l, r) = level(&render(&p));
     assert!(
-        (l - 0.25).abs() < 1e-3 && (r - 0.25).abs() < 1e-3,
+        (l - 0.5 * CENTRE).abs() < 1e-3 && (r - 0.5 * CENTRE).abs() < 1e-3,
         "{l} {r}"
     );
     // both paths: direct (1.0) + send (0.5)
@@ -87,7 +94,7 @@ fn sends_and_route_to_master() {
         e.update_insert(InsertId(2), |i| i.volume = 1.0).unwrap();
     });
     let (l, _) = level(&render(&p));
-    assert!((l - 0.75).abs() < 1e-3, "{l}");
+    assert!((l - 1.5 * CENTRE).abs() < 1e-3, "{l}");
     // routed nowhere: silence
     let p = dc_project(|e, _| {
         e.update_insert(InsertId(1), |i| i.route_to_master = false)
@@ -107,7 +114,7 @@ fn mute_pan_and_volume() {
     assert!(l.abs() < 1e-6 && (r - 0.5).abs() < 1e-3, "{l} {r}");
     let p = dc_project(|e, _| e.update_insert(InsertId(0), |i| i.volume = 0.5).unwrap());
     let (l, _) = level(&render(&p));
-    assert!((l - 0.25).abs() < 1e-3, "{l}");
+    assert!((l - 0.5 * CENTRE).abs() < 1e-3, "{l}");
 }
 
 #[test]
@@ -148,7 +155,7 @@ fn sidechain_ducks_the_compressed_insert() {
     // without a sidechain source the external detector hears silence: no gain reduction
     let a = rms(&plain[0][2000..20_000]);
     let b = rms(&ducked[0][2000..20_000]);
-    assert!((a - 0.5).abs() < 0.01, "undocked level {a}");
+    assert!((a - CENTRE).abs() < 0.01, "undocked level {a}");
     assert!(b < 0.6 * a, "sidechain did not duck: {b} vs {a}");
 }
 
