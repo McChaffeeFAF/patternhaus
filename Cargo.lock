@@ -2752,8 +2752,12 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "clap",
+ "ph-analysis",
  "ph-commands",
  "ph-control",
+ "ph-engine",
+ "ph-formats",
+ "ph-node",
  "png",
  "rmcp",
  "serde_json",
