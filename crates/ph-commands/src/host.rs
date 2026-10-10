@@ -45,9 +45,12 @@ pub enum TransportCmd {
     Seek {
         position: Tick,
     },
-    /// Pattern mode plays the selected pattern in a loop; song mode plays the playlist.
+    /// Pattern mode loops `pattern` (resolved by the command from the project, so the host
+    /// never needs a possibly stale snapshot); song mode plays the playlist.
     SetMode {
         mode: TransportMode,
+        #[serde(default)]
+        pattern: Option<ph_core::PatternId>,
     },
     /// Loop region in song mode; `None` clears it.
     SetLoop {
@@ -164,7 +167,10 @@ impl Host for NullHost {
             TransportCmd::Toggle => self.transport.playing = !self.transport.playing,
             TransportCmd::Record => self.transport.recording = !self.transport.recording,
             TransportCmd::Seek { position } => self.transport.position = position,
-            TransportCmd::SetMode { mode } => self.transport.mode = mode,
+            TransportCmd::SetMode { mode, pattern } => {
+                self.transport.mode = mode;
+                self.transport.pattern = pattern;
+            }
             TransportCmd::SetLoop { range } => self.transport.loop_range = range,
             TransportCmd::SetMetronome { on } => self.transport.metronome = on,
         }

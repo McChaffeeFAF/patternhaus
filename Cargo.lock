@@ -1057,6 +1057,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ph-control"
+version = "0.1.0"
+dependencies = [
+ "ph-commands",
+ "ph-core",
+ "ph-engine",
+ "ph-formats",
+ "ph-node",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "ph-core"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,19 @@
+[package]
+name = "ph-control"
+description = "Patternhaus control layer: the Studio core (session + engine), the engine-backed Host, and (T4) JSON-RPC/MCP/CLI front ends."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ph-core.workspace = true
+ph-node.workspace = true
+ph-commands.workspace = true
+ph-engine.workspace = true
+ph-formats.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -2,7 +2,7 @@
 
 use super::util::*;
 use crate::*;
-use ph_core::Tick;
+use ph_core::{PatternId, Tick};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -95,12 +95,35 @@ fn seek(ctx: &mut CommandCtx<'_>, p: Seek) -> CmdResult<CommandOutput> {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct SetMode {
-    /// `pattern` loops the selected pattern; `song` plays the playlist.
+    /// `pattern` loops one pattern; `song` plays the playlist.
     mode: TransportMode,
+    /// Pattern to loop in pattern mode; defaults to the first pattern in the list.
+    #[serde(default)]
+    pattern: Option<PatternId>,
 }
 
 fn set_mode(ctx: &mut CommandCtx<'_>, p: SetMode) -> CmdResult<CommandOutput> {
-    run(ctx, TransportCmd::SetMode { mode: p.mode })
+    let pattern = match p.mode {
+        TransportMode::Song => None,
+        TransportMode::Pattern => {
+            let id =
+                match p.pattern {
+                    Some(id) => id,
+                    None => *ctx.project.pattern_order.first().ok_or_else(|| {
+                        CmdError::Other("the project has no pattern to loop".into())
+                    })?,
+                };
+            ctx.project.pattern(id)?;
+            Some(id)
+        }
+    };
+    run(
+        ctx,
+        TransportCmd::SetMode {
+            mode: p.mode,
+            pattern,
+        },
+    )
 }
 
 #[derive(Deserialize, JsonSchema)]
