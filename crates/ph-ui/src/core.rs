@@ -146,6 +146,8 @@ pub enum Dialog {
     Keymap {
         capturing: Option<usize>,
     },
+    /// Help > About: version, licence (GPLv3 notice in the ASIO build), notices.
+    About,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

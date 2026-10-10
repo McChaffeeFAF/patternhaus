@@ -3,6 +3,7 @@
 //! **Commands only.** Nothing here mutates a `Project`; every action is built in
 //! [`mapping`] and submitted through `studio.session` as `Caller::human()`.
 
+pub mod about;
 pub mod app;
 pub mod browser_model;
 pub mod core;

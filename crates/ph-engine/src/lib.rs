@@ -45,6 +45,11 @@ use stats::{Shared, load_f32};
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::{Arc, Mutex};
 
+/// True when the engine was built with the `asio` feature. Such a binary links Steinberg's
+/// ASIO SDK and is distributed under GPLv3 (DESIGN §11); front ends say so in their About
+/// box.
+pub const ASIO_BUILD: bool = cfg!(feature = "asio");
+
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     #[error("audio device error: {0}")]

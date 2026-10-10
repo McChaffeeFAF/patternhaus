@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+# The GPLv3 ASIO build (DESIGN §11): forwards to ph-engine.
+asio = ["ph-engine/asio"]
+
 [dependencies]
 ph-core.workspace = true
 ph-node.workspace = true

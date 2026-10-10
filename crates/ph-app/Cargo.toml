@@ -11,6 +11,10 @@ rust-version.workspace = true
 name = "ph-app"
 path = "src/main.rs"
 
+[features]
+# The GPLv3 ASIO build (DESIGN §11). Off by default; see docs/building-asio.md.
+asio = ["ph-ui/asio", "ph-engine/asio"]
+
 [dependencies]
 ph-core.workspace = true
 ph-commands.workspace = true

@@ -10,18 +10,18 @@ repository = "https://github.com/McChaffeeFAF/patternhaus"
 rust-version = "1.90"
 
 [workspace.dependencies]
-ph-core = { path = "crates/ph-core" }
-ph-node = { path = "crates/ph-node" }
-ph-commands = { path = "crates/ph-commands" }
-ph-engine = { path = "crates/ph-engine" }
-ph-dsp = { path = "crates/ph-dsp" }
-ph-instruments = { path = "crates/ph-instruments" }
-ph-effects = { path = "crates/ph-effects" }
-ph-formats = { path = "crates/ph-formats" }
-ph-control = { path = "crates/ph-control" }
-ph-ui = { path = "crates/ph-ui" }
-ph-cli = { path = "crates/ph-cli" }
-ph-analysis = { path = "crates/ph-analysis" }
+ph-core = { path = "crates/ph-core", version = "0.1.0" }
+ph-node = { path = "crates/ph-node", version = "0.1.0" }
+ph-commands = { path = "crates/ph-commands", version = "0.1.0" }
+ph-engine = { path = "crates/ph-engine", version = "0.1.0" }
+ph-dsp = { path = "crates/ph-dsp", version = "0.1.0" }
+ph-instruments = { path = "crates/ph-instruments", version = "0.1.0" }
+ph-effects = { path = "crates/ph-effects", version = "0.1.0" }
+ph-formats = { path = "crates/ph-formats", version = "0.1.0" }
+ph-control = { path = "crates/ph-control", version = "0.1.0" }
+ph-ui = { path = "crates/ph-ui", version = "0.1.0" }
+ph-cli = { path = "crates/ph-cli", version = "0.1.0" }
+ph-analysis = { path = "crates/ph-analysis", version = "0.1.0" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 schemars = "1"
