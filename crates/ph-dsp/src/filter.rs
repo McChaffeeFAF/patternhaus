@@ -168,8 +168,9 @@ impl Ladder {
         // linear estimate of y4: y4 = G^4 u + Σ G^(3-i) S_i
         let sigma = (gg * gg * gg * s[0] + gg * gg * s[1] + gg * s[2] + s[3]) * inv1g;
         let g4 = gg * gg * gg * gg;
-        // partial passband compensation for the resonance's DC loss
-        let xin = x * self.drive * (1.0 + 0.5 * self.k);
+        // partial passband compensation for the resonance's DC loss; 6 dB of headroom
+        // before the saturator (undone at the output) so drive 0 dB stays clean
+        let xin = x * self.drive * 0.5 * (1.0 + 0.5 * self.k);
         let y4_est = (g4 * xin + sigma) / (1.0 + self.k * g4);
         let u = fast_tanh(xin - self.k * y4_est);
         let mut inp = u;
@@ -187,7 +188,7 @@ impl Ladder {
             FilterMode::BandPass => 4.0 * (y[1] - 2.0 * y[2] + y[3]),
             FilterMode::Notch => u - 2.0 * y[0] + 2.0 * y[1],
         };
-        out * self.inv_drive
+        out * 2.0 * self.inv_drive
     }
 }
 

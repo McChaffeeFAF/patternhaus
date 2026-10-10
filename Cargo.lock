@@ -295,6 +295,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ph-instruments"
+version = "0.1.0"
+dependencies = [
+ "assert_no_alloc",
+ "criterion",
+ "ph-core",
+ "ph-dsp",
+ "ph-node",
+]
+
+[[package]]
 name = "ph-node"
 version = "0.1.0"
 dependencies = [
