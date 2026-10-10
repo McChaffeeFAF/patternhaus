@@ -1,7 +1,7 @@
 //! `query.node_params`: which instruments and effects exist and what their parameters are,
 //! as a normal registry command (wraps `ph_engine::catalog`).
 
-use ph_commands::{CmdError, CmdResult, CommandCtx, CommandOutput, Scope, READ, Registry, typed};
+use ph_commands::{CmdError, CmdResult, CommandCtx, CommandOutput, READ, Registry, Scope, typed};
 use ph_core::{EffectSpec, InstrumentSpec};
 use ph_engine::catalog;
 use ph_node::{NodeDescriptor, ParamInfo, ParamUnit};
@@ -94,12 +94,18 @@ fn node_params(_ctx: &mut CommandCtx<'_>, p: NodeParams) -> CmdResult<CommandOut
                     library: None,
                     params: Default::default(),
                 },
-                other => return Err(bad(format!("unknown instrument {other:?}: sampler, synth, multi_sampler"))),
+                other => {
+                    return Err(bad(format!(
+                        "unknown instrument {other:?}: sampler, synth, multi_sampler"
+                    )));
+                }
             };
-            let d = catalog::instrument_descriptor(&spec).map_err(|e| bad(e))?;
+            let d = catalog::instrument_descriptor(&spec).map_err(bad)?;
             let mut v = describe(&d);
             v["kind"] = json!(kind);
-            v["usage"] = json!("set with channel.set_param { channel, param, value }, or in channel.add's instrument.params");
+            v["usage"] = json!(
+                "set with channel.set_param { channel, param, value }, or in channel.add's instrument.params"
+            );
             v
         }
         (None, Some(name)) => {
@@ -107,8 +113,12 @@ fn node_params(_ctx: &mut CommandCtx<'_>, p: NodeParams) -> CmdResult<CommandOut
                 name: name.clone(),
                 params: Default::default(),
             };
-            let d = catalog::effect_descriptor(&spec)
-                .map_err(|e| bad(format!("{e} (effects: {})", catalog::builtin_effects().join(", "))))?;
+            let d = catalog::effect_descriptor(&spec).map_err(|e| {
+                bad(format!(
+                    "{e} (effects: {})",
+                    catalog::builtin_effects().join(", ")
+                ))
+            })?;
             let mut v = describe(&d);
             v["effect"] = json!(name);
             v["usage"] = json!("set with mixer.set_effect_param { insert, index, param, value }");
@@ -138,19 +148,37 @@ mod tests {
         let mut host = ph_commands::NullHost::default();
         let who = Caller::human();
         let all = s
-            .execute(&who, Request::new("query.node_params", json!({})), &mut host)
+            .execute(
+                &who,
+                Request::new("query.node_params", json!({})),
+                &mut host,
+            )
             .unwrap();
-        assert!(all.result["effects"].as_array().unwrap().iter().any(|e| e == "compressor"));
+        assert!(
+            all.result["effects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e == "compressor")
+        );
         assert!(!all.result["synth_presets"].as_array().unwrap().is_empty());
         let c = s
-            .execute(&who, Request::new("query.node_params", json!({ "effect": "compressor" })), &mut host)
+            .execute(
+                &who,
+                Request::new("query.node_params", json!({ "effect": "compressor" })),
+                &mut host,
+            )
             .unwrap();
         let params = c.result["params"].as_array().unwrap();
         let sc = params.iter().find(|p| p["id"] == "sidechain").unwrap();
         assert_eq!(sc["choices"], json!(["Internal", "External"]));
         assert!(
-            s.execute(&who, Request::new("query.node_params", json!({ "effect": "nope" })), &mut host)
-                .is_err()
+            s.execute(
+                &who,
+                Request::new("query.node_params", json!({ "effect": "nope" })),
+                &mut host
+            )
+            .is_err()
         );
     }
 }

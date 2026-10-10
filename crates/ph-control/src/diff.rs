@@ -98,13 +98,20 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
                     lines.push(format!("{}: instrument changed", c.name));
                 }
                 if o.volume != c.volume {
-                    lines.push(format!("{}: volume {:.2} -> {:.2}", c.name, o.volume, c.volume));
+                    lines.push(format!(
+                        "{}: volume {:.2} -> {:.2}",
+                        c.name, o.volume, c.volume
+                    ));
                 }
                 if o.pan != c.pan {
                     lines.push(format!("{}: pan {:+.2} -> {:+.2}", c.name, o.pan, c.pan));
                 }
                 if o.muted != c.muted {
-                    lines.push(format!("{}: {}", c.name, if c.muted { "muted" } else { "unmuted" }));
+                    lines.push(format!(
+                        "{}: {}",
+                        c.name,
+                        if c.muted { "muted" } else { "unmuted" }
+                    ));
                 }
                 if o.insert != c.insert {
                     lines.push(format!("{}: routed to insert {}", c.name, c.insert));
@@ -121,10 +128,12 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
     // patterns and notes
     for (pid, pat) in after.patterns.iter() {
         let old = before.patterns.get(pid);
-        if old.is_none() {
-            lines.push(format!("added pattern {} (id {pid})", pat.name));
-        } else if old.is_some_and(|o| o.name != pat.name) {
-            lines.push(format!("renamed pattern {} -> {}", old.unwrap().name, pat.name));
+        match old {
+            None => lines.push(format!("added pattern {} (id {pid})", pat.name)),
+            Some(o) if o.name != pat.name => {
+                lines.push(format!("renamed pattern {} -> {}", o.name, pat.name));
+            }
+            Some(_) => {}
         }
         let mut notes_changed = false;
         let chans: BTreeSet<ChannelId> = pat
@@ -138,9 +147,21 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
             let old_map = old.and_then(|o| o.notes.get(&ch));
             let empty = Default::default();
             let (nm, om) = (new_map.unwrap_or(&empty), old_map.unwrap_or(&empty));
-            let added: Vec<&Note> = nm.iter().filter(|(k, _)| !om.contains_key(k)).map(|(_, n)| n).collect();
-            let removed: Vec<&Note> = om.iter().filter(|(k, _)| !nm.contains_key(k)).map(|(_, n)| n).collect();
-            let changed: Vec<&Note> = nm.iter().filter(|(k, n)| om.get(k).is_some_and(|o| o != *n)).map(|(_, n)| n).collect();
+            let added: Vec<&Note> = nm
+                .iter()
+                .filter(|(k, _)| !om.contains_key(k))
+                .map(|(_, n)| n)
+                .collect();
+            let removed: Vec<&Note> = om
+                .iter()
+                .filter(|(k, _)| !nm.contains_key(k))
+                .map(|(_, n)| n)
+                .collect();
+            let changed: Vec<&Note> = nm
+                .iter()
+                .filter(|(k, n)| om.get(k).is_some_and(|o| o != *n))
+                .map(|(_, n)| n)
+                .collect();
             if added.is_empty() && removed.is_empty() && changed.is_empty() {
                 continue;
             }
@@ -160,10 +181,10 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
         }
         if notes_changed {
             let (b, a) = (pattern_chords(before, *pid), pattern_chords(after, *pid));
-            if b != a {
-                if let Some(a) = a {
-                    lines.push(format!("{} chords now: {a}", pat.name));
-                }
+            if b != a
+                && let Some(a) = a
+            {
+                lines.push(format!("{} chords now: {a}", pat.name));
             }
         }
     }
@@ -210,7 +231,15 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
     }
     for (i, (o, n)) in before.tracks.iter().zip(after.tracks.iter()).enumerate() {
         if o != n {
-            lines.push(format!("playlist track {}: {}", i + 1, if o.muted != n.muted { if n.muted { "muted" } else { "unmuted" }.to_string() } else { format!("renamed {} -> {}", o.name, n.name) }));
+            lines.push(format!(
+                "playlist track {}: {}",
+                i + 1,
+                if o.muted != n.muted {
+                    if n.muted { "muted" } else { "unmuted" }.to_string()
+                } else {
+                    format!("renamed {} -> {}", o.name, n.name)
+                }
+            ));
         }
     }
 
@@ -237,21 +266,34 @@ fn join_some(v: &[String]) -> String {
 
 fn mixer_lines(i: usize, o: &MixerInsert, n: &MixerInsert, lines: &mut Vec<String>) {
     let name = &n.name;
-    let label = if i == 0 { "Master".to_string() } else { format!("insert {i} ({name})") };
+    let label = if i == 0 {
+        "Master".to_string()
+    } else {
+        format!("insert {i} ({name})")
+    };
     if o.name != n.name {
         lines.push(format!("insert {i}: renamed {} -> {}", o.name, n.name));
     }
     if o.volume != n.volume {
-        lines.push(format!("{label}: volume {:.2} -> {:.2}", o.volume, n.volume));
+        lines.push(format!(
+            "{label}: volume {:.2} -> {:.2}",
+            o.volume, n.volume
+        ));
     }
     if o.pan != n.pan {
         lines.push(format!("{label}: pan {:+.2} -> {:+.2}", o.pan, n.pan));
     }
     if o.muted != n.muted {
-        lines.push(format!("{label}: {}", if n.muted { "muted" } else { "unmuted" }));
+        lines.push(format!(
+            "{label}: {}",
+            if n.muted { "muted" } else { "unmuted" }
+        ));
     }
     if o.route_to_master != n.route_to_master {
-        lines.push(format!("{label}: route to master {}", if n.route_to_master { "on" } else { "off" }));
+        lines.push(format!(
+            "{label}: route to master {}",
+            if n.route_to_master { "on" } else { "off" }
+        ));
     }
     if o.sidechain_from != n.sidechain_from {
         lines.push(match n.sidechain_from {
@@ -261,7 +303,10 @@ fn mixer_lines(i: usize, o: &MixerInsert, n: &MixerInsert, lines: &mut Vec<Strin
     }
     for s in &n.sends {
         match o.sends.iter().find(|x| x.to == s.to) {
-            None => lines.push(format!("{label}: send to insert {} at {:.2}", s.to, s.level)),
+            None => lines.push(format!(
+                "{label}: send to insert {} at {:.2}",
+                s.to, s.level
+            )),
             Some(x) if x.level != s.level => lines.push(format!(
                 "{label}: send to insert {} {:.2} -> {:.2}",
                 s.to, x.level, s.level
@@ -274,14 +319,19 @@ fn mixer_lines(i: usize, o: &MixerInsert, n: &MixerInsert, lines: &mut Vec<Strin
             lines.push(format!("{label}: removed send to insert {}", s.to));
         }
     }
-    let names = |m: &MixerInsert| -> Vec<String> { m.effects.iter().map(|e| effect_name(&e.effect)).collect() };
+    let names = |m: &MixerInsert| -> Vec<String> {
+        m.effects.iter().map(|e| effect_name(&e.effect)).collect()
+    };
     let (on, nn) = (names(o), names(n));
     if on != nn {
         lines.push(format!("{label}: effects now [{}]", nn.join(", ")));
     } else {
         for (s, (a, b)) in o.effects.iter().zip(&n.effects).enumerate() {
             if a != b {
-                lines.push(format!("{label}: effect {s} ({}) settings changed", effect_name(&b.effect)));
+                lines.push(format!(
+                    "{label}: effect {s} ({}) settings changed",
+                    effect_name(&b.effect)
+                ));
             }
         }
     }

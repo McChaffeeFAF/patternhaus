@@ -5,11 +5,11 @@
 //! [`Agent::call`], so the three routes cannot drift apart. Everything here is blocking; async
 //! front ends call it from a blocking task.
 
+use crate::StudioHandle;
 use crate::diff::{Diff, diff};
 use crate::events::Event;
 use crate::grants::{Grants, grant_text};
 use crate::views;
-use crate::StudioHandle;
 use ph_analysis::image::{self, PianoRollSpec, PlaylistClipBox, PlaylistSpec, PlaylistTrackRow};
 use ph_analysis::music::{
     ChordGrain, SongNote, chords_from_audio, chords_from_notes, key_from_audio, key_from_notes,
@@ -41,6 +41,26 @@ pub struct ToolOutput {
 }
 
 impl ToolOutput {
+    /// MCP-shaped JSON: `{ content: [text | image blocks], isError, value }` where `value` is the
+    /// first text block parsed as JSON. Images are base64 PNG.
+    pub fn to_json(self) -> Value {
+        use base64::Engine as _;
+        let value = self.value();
+        let content: Vec<Value> = self
+            .blocks
+            .into_iter()
+            .map(|b| match b {
+                Block::Text(t) => json!({ "type": "text", "text": t }),
+                Block::Image(png) => json!({
+                    "type": "image",
+                    "mimeType": "image/png",
+                    "data": base64::engine::general_purpose::STANDARD.encode(png),
+                }),
+            })
+            .collect();
+        json!({ "content": content, "isError": self.is_error, "value": value })
+    }
+
     fn json(v: Value) -> Self {
         ToolOutput {
             blocks: vec![Block::Text(v.to_string())],
@@ -296,16 +316,12 @@ impl Agent {
             "render" => self.render_tool(&args),
             "analyze" => self.analyze_tool(&args),
             "snapshot" => self.snapshot_tool(&args),
-            "node_params" => self.run_one(
-                &caller,
-                Request::new("query.node_params", args.clone()),
-                false,
-            ),
+            "node_params" => self.run_one(&caller, Request::new("query.node_params", args.clone())),
             "undo_mine" => self.undo_redo(&caller, &args, true),
             "redo_mine" => self.undo_redo(&caller, &args, false),
             "history" => self.history_tool(&args),
             other => match DIRECT.iter().find(|(n, _)| *n == other) {
-                Some((_, cmd)) => self.run_one(&caller, Request::new(cmd, args.clone()), true),
+                Some((_, cmd)) => self.run_one(&caller, Request::new(cmd, args.clone())),
                 None => ToolOutput::error(format!("unknown tool {other:?}")),
             },
         };
@@ -380,10 +396,17 @@ impl Agent {
                 }))
             }
             Err(e) => {
-                let near = self.studio.registry.list(id.split('.').next_back().unwrap_or(id));
+                let near = self
+                    .studio
+                    .registry
+                    .list(id.split('.').next_back().unwrap_or(id));
                 ToolOutput::error(format!(
                     "{e}. Similar: {}",
-                    near.iter().take(6).map(|s| s.id).collect::<Vec<_>>().join(", ")
+                    near.iter()
+                        .take(6)
+                        .map(|s| s.id)
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ))
             }
         }
@@ -395,15 +418,12 @@ impl Agent {
     /// control thread so nobody else's edit is attributed to this one.
     fn exec(&self, caller: &Caller, reqs: Vec<Request>) -> Result<(Vec<Executed>, Diff), CmdError> {
         let c = caller.clone();
-        let (done, before, after) = self
-            .studio
-            .session
-            .call(move |s, h| {
-                let before = s.project().clone();
-                let r = s.batch(&c, reqs, h);
-                let after = s.project().clone();
-                r.map(|d| (d, before, after))
-            })??;
+        let (done, before, after) = self.studio.session.call(move |s, h| {
+            let before = s.project().clone();
+            let r = s.batch(&c, reqs, h);
+            let after = s.project().clone();
+            r.map(|d| (d, before, after))
+        })??;
         self.studio.after_save(&done);
         let d = if Arc::ptr_eq(&before, &after) {
             Diff::default()
@@ -413,8 +433,7 @@ impl Agent {
         Ok((done, d))
     }
 
-    fn run_one(&self, caller: &Caller, req: Request, direct: bool) -> ToolOutput {
-        let _ = direct;
+    fn run_one(&self, caller: &Caller, req: Request) -> ToolOutput {
         match self.exec(caller, vec![req]) {
             Ok((done, d)) => ToolOutput::json(self.result_json(&done, &d)),
             Err(e) => ToolOutput::error(err_text(&e)),
@@ -445,11 +464,13 @@ impl Agent {
 
     fn run(&self, caller: &Caller, args: &Value) -> ToolOutput {
         let Some(id) = args["id"].as_str() else {
-            return ToolOutput::error("id is required, e.g. { \"id\": \"note.add\", \"params\": {...} }");
+            return ToolOutput::error(
+                "id is required, e.g. { \"id\": \"note.add\", \"params\": {...} }",
+            );
         };
         let mut req = Request::new(id, args.get("params").cloned().unwrap_or(json!({})));
         req.confirm = args["confirm"].as_bool().unwrap_or(false);
-        self.run_one(caller, req, false)
+        self.run_one(caller, req)
     }
 
     fn run_batch(&self, caller: &Caller, args: &Value) -> ToolOutput {
@@ -617,7 +638,6 @@ impl Agent {
                         return self.run_one(
                             caller,
                             Request::new(q, a.get("params").cloned().unwrap_or(json!({}))),
-                            false,
                         );
                     }
                     Err(e) => Err(e.to_string()),
@@ -675,12 +695,11 @@ impl Agent {
         only: Option<ChannelId>,
     ) -> Result<Arc<Rendered>, String> {
         let key: RenderKey = (Arc::as_ptr(project) as usize, range, tail, sample_rate);
-        if only.is_none() {
-            if let Some((k, r)) = &*self.cache.lock().unwrap() {
-                if *k == key {
-                    return Ok(r.clone());
-                }
-            }
+        if only.is_none()
+            && let Some((k, r)) = &*self.cache.lock().unwrap()
+            && *k == key
+        {
+            return Ok(r.clone());
         }
         let mut proj: Arc<Project> = project.clone();
         if let Some(id) = only {
@@ -789,7 +808,11 @@ impl Agent {
         };
         let mut what: Vec<String> = args["what"]
             .as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         if what.is_empty() {
             what = ["loudness", "spectrum", "health", "key", "chords", "clashes"]
@@ -812,9 +835,7 @@ impl Agent {
                 KNOWN.join(", ")
             ));
         }
-        let needs_audio = what
-            .iter()
-            .any(|w| !matches!(w.as_str(), "clashes"));
+        let needs_audio = what.iter().any(|w| !matches!(w.as_str(), "clashes"));
         let timing = views::timing(&p);
         let sr = 48_000;
         let rendered = if needs_audio {
@@ -849,7 +870,13 @@ impl Agent {
             ),
             (None, None) => (
                 1,
-                (notes.iter().map(|n| n.start + n.length).max().unwrap_or(bar).div_ceil(bar) as u32).max(1),
+                (notes
+                    .iter()
+                    .map(|n| n.start + n.length)
+                    .max()
+                    .unwrap_or(bar)
+                    .div_ceil(bar) as u32)
+                    .max(1),
             ),
         };
         for w in &what {
@@ -869,7 +896,8 @@ impl Agent {
                     "from_audio": key_from_audio(c, sr, &timing),
                 }),
                 ("chords", Some(c)) => {
-                    let n = chords_from_notes(&pitched, &timing, first_bar, last_bar, ChordGrain::Auto);
+                    let n =
+                        chords_from_notes(&pitched, &timing, first_bar, last_bar, ChordGrain::Auto);
                     let au = chords_from_audio(c, sr, &timing, fb, ChordGrain::Bar);
                     json!({
                         "from_notes": { "progression": progression(&n), "by_bar": n.iter().take(64).map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol)).collect::<Vec<_>>() },
@@ -907,14 +935,23 @@ impl Agent {
         ToolOutput::json(v)
     }
 
-    fn masking(&self, p: &Arc<Project>, range: Option<(Tick, Tick)>, sr: u32) -> Result<Value, String> {
+    fn masking(
+        &self,
+        p: &Arc<Project>,
+        range: Option<(Tick, Tick)>,
+        sr: u32,
+    ) -> Result<Value, String> {
         let mut stems = Vec::new();
         for c in p.channels_in_order() {
             if c.muted || p.patterns.values().all(|x| !x.notes.contains_key(&c.id)) {
                 continue;
             }
             let r = self.render_audio(p, range, false, sr, Some(c.id))?;
-            stems.push(masking::stem_bands(&c.name, &r.audio.channels, r.audio.sample_rate));
+            stems.push(masking::stem_bands(
+                &c.name,
+                &r.audio.channels,
+                r.audio.sample_rate,
+            ));
         }
         let m = masking::band_masking(&stems);
         Ok(json!({ "stems": stems.len(), "overlaps": m }))
@@ -924,7 +961,9 @@ impl Agent {
 
     fn snapshot_tool(&self, args: &Value) -> ToolOutput {
         let Some(kind) = args["kind"].as_str() else {
-            return ToolOutput::error("kind is required: waveform, spectrogram, piano_roll, playlist");
+            return ToolOutput::error(
+                "kind is required: waveform, spectrogram, piano_roll, playlist",
+            );
         };
         let p = self.studio.project();
         let range = match self.parse_range(&p, &args["range"]) {
@@ -951,7 +990,10 @@ impl Agent {
                             first_bar: r.first_bar,
                             width,
                         }),
-                        format!("waveform, {secs:.1} s from bar {}, L over R; red = clipping", r.first_bar),
+                        format!(
+                            "waveform, {secs:.1} s from bar {}, L over R; red = clipping",
+                            r.first_bar
+                        ),
                     )
                 } else {
                     (
@@ -963,7 +1005,10 @@ impl Agent {
                             first_bar: r.first_bar,
                             width,
                         }),
-                        format!("spectrogram, {secs:.1} s from bar {}, log frequency 30 Hz-20 kHz, colour is dBFS", r.first_bar),
+                        format!(
+                            "spectrogram, {secs:.1} s from bar {}, log frequency 30 Hz-20 kHz, colour is dBFS",
+                            r.first_bar
+                        ),
                     )
                 }
             }
@@ -1015,7 +1060,11 @@ impl Agent {
                         range: rg,
                         width,
                     }),
-                    format!("playlist overview, bars {}-{}", rg.0 / bar + 1, rg.1.div_ceil(bar)),
+                    format!(
+                        "playlist overview, bars {}-{}",
+                        rg.0 / bar + 1,
+                        rg.1.div_ceil(bar)
+                    ),
                 )
             }
             other => {
@@ -1050,23 +1099,24 @@ impl Agent {
     ) -> Result<(Vec<u8>, String), String> {
         let timing = views::timing(p);
         let bar = timing.ticks_per_bar();
-        let (mut notes, what): (Vec<SongNote>, String) = match args.get("pattern").filter(|v| !v.is_null()) {
-            Some(v) => {
-                let id: PatternId = views::find_pattern(p, v)?;
-                (
-                    ph_analysis::music::pattern_notes(p, id),
-                    format!("PATTERN {}", p.patterns[&id].name.to_uppercase()),
-                )
-            }
-            None if p.clips.is_empty() => match p.pattern_order.first() {
-                Some(id) => (
-                    ph_analysis::music::pattern_notes(p, *id),
-                    format!("PATTERN {}", p.patterns[id].name.to_uppercase()),
-                ),
-                None => return Err("the project has no patterns yet".into()),
-            },
-            None => (song_notes(p), "SONG".to_string()),
-        };
+        let (mut notes, what): (Vec<SongNote>, String) =
+            match args.get("pattern").filter(|v| !v.is_null()) {
+                Some(v) => {
+                    let id: PatternId = views::find_pattern(p, v)?;
+                    (
+                        ph_analysis::music::pattern_notes(p, id),
+                        format!("PATTERN {}", p.patterns[&id].name.to_uppercase()),
+                    )
+                }
+                None if p.clips.is_empty() => match p.pattern_order.first() {
+                    Some(id) => (
+                        ph_analysis::music::pattern_notes(p, *id),
+                        format!("PATTERN {}", p.patterns[id].name.to_uppercase()),
+                    ),
+                    None => return Err("the project has no patterns yet".into()),
+                },
+                None => (song_notes(p), "SONG".to_string()),
+            };
         if let Some(list) = args["channels"].as_array() {
             let mut keep = Vec::new();
             for c in list {
@@ -1074,7 +1124,11 @@ impl Agent {
             }
             notes.retain(|n| keep.contains(&n.channel));
         }
-        let end = notes.iter().map(|n| n.start + n.length).max().unwrap_or(bar);
+        let end = notes
+            .iter()
+            .map(|n| n.start + n.length)
+            .max()
+            .unwrap_or(bar);
         let rg = range.unwrap_or((0, end.div_ceil(bar).max(1) * bar));
         // Legend: the channels that have notes, in rack order.
         let mut order: Vec<ChannelId> = Vec::new();
@@ -1110,7 +1164,11 @@ impl Agent {
                 rg.0 / bar + 1,
                 rg.1.div_ceil(bar),
                 notes.len(),
-                legend.iter().map(|l| l.0.clone()).collect::<Vec<_>>().join(", ")
+                legend
+                    .iter()
+                    .map(|l| l.0.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         ))
     }

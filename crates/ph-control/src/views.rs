@@ -4,8 +4,8 @@
 
 use ph_analysis::Timing;
 use ph_analysis::music::{
-    ChordGrain, SongNote, chords_from_notes, key_from_notes, note_name, pattern_notes,
-    progression, song_notes,
+    ChordGrain, SongNote, chords_from_notes, key_from_notes, note_name, pattern_notes, progression,
+    song_notes,
 };
 use ph_core::{Channel, ChannelId, EffectSpec, InstrumentSpec, PatternId, Project, Tick};
 use serde_json::{Value, json};
@@ -25,10 +25,10 @@ pub fn find_channel(p: &Project, v: &Value) -> Result<ChannelId, String> {
             .ok_or_else(|| format!("no channel with id {n}"));
     }
     let s = v.as_str().ok_or("channel must be an id or a name")?;
-    if let Ok(n) = s.parse::<u32>() {
-        if p.channels.contains_key(&ChannelId(n)) {
-            return Ok(ChannelId(n));
-        }
+    if let Ok(n) = s.parse::<u32>()
+        && p.channels.contains_key(&ChannelId(n))
+    {
+        return Ok(ChannelId(n));
     }
     p.channels
         .values()
@@ -54,10 +54,10 @@ pub fn find_pattern(p: &Project, v: &Value) -> Result<PatternId, String> {
             .ok_or_else(|| format!("no pattern with id {n}"));
     }
     let s = v.as_str().ok_or("pattern must be an id or a name")?;
-    if let Ok(n) = s.parse::<u32>() {
-        if p.patterns.contains_key(&PatternId(n)) {
-            return Ok(PatternId(n));
-        }
+    if let Ok(n) = s.parse::<u32>()
+        && p.patterns.contains_key(&PatternId(n))
+    {
+        return Ok(PatternId(n));
     }
     p.patterns
         .values()
@@ -181,7 +181,10 @@ pub fn pattern_view(p: &Project, args: &Value) -> Result<Value, String> {
     let t = timing(p);
     let id = match args.get("pattern").filter(|v| !v.is_null()) {
         Some(v) => find_pattern(p, v)?,
-        None => *p.pattern_order.first().ok_or("the project has no patterns")?,
+        None => *p
+            .pattern_order
+            .first()
+            .ok_or("the project has no patterns")?,
     };
     let pat = &p.patterns[&id];
     let len = p.pattern_length(id).map_err(|e| e.to_string())?;
@@ -278,13 +281,20 @@ pub fn sections_view(p: &Project) -> Value {
             .iter()
             .find_map(|n| {
                 let l = n.to_lowercase();
-                SECTION_WORDS.iter().find(|w| l.contains(*w)).map(|w| w.to_string())
+                SECTION_WORDS
+                    .iter()
+                    .find(|w| l.contains(*w))
+                    .map(|w| w.to_string())
             })
             .unwrap_or_else(|| format!("section {}", i + 1));
         let (fa, fb) = (a / bar + 1, (b - 1) / bar + 1);
         lines.push(format!(
             "{label} {fa}-{fb}: {}",
-            if names.is_empty() { "(silence)".into() } else { names.join(", ") }
+            if names.is_empty() {
+                "(silence)".into()
+            } else {
+                names.join(", ")
+            }
         ));
         out.push(json!({ "label": label, "from_bar": fa, "to_bar": fb, "patterns": names }));
     }
@@ -331,7 +341,10 @@ pub fn channels_view(p: &Project) -> Value {
 pub fn mixer_view(p: &Project) -> Value {
     let mut by_insert: BTreeMap<u32, Vec<String>> = BTreeMap::new();
     for c in p.channels_in_order() {
-        by_insert.entry(c.insert.0).or_default().push(c.name.clone());
+        by_insert
+            .entry(c.insert.0)
+            .or_default()
+            .push(c.name.clone());
     }
     let mut out = Vec::new();
     for (i, ins) in p.mixer.iter().enumerate() {
@@ -352,7 +365,9 @@ pub fn mixer_view(p: &Project) -> Value {
             routes.push(format!(
                 "send to {} ({}) at {:.2}",
                 s.to,
-                p.mixer.get(s.to.0 as usize).map_or("?", |x| x.name.as_str()),
+                p.mixer
+                    .get(s.to.0 as usize)
+                    .map_or("?", |x| x.name.as_str()),
                 s.level
             ));
         }
@@ -465,7 +480,10 @@ pub(crate) mod tests {
         let n = notes_view(&p, &json!({ "pattern": "Verse A", "channel": "bass" })).unwrap();
         let bass = n["channels"]["Bass"].as_array().unwrap();
         assert_eq!(bass.len(), 4);
-        assert!(bass[0].as_str().unwrap().starts_with("A1 @1.1.0 len"), "{bass:?}");
+        assert!(
+            bass[0].as_str().unwrap().starts_with("A1 @1.1.0 len"),
+            "{bass:?}"
+        );
         assert!(bass[1].as_str().unwrap().starts_with("F1 @2.1.0"));
 
         let pv = pattern_view(&p, &json!({})).unwrap();
@@ -486,6 +504,9 @@ pub(crate) mod tests {
         assert!(m["inserts"][0]["name"] == "Master");
         let o = overview(&p, &[]);
         assert_eq!(o["song_bars"], 4);
-        assert!(o["key"].as_str().unwrap().starts_with("A minor") || o["key"].as_str().unwrap().contains("major"));
+        assert!(
+            o["key"].as_str().unwrap().starts_with("A minor")
+                || o["key"].as_str().unwrap().contains("major")
+        );
     }
 }

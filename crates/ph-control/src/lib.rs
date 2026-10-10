@@ -16,6 +16,7 @@ mod diff;
 mod endpoint;
 mod events;
 mod grants;
+mod headless;
 mod host;
 mod jsonrpc;
 mod mcp;
@@ -28,10 +29,11 @@ pub use endpoint::{
     LocalServer, connect, default_endpoint, default_grants_file, proxy_stdio, serve_local,
     serve_local_with, serve_stdio,
 };
-pub use jsonrpc::serve_jsonrpc;
 pub use events::{Event, EventHub};
 pub use grants::{GrantPrompt, Grants, grant_text, parse_grant};
+pub use headless::{HeadlessOptions, find_assets_dir, start_headless};
 pub use host::EngineHost;
+pub use jsonrpc::serve_jsonrpc;
 pub use mcp::PatternhausServer;
 
 use ph_commands::{Caller, Registry, Request, Session, SessionHandle, UiRequest};
@@ -197,8 +199,7 @@ impl Studio {
         command: &str,
         params: serde_json::Value,
     ) -> ph_commands::CmdResult<ph_commands::Executed> {
-        self.handle()
-            .execute(caller, Request::new(command, params))
+        self.handle().execute(caller, Request::new(command, params))
     }
 
     /// A cloneable, `Send + Sync` handle to everything the agent interface needs.
@@ -269,12 +270,11 @@ impl StudioHandle {
     /// command cannot see, so it is written here, through the session handle.
     pub(crate) fn after_save(&self, done: &[ph_commands::Executed]) {
         for d in done {
-            if matches!(d.command.as_str(), "file.save" | "file.save_as") {
-                if let Some(dir) = d.result["path"].as_str() {
-                    if let Err(e) = self.save_history(std::path::Path::new(dir)) {
-                        eprintln!("could not write the history log: {e}");
-                    }
-                }
+            if matches!(d.command.as_str(), "file.save" | "file.save_as")
+                && let Some(dir) = d.result["path"].as_str()
+                && let Err(e) = self.save_history(std::path::Path::new(dir))
+            {
+                eprintln!("could not write the history log: {e}");
             }
         }
     }

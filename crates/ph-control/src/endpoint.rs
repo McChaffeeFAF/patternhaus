@@ -240,7 +240,13 @@ pub async fn serve_stdio(agent: Arc<Agent>) -> Result<(), String> {
 #[cfg(windows)]
 pub async fn connect(
     endpoint: &str,
-) -> Result<(impl AsyncRead + Unpin + Send, impl AsyncWrite + Unpin + Send), String> {
+) -> Result<
+    (
+        impl AsyncRead + Unpin + Send,
+        impl AsyncWrite + Unpin + Send,
+    ),
+    String,
+> {
     let client = tokio::net::windows::named_pipe::ClientOptions::new()
         .open(endpoint)
         .map_err(|e| format!("no running Patternhaus at {endpoint}: {e}"))?;
@@ -250,7 +256,13 @@ pub async fn connect(
 #[cfg(unix)]
 pub async fn connect(
     endpoint: &str,
-) -> Result<(impl AsyncRead + Unpin + Send, impl AsyncWrite + Unpin + Send), String> {
+) -> Result<
+    (
+        impl AsyncRead + Unpin + Send,
+        impl AsyncWrite + Unpin + Send,
+    ),
+    String,
+> {
     let s = tokio::net::UnixStream::connect(endpoint)
         .await
         .map_err(|e| format!("no running Patternhaus at {endpoint}: {e}"))?;

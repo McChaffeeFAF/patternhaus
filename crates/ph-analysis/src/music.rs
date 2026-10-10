@@ -201,7 +201,11 @@ pub fn key_from_chroma_hint(chroma: &[f64; 12], tonic_hint: Option<usize>) -> Op
     // The opening chord names the tonic when the top candidates are close (A minor vs C major).
     if let Some(h) = tonic_hint {
         let best = scores[0];
-        let close = scores.iter().position(|s| s.0 == h && s.2 >= best.2 - 0.12);
+        // A relative major/minor pair shares every note, so profile scores barely tell them
+        // apart: give the hint more room there.
+        let relative = (best.1 && h == (best.0 + 9) % 12) || (!best.1 && h == (best.0 + 3) % 12);
+        let room = if relative { 0.25 } else { 0.12 };
+        let close = scores.iter().position(|s| s.0 == h && s.2 >= best.2 - room);
         if let Some(i) = close.filter(|_| best.0 != h) {
             let pick = scores.remove(i);
             scores.insert(0, pick);
@@ -492,6 +496,19 @@ pub fn progression(spans: &[ChordSpan]) -> String {
 
 const CHROMA_FFT: usize = 16384;
 
+/// A tonal peak stands well above the spectrum around it; noise, hats and reverb wash do not.
+fn prominent(mag: &[f64], k: usize) -> bool {
+    let (lo, hi) = (k.saturating_sub(14), (k + 15).min(mag.len()));
+    let (mut sum, mut n) = (0.0, 0usize);
+    for (i, m) in mag[lo..hi].iter().enumerate() {
+        if (lo + i).abs_diff(k) > 3 {
+            sum += m;
+            n += 1;
+        }
+    }
+    n > 0 && mag[k] > 5.0 * (sum / n as f64)
+}
+
 /// Pitch-class energy of the audio in `[from_s, to_s)`: windowed FFT, spectral peaks between
 /// 55 Hz and 4.2 kHz with parabolic interpolation, magnitude folded onto 12 classes.
 pub fn chroma_of_audio(mono: &[f32], sample_rate: u32, from_s: f64, to_s: f64) -> [f64; 12] {
@@ -522,12 +539,12 @@ pub fn chroma_of_audio(mono: &[f32], sample_rate: u32, from_s: f64, to_s: f64) -
         let bin_hz = sr / CHROMA_FFT as f64;
         let (klo, khi) = (
             (55.0 / bin_hz) as usize,
-            ((4200.0 / bin_hz) as usize).min(mag.len() - 2),
+            ((2500.0 / bin_hz) as usize).min(mag.len() - 2),
         );
         // (frequency, magnitude) of spectral peaks, lowest first.
         let mut peaks: Vec<(f64, f64)> = Vec::new();
         for k in klo.max(1)..khi {
-            if mag[k] > mag[k - 1] && mag[k] >= mag[k + 1] && mag[k] > 1e-6 {
+            if mag[k] > mag[k - 1] && mag[k] >= mag[k + 1] && mag[k] > 1e-6 && prominent(&mag, k) {
                 let (l, m, r) = (mag[k - 1], mag[k], mag[k + 1]);
                 let denom = l - 2.0 * m + r;
                 let d = if denom.abs() > 1e-12 {

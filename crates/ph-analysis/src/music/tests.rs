@@ -245,6 +245,12 @@ fn key_and_chords_from_audio_accuracy() {
                     if minor { "minor" } else { "major" }
                 );
                 keys_ok += (key.key == want) as i32;
+                if key.key != want {
+                    eprintln!(
+                        "audio key miss: wanted {want}, got {} (which {which})",
+                        key.key
+                    );
+                }
                 let spans = chords_from_audio(&audio, sr, &t, 1, ChordGrain::Bar);
                 for (i, (r, q)) in prog.iter().enumerate() {
                     chords_total += 1;

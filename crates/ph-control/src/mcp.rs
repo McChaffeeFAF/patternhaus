@@ -9,9 +9,9 @@
 //! - `notifications/message` (logging) once the client has called `logging/setLevel`;
 //! - a `while_you_worked` block appended to tool results, and `get_state { view: "events" }`.
 
+use crate::agent::event_line;
 use crate::agent::{Agent, Block, ToolOutput};
 use crate::events::{Event, EventHub};
-use crate::agent::event_line;
 use base64::Engine as _;
 use rmcp::model::*;
 use rmcp::service::{Peer, RequestContext, SubscriptionContext};
@@ -77,7 +77,10 @@ impl PatternhausServer {
                     continue;
                 }
                 if subs.lock().unwrap().contains(EVENTS_URI)
-                    && peer.notify_resource_updated(ResourceUpdatedNotificationParam::new(EVENTS_URI)).await.is_err()
+                    && peer
+                        .notify_resource_updated(ResourceUpdatedNotificationParam::new(EVENTS_URI))
+                        .await
+                        .is_err()
                 {
                     break;
                 }
@@ -85,8 +88,11 @@ impl PatternhausServer {
                     #[allow(deprecated)]
                     let sent = peer
                         .notify_logging_message(
-                            LoggingMessageNotificationParam::new(LoggingLevel::Info, event_json(&ev))
-                                .with_logger("patternhaus"),
+                            LoggingMessageNotificationParam::new(
+                                LoggingLevel::Info,
+                                event_json(&ev),
+                            )
+                            .with_logger("patternhaus"),
                         )
                         .await;
                     if sent.is_err() {
@@ -132,7 +138,10 @@ impl ServerHandler for PatternhausServer {
                 .enable_logging()
                 .build(),
         )
-        .with_server_info(Implementation::new("patternhaus", env!("CARGO_PKG_VERSION")))
+        .with_server_info(Implementation::new(
+            "patternhaus",
+            env!("CARGO_PKG_VERSION"),
+        ))
         .with_instructions(INSTRUCTIONS)
     }
 
@@ -185,7 +194,8 @@ impl ServerHandler for PatternhausServer {
     ) -> Result<ListResourcesResult, McpError> {
         self.note_client(&context);
         let mut overview = Resource::new(OVERVIEW_URI, "Project overview");
-        overview.description = Some("Tempo, channels, patterns, key, chords, sections and warnings.".into());
+        overview.description =
+            Some("Tempo, channels, patterns, key, chords, sections and warnings.".into());
         overview.mime_type = Some("application/json".into());
         let mut events = Resource::new(EVENTS_URI, "Live events");
         events.description = Some(

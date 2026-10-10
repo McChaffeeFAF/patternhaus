@@ -12,28 +12,10 @@
 //! Arrays of requests are batches; requests without an `id` get no response.
 
 use crate::agent::{Agent, Block, ToolOutput};
-use base64::Engine as _;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
-
-fn tool_result(out: ToolOutput) -> Value {
-    let value = out.value();
-    let content: Vec<Value> = out
-        .blocks
-        .into_iter()
-        .map(|b| match b {
-            Block::Text(t) => json!({ "type": "text", "text": t }),
-            Block::Image(png) => json!({
-                "type": "image",
-                "mimeType": "image/png",
-                "data": base64::engine::general_purpose::STANDARD.encode(png),
-            }),
-        })
-        .collect();
-    json!({ "content": content, "isError": out.is_error, "value": value })
-}
 
 fn error(id: &Value, code: i64, message: impl Into<String>) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message.into() } })
@@ -51,7 +33,11 @@ impl Conn {
         let id = req.get("id").cloned();
         let reply_id = id.clone().unwrap_or(Value::Null);
         if req["jsonrpc"] != "2.0" || !req["method"].is_string() {
-            return Some(error(&reply_id, -32600, "invalid request: need jsonrpc \"2.0\" and a method"));
+            return Some(error(
+                &reply_id,
+                -32600,
+                "invalid request: need jsonrpc \"2.0\" and a method",
+            ));
         }
         let method = req["method"].as_str().unwrap_or_default().to_string();
         let params = req.get("params").cloned().unwrap_or(json!({}));
@@ -102,7 +88,7 @@ impl Conn {
                         blocks: vec![Block::Text(format!("{{\"ok\":false,\"error\":\"{e}\"}}"))],
                         is_error: true,
                     });
-                tool_result(out)
+                out.to_json()
             }
         };
         id.map(|id| json!({ "jsonrpc": "2.0", "id": id, "result": result }))
@@ -159,7 +145,7 @@ pub async fn serve_jsonrpc<R, W>(
                         out.push(x);
                     }
                 }
-                (!out.is_empty()).then(|| Value::Array(out))
+                (!out.is_empty()).then_some(Value::Array(out))
             }
             Ok(req) => conn.handle(req).await,
         };
