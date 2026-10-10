@@ -291,13 +291,18 @@ impl Oversampler {
     }
 }
 
-/// 4× oversampled true-peak detector: returns the largest absolute value among the input
-/// sample and three interpolated points before it, delayed by [`TruePeak4x::DELAY`]
-/// samples. Kaiser-windowed sinc, 24 taps per phase (twice the ITU-R BS.1770-4 example).
+/// 4× oversampled true-peak detector (Kaiser-windowed sinc, 32 taps per phase — 2.7× the
+/// ITU-R BS.1770-4 example), with parabolic refinement between grid points.
+///
+/// A plain 4× grid under-reads a 20 kHz peak by up to 0.47 dB; fitting a parabola through
+/// each local maximum and its grid neighbours recovers it to within ~0.02 dB.
+/// [`TruePeak4x::process`] reports the peak of the interval from a quarter sample before
+/// the sample `DELAY` samples ago to half a sample after it.
 #[derive(Clone, Debug)]
 pub struct TruePeak4x {
-    coefs: [[f32; 24]; 4],
+    coefs: [[f32; Self::TAPS]; 4],
     hist: History,
+    prev: [f32; 2],
 }
 
 impl Default for TruePeak4x {
@@ -308,49 +313,66 @@ impl Default for TruePeak4x {
 
 impl TruePeak4x {
     /// Half-width of the interpolation kernel; also the detector's delay in samples.
-    pub const DELAY: usize = 12;
+    pub const DELAY: usize = 16;
+    const TAPS: usize = 2 * Self::DELAY;
 
     pub fn new() -> Self {
         let l = Self::DELAY as i64;
-        let mut coefs = [[0.0f32; 24]; 4];
+        let mut coefs = [[0.0f32; Self::TAPS]; 4];
         for (p, row) in coefs.iter_mut().enumerate() {
             let frac = p as f64 / 4.0;
             // slice index i holds x[m - i]; offset j = (L - i) relative to the centre
             let mut sum = 0.0;
-            let mut tmp = [0.0f64; 24];
-            for i in 0..24 {
+            let mut tmp = [0.0f64; Self::TAPS];
+            for i in 0..Self::TAPS {
                 let j = (l - i as i64) as f64;
                 let t = j - frac;
                 let w = sinc(t) * kaiser(t / (l as f64 + 1.0), 8.0);
                 tmp[i] = w;
                 sum += w;
             }
-            for i in 0..24 {
+            for i in 0..Self::TAPS {
                 row[i] = (tmp[i] / sum) as f32;
             }
         }
         Self {
             coefs,
-            hist: History::new(24),
+            hist: History::new(Self::TAPS),
+            prev: [0.0; 2],
         }
     }
 
     pub fn reset(&mut self) {
         self.hist.clear();
+        self.prev = [0.0; 2];
     }
 
-    /// Push one sample; return the 4× peak around the sample `DELAY` samples ago.
+    /// Push one sample; return the refined true peak around the sample `DELAY` samples ago.
     #[inline]
     pub fn process(&mut self, x: f32) -> f32 {
         self.hist.push(x);
         let s = self.hist.slice();
-        let mut m = 0.0f32;
-        for row in &self.coefs {
+        // grid: [prev q2, prev q3, q0, q1, q2, q3]
+        let mut g = [self.prev[0], self.prev[1], 0.0, 0.0, 0.0, 0.0];
+        for (p, row) in self.coefs.iter().enumerate() {
             let mut acc = 0.0f32;
-            for i in 0..24 {
+            for i in 0..Self::TAPS {
                 acc += row[i] * s[i];
             }
-            m = m.max(acc.abs());
+            g[2 + p] = acc;
+        }
+        self.prev = [g[4], g[5]];
+        let mut m = 0.0f32;
+        for k in 1..5 {
+            let (a, b, c) = (g[k - 1], g[k], g[k + 1]);
+            m = m.max(b.abs());
+            // local extremum with same-signed neighbours: vertex of the parabola
+            let (a, b, c) = if b < 0.0 { (-a, -b, -c) } else { (a, b, c) };
+            let curv = a - 2.0 * b + c;
+            if b >= a && b >= c && a > 0.0 && c > 0.0 && curv < 0.0 {
+                let d = a - c;
+                m = m.max(b - d * d / (8.0 * curv));
+            }
         }
         m
     }

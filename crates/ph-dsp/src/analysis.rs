@@ -82,6 +82,18 @@ pub fn magnitude_response_db(ir: &[f32], min_n: usize) -> Vec<f64> {
 /// Ratio (dB) of energy *not* within `guard` bins of a harmonic of `f0`, to the total.
 /// Measures aliasing (and any other inharmonic content) of a periodic signal.
 pub fn inharmonic_ratio_db(signal: &[f32], sample_rate: f64, f0: f64, guard: usize) -> f64 {
+    inharmonic_ratio_db_below(signal, sample_rate, f0, guard, sample_rate / 2.0)
+}
+
+/// [`inharmonic_ratio_db`] counting only inharmonic energy below `max_hz` (e.g. 20 kHz,
+/// the audible band; oversamplers deliberately let aliases land in 20–24 kHz).
+pub fn inharmonic_ratio_db_below(
+    signal: &[f32],
+    sample_rate: f64,
+    f0: f64,
+    guard: usize,
+    max_hz: f64,
+) -> f64 {
     let p = power_spectrum(signal);
     let n = signal.len();
     let bin_hz = sample_rate / n as f64;
@@ -101,7 +113,7 @@ pub fn inharmonic_ratio_db(signal: &[f32], sample_rate: f64, f0: f64, guard: usi
         .iter()
         .enumerate()
         .skip(guard + 1) // ignore DC
-        .filter(|(k, _)| !harmonic[*k])
+        .filter(|(k, _)| !harmonic[*k] && (*k as f64) * bin_hz < max_hz)
         .map(|(_, v)| v)
         .sum();
     10.0 * (inh / total).max(1e-300).log10()
