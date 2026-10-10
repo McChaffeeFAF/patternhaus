@@ -281,6 +281,7 @@ pub fn toggle(ui: &mut Ui, on: bool, label: &str, on_colour: Color32, theme: &Th
         .layout_no_wrap(label.into(), FontId::proportional(11.0), c.text);
     let size = Vec2::new((galley.size().x + 12.0).max(22.0), 20.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
     let fill = if on {
         on_colour
     } else if resp.hovered() {

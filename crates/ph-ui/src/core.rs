@@ -618,6 +618,7 @@ impl AppCore {
                         self.send(r);
                     }
                 }
+                PrOut::Batch(reqs) => self.send_batch(reqs),
                 PrOut::Preview { key, on } => {
                     if let Some(c) = self.roll.channel {
                         self.preview(c, key, on);
@@ -768,6 +769,8 @@ impl AppCore {
                 let t = match params["tool"].as_str() {
                     Some("select") => Tool::Select,
                     Some("delete") => Tool::Delete,
+                    Some("slice") => Tool::Slice,
+                    Some("mute") => Tool::Mute,
                     _ => Tool::Draw,
                 };
                 self.roll.tool = t;
