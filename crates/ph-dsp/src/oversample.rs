@@ -88,6 +88,23 @@ fn folded(c: &[f32], s: &[f32]) -> f32 {
     acc
 }
 
+/// Dot product with eight independent partial sums (vectorisable; fixed order, so
+/// deterministic).
+#[inline]
+fn dot(a: &[f32], b: &[f32]) -> f32 {
+    let mut acc = [0.0f32; 8];
+    for (ca, cb) in a.as_chunks::<8>().0.iter().zip(b.as_chunks::<8>().0) {
+        for i in 0..8 {
+            acc[i] += ca[i] * cb[i];
+        }
+    }
+    let mut t = 0.0;
+    for i in (a.len() / 8 * 8)..a.len() {
+        t += a[i] * b[i];
+    }
+    ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7])) + t
+}
+
 /// 2× interpolator: one input → two outputs.
 #[derive(Clone, Debug)]
 pub struct Upsampler2x {
@@ -355,11 +372,7 @@ impl TruePeak4x {
         // grid: [prev q2, prev q3, q0, q1, q2, q3]
         let mut g = [self.prev[0], self.prev[1], 0.0, 0.0, 0.0, 0.0];
         for (p, row) in self.coefs.iter().enumerate() {
-            let mut acc = 0.0f32;
-            for i in 0..Self::TAPS {
-                acc += row[i] * s[i];
-            }
-            g[2 + p] = acc;
+            g[2 + p] = dot(row, s);
         }
         self.prev = [g[4], g[5]];
         let mut m = 0.0f32;

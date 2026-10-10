@@ -117,6 +117,9 @@ pub struct Ladder {
     s: [f32; 4],
     g: f32,
     big_g: f32,
+    inv1g: f32,
+    inv_den: f32,
+    in_gain: f32,
     k: f32,
     drive: f32,
     inv_drive: f32,
@@ -135,7 +138,18 @@ impl Ladder {
     pub fn set_coefs(&mut self, g: f32, k: f32) {
         self.g = g;
         self.big_g = g / (1.0 + g);
+        self.inv1g = 1.0 / (1.0 + g);
         self.k = k.clamp(0.0, 4.2);
+        let g4 = self.big_g * self.big_g * self.big_g * self.big_g;
+        self.inv_den = 1.0 / (1.0 + self.k * g4);
+        self.update_in_gain();
+    }
+
+    /// Input gain: drive, 6 dB of headroom before the saturator (undone at the output) so
+    /// drive 0 dB stays clean, and partial passband compensation for the resonance's DC
+    /// loss.
+    fn update_in_gain(&mut self) {
+        self.in_gain = self.drive * 0.5 * (1.0 + 0.5 * self.k);
     }
 
     /// Cutoff in Hz, resonance 0..1 (1 = self-oscillation onset).
@@ -152,7 +166,8 @@ impl Ladder {
     #[inline]
     pub fn set_drive(&mut self, drive: f32) {
         self.drive = drive.max(0.01);
-        self.inv_drive = 1.0 / self.drive;
+        self.inv_drive = 2.0 / self.drive;
+        self.update_in_gain();
     }
 
     pub fn reset(&mut self) {
@@ -163,15 +178,12 @@ impl Ladder {
     #[inline]
     pub fn process(&mut self, x: f32, mode: FilterMode) -> f32 {
         let gg = self.big_g;
-        let inv1g = 1.0 / (1.0 + self.g);
         let s = self.s;
         // linear estimate of y4: y4 = G^4 u + Σ G^(3-i) S_i
-        let sigma = (gg * gg * gg * s[0] + gg * gg * s[1] + gg * s[2] + s[3]) * inv1g;
+        let sigma = (gg * gg * gg * s[0] + gg * gg * s[1] + gg * s[2] + s[3]) * self.inv1g;
         let g4 = gg * gg * gg * gg;
-        // partial passband compensation for the resonance's DC loss; 6 dB of headroom
-        // before the saturator (undone at the output) so drive 0 dB stays clean
-        let xin = x * self.drive * 0.5 * (1.0 + 0.5 * self.k);
-        let y4_est = (g4 * xin + sigma) / (1.0 + self.k * g4);
+        let xin = x * self.in_gain;
+        let y4_est = (g4 * xin + sigma) * self.inv_den;
         let u = fast_tanh(xin - self.k * y4_est);
         let mut inp = u;
         let mut y = [0.0f32; 4];
@@ -188,7 +200,7 @@ impl Ladder {
             FilterMode::BandPass => 4.0 * (y[1] - 2.0 * y[2] + y[3]),
             FilterMode::Notch => u - 2.0 * y[0] + 2.0 * y[1],
         };
-        out * 2.0 * self.inv_drive
+        out * self.inv_drive
     }
 }
 

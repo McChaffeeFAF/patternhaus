@@ -939,6 +939,12 @@ impl Synth {
                 + 24.0 * d[2 + o];
             v.lvl[o] = (p.f(osc_p(o, O_LEVEL)) + d[10 + o]).clamp(0.0, 1.0);
             v.pw[o] = (p.f(osc_p(o, O_PW)) + 0.45 * d[9]).clamp(0.05, 0.95);
+            if o == 0 {
+                osc1_hz = key_to_hz(semis) as f64;
+            }
+            if v.lvl[o] == 0.0 {
+                continue; // silent oscillators are not run, so need no frequency
+            }
             for u in 0..unison {
                 let off = if unison > 1 {
                     detune * (u as f32 / (unison - 1) as f32 - 0.5)
@@ -947,9 +953,6 @@ impl Synth {
                 };
                 let hz = key_to_hz(semis + off) as f64;
                 v.osc[u][o].set_freq(hz, hi_sr as f64);
-            }
-            if o == 0 {
-                osc1_hz = key_to_hz(semis) as f64;
             }
         }
         v.sub
@@ -966,6 +969,9 @@ impl Synth {
             v.uni[u] = (gl * norm, gr * norm);
         }
         for f in 0..2 {
+            if !p.on(flt_p(f, F_ON)) {
+                continue;
+            }
             let mut lc = p.f(flt_p(f, F_CUTOFF)).log2()
                 + p.f(flt_p(f, F_KEYTRACK)) * (v.pitch - 60.0) / 12.0
                 + p.f(flt_p(f, F_ENV)) * v.fenv.level()
@@ -1174,6 +1180,12 @@ impl Processor for Synth {
         match i {
             ENV..LFO => self.update_envs(),
             POLYPHONY => self.alloc.set_limit(self.p.u(POLYPHONY)),
+            _ if i == flt_p(0, F_ON) || i == flt_p(1, F_ON) => {
+                // a filter switched on needs coefficients now, not at the next tick
+                for v in &mut self.voices {
+                    v.ctrl = 0;
+                }
+            }
             VOICE_MODE => {
                 for (k, v) in self.voices.iter_mut().enumerate() {
                     if v.active {
