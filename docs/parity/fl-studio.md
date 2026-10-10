@@ -20,6 +20,9 @@ Behaviour is observed by using FL as a normal user. Never decompile it.
 | Step sequencer | Swing | `project.set_swing` | |
 | Piano roll | Draw / delete / move / resize notes | `note.add` `note.remove` `note.move` `note.resize` `note.update` | |
 | Piano roll | Select, copy, paste, duplicate | `note.select_range` `note.copy` | |
+| Piano roll | Lasso select (Alt+drag), box select (Ctrl+drag) | UI selection only: no command until you act on the selection | |
+| Piano roll | Slice tool | `note.update` (length of the head) + `note.add` (the tail) as one batch, one undo step | Cuts at the grid-snapped click; Alt = no snap |
+| Piano roll | Mute tool | `note.update { muted }` | A muted note stays and is not played |
 | Piano roll | Quantize | `note.quantize` | |
 | Piano roll | Transpose | `note.transpose` | |
 | Piano roll | Note velocity / pan | `note.set_velocity` `note.update` | |
