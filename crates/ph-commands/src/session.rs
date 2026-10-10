@@ -93,11 +93,12 @@ pub struct HistoryEntry {
 /// Readers (engine, UI, agents) get `Arc<Project>` snapshots via [`Session::project`].
 pub struct Session {
     registry: Arc<Registry>,
-    project: Arc<Project>,
-    history: Vec<HistoryEntry>,
+    pub(crate) project: Arc<Project>,
+    pub(crate) history: Vec<HistoryEntry>,
     /// Transactions already reverted by an `Undo` entry.
-    undone: BTreeSet<u64>,
+    pub(crate) undone: BTreeSet<u64>,
     next_txn: u64,
+    pub(crate) solo: SoloState,
 }
 
 impl Session {
@@ -108,6 +109,7 @@ impl Session {
             history: Vec::new(),
             undone: BTreeSet::new(),
             next_txn: 1,
+            solo: SoloState::default(),
         }
     }
 
@@ -143,6 +145,18 @@ impl Session {
         reqs: Vec<Request>,
         host: &mut dyn Host,
     ) -> CmdResult<Vec<Executed>> {
+        if reqs
+            .iter()
+            .any(|r| crate::session_cmd::is_session_command(&r.command))
+        {
+            return match <[Request; 1]>::try_from(reqs) {
+                Ok([req]) => crate::session_cmd::run(self, caller, req, host).map(|e| vec![e]),
+                Err(_) => Err(CmdError::Other(
+                    "history, solo and file.open commands act on the session itself and cannot be batched"
+                        .into(),
+                )),
+            };
+        }
         let registry = self.registry.clone();
         let mut work: Project = (*self.project).clone();
         let mut all = PatchSet::default();
@@ -260,46 +274,57 @@ impl Session {
 
     /// Redo (Ctrl+Y): reverts the caller's most recent undo.
     pub fn redo(&mut self, author: &Author) -> CmdResult<Option<u64>> {
+        Ok(self.redo_with(author, UndoMode::Stop)?.map(|r| r.txn))
+    }
+
+    /// Redo with an explicit conflict policy.
+    pub fn redo_with(&mut self, author: &Author, mode: UndoMode) -> CmdResult<Option<UndoReport>> {
         match self.last_redoable(author) {
-            Some(txn) => self.undo_txn(txn, author).map(Some),
+            Some(txn) => self.undo_txn_with(txn, author, mode).map(Some),
             None => Ok(None),
         }
     }
 
-    /// Reverts one transaction as a new `Undo` transaction by `by`.
-    ///
-    /// **T0 contract implementation (strict):** succeeds only when nobody changed the
-    /// affected objects since; otherwise returns [`CmdError::UndoConflict`]. T1 replaces the
-    /// body with the field-level three-way revert from DESIGN §3 (skip / force / cancel),
-    /// keeping this signature.
+    /// Plain undo (Ctrl+Z): the caller's own most recent transaction.
+    pub fn undo(&mut self, author: &Author) -> CmdResult<Option<u64>> {
+        Ok(self.undo_with(author, UndoMode::Stop)?.map(|r| r.txn))
+    }
+
+    /// Plain undo with an explicit conflict policy.
+    pub fn undo_with(&mut self, author: &Author, mode: UndoMode) -> CmdResult<Option<UndoReport>> {
+        match self.last_undoable(author) {
+            Some(txn) => self.undo_txn_with(txn, author, mode).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Reverts one transaction as a new `Undo` transaction by `by`, stopping at the first
+    /// conflict ([`UndoMode::Stop`]).
     pub fn undo_txn(&mut self, txn: u64, by: &Author) -> CmdResult<u64> {
-        let entry = self
+        self.undo_txn_with(txn, by, UndoMode::Stop).map(|r| r.txn)
+    }
+
+    /// Reverts one transaction with the field-level three-way merge of DESIGN §3 (see the
+    /// `undo` module). Undoing an `Undo` entry is redo. The new entry is stamped with `by`.
+    pub fn undo_txn_with(
+        &mut self,
+        txn: u64,
+        by: &Author,
+        mode: UndoMode,
+    ) -> CmdResult<UndoReport> {
+        let pos = self
             .history
             .iter()
-            .find(|e| e.txn == txn)
+            .position(|e| e.txn == txn)
             .ok_or_else(|| CmdError::Other(format!("no transaction {txn}")))?;
         if self.undone.contains(&txn) {
             return Err(CmdError::Other(format!(
                 "transaction {txn} is already undone"
             )));
         }
-        let inverse = entry.patches.inverse();
-        let target = apply(&self.project, &inverse).map_err(|e| match e {
-            ph_core::ModelError::Conflict { path } => {
-                let changed_by = self
-                    .history
-                    .iter()
-                    .filter(|h| h.txn > txn && h.patches.iter().any(|p| p.path == path))
-                    .map(|h| h.author.clone())
-                    .collect();
-                CmdError::UndoConflict(vec![UndoConflict {
-                    path,
-                    fields: vec![],
-                    changed_by,
-                }])
-            }
-            other => CmdError::Model(other),
-        })?;
+        let entry = &self.history[pos];
+        let revert =
+            crate::undo::plan_revert(&self.project, entry, &self.history[pos + 1..], mode)?;
         let (kind, summary) = match &entry.kind {
             // Redoing: the transactions that undo reverted are live again.
             EntryKind::Undo { of } => {
@@ -316,23 +341,80 @@ impl Session {
                 entry.summary.as_ref().map(|s| format!("undo: {s}")),
             ),
         };
+        let target = apply(&self.project, &revert.patches)?;
         self.undone.insert(txn);
         let new = self.commit(
             by.clone(),
             kind,
             vec![],
-            inverse,
+            revert.patches,
             summary.into_iter().collect(),
         );
         self.project = Arc::new(target);
-        Ok(new)
+        Ok(UndoReport {
+            txn: new,
+            conflicts: revert.conflicts,
+        })
     }
 
-    /// Plain undo (Ctrl+Z): the caller's own most recent transaction.
-    pub fn undo(&mut self, author: &Author) -> CmdResult<Option<u64>> {
-        match self.last_undoable(author) {
-            Some(txn) => self.undo_txn(txn, author).map(Some),
-            None => Ok(None),
+    /// Reverts every live transaction `target` made, newest first, as `by`. All-or-nothing:
+    /// if any step stops on a conflict, nothing changes.
+    pub fn undo_author(
+        &mut self,
+        target: &Author,
+        by: &Author,
+        mode: UndoMode,
+    ) -> CmdResult<Vec<UndoReport>> {
+        let saved = (
+            self.project.clone(),
+            self.history.len(),
+            self.undone.clone(),
+            self.next_txn,
+        );
+        let mut reports = Vec::new();
+        while let Some(txn) = self.last_undoable(target) {
+            match self.undo_txn_with(txn, by, mode) {
+                Ok(r) => reports.push(r),
+                Err(e) => {
+                    self.project = saved.0;
+                    self.history.truncate(saved.1);
+                    self.undone = saved.2;
+                    self.next_txn = saved.3;
+                    return Err(e);
+                }
+            }
         }
+        Ok(reports)
     }
+
+    /// Replaces the whole project and forgets the history: opening a different document.
+    /// Transaction numbers keep counting up, so they stay unique for the process.
+    pub fn reset(&mut self, project: Project) {
+        self.project = Arc::new(project);
+        self.history.clear();
+        self.undone.clear();
+        self.solo = SoloState::default();
+    }
+
+    /// Solo state (a view of the mix, not part of the saved project).
+    pub fn solo(&self) -> &SoloState {
+        &self.solo
+    }
+}
+
+/// Which channels and mixer inserts are soloed. Session-local view state: it is not a model
+/// field, so it is not saved, not patched and not undone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SoloState {
+    pub channels: BTreeSet<ph_core::ChannelId>,
+    pub inserts: BTreeSet<u32>,
+}
+
+/// Result of one undo or redo.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct UndoReport {
+    /// The new history entry.
+    pub txn: u64,
+    /// Conflicts that were skipped (`Skip`) or overridden (`Force`); empty for a clean undo.
+    pub conflicts: Vec<UndoConflict>,
 }

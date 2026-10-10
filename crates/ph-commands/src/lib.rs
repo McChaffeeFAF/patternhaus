@@ -8,13 +8,18 @@
 
 mod builtin;
 mod host;
+mod queue;
 mod registry;
 mod session;
+mod session_cmd;
+mod undo;
 
 pub use builtin::register_builtin;
 pub use host::*;
+pub use queue::*;
 pub use registry::*;
 pub use session::*;
+pub use undo::UndoMode;
 
 use ph_core::{ModelError, ObjectPath};
 use schemars::JsonSchema;
