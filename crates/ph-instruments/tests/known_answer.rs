@@ -71,6 +71,33 @@ fn synth_tuning() {
     }
 }
 
+/// Known-answer: per-note `fine_pitch` is in cents (ph-node contract, matches the model).
+#[test]
+fn note_fine_pitch_is_cents() {
+    let detuned = |cents: f32| {
+        let ev = (
+            0,
+            EventKind::NoteOn {
+                note_id: 1,
+                key: 69,
+                velocity: 1.0,
+                pan: 0.0,
+                fine_pitch: cents,
+            },
+        );
+        let mut s = util::synth_with(&[("osc1_wave", 3.0), ("f1_on", 0.0)]);
+        let out = play(s.as_mut(), 1 << 16, &[ev], Quality::Live);
+        dominant_hz(&out[0][1 << 15..])
+    };
+    for (cents, hz) in [(100.0, 466.163_8), (-1200.0, 220.0), (50.0, 452.893)] {
+        let f = detuned(cents);
+        assert!(
+            (f / hz - 1.0).abs() < 1e-4,
+            "{cents} cents: {f} Hz, want {hz}"
+        );
+    }
+}
+
 /// Known-answer: an unfiltered saw at 1245 Hz has audible-band aliasing below -80 dB
 /// (oversampled 4-point PolyBLEP), versus about -41 dB for PolyBLEP at the base rate.
 #[test]

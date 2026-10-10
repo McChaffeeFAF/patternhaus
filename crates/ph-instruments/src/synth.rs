@@ -1157,7 +1157,7 @@ impl Processor for Synth {
                     velocity,
                     pan,
                     fine_pitch,
-                } => self.note_on(note_id, key, velocity, pan, fine_pitch),
+                } => self.note_on(note_id, key, velocity, pan, fine_pitch / 100.0), // cents -> semitones
                 EventKind::NoteOff { note_id, .. } => self.note_off(note_id),
                 EventKind::AllNotesOff => self.all_off(),
                 EventKind::Param { id, value } => self.set_param(id, value),
