@@ -6,6 +6,7 @@
 //! to the same endpoint ([`proxy_stdio`]).
 
 use crate::agent::Agent;
+use crate::connections::ConnectionInfo;
 use crate::grants::Grants;
 use crate::jsonrpc::serve_jsonrpc;
 use crate::mcp::PatternhausServer;
@@ -47,11 +48,18 @@ pub fn default_grants_file() -> Option<PathBuf> {
 /// A running endpoint. Dropping it closes the endpoint.
 pub struct LocalServer {
     endpoint: String,
+    agent: Arc<Agent>,
     stop: Arc<Notify>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl LocalServer {
+    /// The clients connected right now: name, scopes, when they connected, when they were
+    /// last active and how many tool calls they have made.
+    pub fn connections(&self) -> Vec<ConnectionInfo> {
+        self.agent.connections()
+    }
+
     pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
@@ -85,6 +93,7 @@ pub fn serve_local_with(
     grants: Arc<Grants>,
 ) -> Result<LocalServer, String> {
     let agent = Agent::new(studio, grants);
+    let for_server = agent.clone();
     // Start the event hub now so the first client does not pay for it.
     agent.studio().events()?;
     let stop = Arc::new(Notify::new());
@@ -112,6 +121,7 @@ pub fn serve_local_with(
         .map_err(|_| "the endpoint thread died".to_string())??;
     Ok(LocalServer {
         endpoint: endpoint.to_string(),
+        agent: for_server,
         stop,
         thread: Some(thread),
     })

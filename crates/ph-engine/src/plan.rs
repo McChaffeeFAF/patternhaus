@@ -937,6 +937,7 @@ pub(crate) fn compile(
                     .get(&c.id)
                     .into_iter()
                     .flat_map(|m| m.values())
+                    .filter(|n| !n.muted)
                     .filter_map(|n| {
                         let (s, e) = place(n.start, n.start + n.length, len)?;
                         Some(note_ev(s, e, n))
@@ -974,7 +975,8 @@ pub(crate) fn compile(
                 let plen = pattern_len.get(&clip.pattern).copied().unwrap_or(0);
                 let win_end = clip.start + clip.length;
                 for n in pat.notes.get(&ch.id).into_iter().flat_map(|m| m.values()) {
-                    if n.start < clip.offset
+                    if n.muted
+                        || n.start < clip.offset
                         || n.start >= clip.offset + clip.length
                         || n.start >= plen
                     {

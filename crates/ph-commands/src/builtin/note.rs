@@ -158,6 +158,10 @@ struct NoteUpdate {
     /// New fine pitch in cents.
     #[serde(default)]
     fine_pitch: Option<f32>,
+    /// Mute (true) or unmute (false) the note. A muted note stays in the pattern but is not
+    /// played.
+    #[serde(default)]
+    muted: Option<bool>,
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -219,6 +223,9 @@ fn update(ctx: &mut CommandCtx<'_>, p: Update) -> CmdResult<CommandOutput> {
         }
         if let Some(f) = u.fine_pitch {
             n.fine_pitch = f;
+        }
+        if let Some(m) = u.muted {
+            n.muted = m;
         }
         Ok(n)
     })?;
@@ -468,6 +475,7 @@ fn copy(ctx: &mut CommandCtx<'_>, p: CopyNotes) -> CmdResult<CommandOutput> {
         spec.velocity = n.velocity;
         spec.pan = n.pan;
         spec.fine_pitch = n.fine_pitch;
+        spec.muted = n.muted;
         ids.push(ed.add_note(to_pattern, to_channel, spec)?);
     }
     Ok(CommandOutput::from_edit(

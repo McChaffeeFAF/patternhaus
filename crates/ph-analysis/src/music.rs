@@ -72,7 +72,7 @@ fn song_note(channel: ChannelId, n: &Note, start: Tick, length: Tick) -> SongNot
     }
 }
 
-/// Notes of one pattern, at pattern time.
+/// Notes of one pattern, at pattern time (muted notes are not played, so they are left out).
 pub fn pattern_notes(project: &Project, pattern: PatternId) -> Vec<SongNote> {
     let Some(p) = project.patterns.get(&pattern) else {
         return vec![];
@@ -82,6 +82,7 @@ pub fn pattern_notes(project: &Project, pattern: PatternId) -> Vec<SongNote> {
         .iter()
         .flat_map(|(ch, m)| {
             m.values()
+                .filter(|n| !n.muted)
                 .map(move |n| song_note(*ch, n, n.start, n.length))
         })
         .collect();
@@ -124,7 +125,10 @@ pub fn song_notes(project: &Project) -> Vec<SongNote> {
                 continue;
             }
             for n in m.values() {
-                if n.start < clip.offset || n.start >= clip.offset + clip.length || n.start >= plen
+                if n.muted
+                    || n.start < clip.offset
+                    || n.start >= clip.offset + clip.length
+                    || n.start >= plen
                 {
                     continue;
                 }

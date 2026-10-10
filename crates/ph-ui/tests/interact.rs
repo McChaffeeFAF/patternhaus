@@ -233,3 +233,189 @@ fn placing_and_moving_clips_in_the_playlist() {
         .expect("clip on track 6");
     assert_eq!((new.start, new.pattern), (3840, ids.beat));
 }
+
+// ---- piano roll: lasso, slice and mute --------------------------------------------------
+
+fn mod_frame(h: &mut H, _m: Modifiers) {
+    h.step();
+}
+
+fn mouse(h: &mut H, pos: Pos2, b: PointerButton, pressed: bool, m: Modifiers) {
+    h.event(Event::PointerButton {
+        pos,
+        button: b,
+        pressed,
+        modifiers: m,
+    });
+    mod_frame(h, m);
+}
+
+/// Press at the first point, move through the rest, release at the last, with `m` held.
+fn drag_path(h: &mut H, path: &[Pos2], m: Modifiers) {
+    h.event(Event::ModifiersChanged(m));
+    h.event(Event::PointerMoved(path[0]));
+    mod_frame(h, m);
+    mouse(h, path[0], PointerButton::Primary, true, m);
+    for p in &path[1..] {
+        h.event(Event::PointerMoved(*p));
+        mod_frame(h, m);
+    }
+    mouse(h, *path.last().unwrap(), PointerButton::Primary, false, m);
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
+    frames(h, 6);
+}
+
+fn roll(h: &mut H, ids: &Ids) -> impl Fn(f64, f64) -> Pos2 + use<> {
+    h.state_mut().open_panel(PanelId::PianoRoll);
+    h.state_mut().core.sel.channel = Some(ids.bass);
+    h.state_mut().core.sel.pattern = Some(ids.bassline);
+    h.state_mut().core.fix_selection();
+    frames(h, 4);
+    let (grid, view) = {
+        let r = &h.state().core.roll;
+        (r.last_grid, r.view)
+    };
+    assert!(grid.width() > 100.0, "the roll was drawn");
+    // a point at a tick and a (fractional) key row
+    move |tick: f64, key: f64| {
+        Pos2::new(
+            grid.left() + view.x_of(tick) + 1.0,
+            grid.top() + ((view.y0 - (key + 1.0)) as f32) * view.key_h + view.key_h / 2.0,
+        )
+    }
+}
+
+fn bass_notes(h: &H, ids: &Ids) -> Vec<ph_core::Note> {
+    h.state().core.project.pattern(ids.bassline).unwrap().notes[&ids.bass]
+        .values()
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn alt_drag_lassos_notes_and_ctrl_drag_still_boxes() {
+    let (mut h, ids, _dir) = start();
+    let at = roll(&mut h, &ids);
+    let sorted = |h: &H| {
+        let mut v = bass_notes(h, &ids);
+        v.sort_by_key(|n| n.start);
+        v
+    };
+    let notes = sorted(&h);
+    assert_eq!(notes.len(), 4);
+    assert!(h.state().core.roll.selection.is_empty());
+    // a loop (drawn by hand, starting in empty space) around the first two notes: starts above
+    // them, comes down around, and ends back near where it began
+    let k = 36.0;
+    let lasso = [
+        at(60.0, k + 2.0),
+        at(1500.0, k + 2.0),
+        at(1500.0, k - 1.5),
+        at(60.0, k - 1.5),
+        at(60.0, k + 1.8),
+    ];
+    drag_path(&mut h, &lasso, Modifiers::ALT);
+    let sel: Vec<_> = h.state().core.roll.selection.iter().copied().collect();
+    assert_eq!(
+        sel,
+        vec![notes[0].id, notes[1].id],
+        "the lasso took two notes"
+    );
+    assert_eq!(
+        bass_notes(&h, &ids).len(),
+        4,
+        "alt+drag in empty space draws nothing"
+    );
+    // ctrl+drag is still a box, which here catches the later note too
+    let from = at(60.0, k + 5.0);
+    let to = at(3300.0, k - 4.0);
+    drag_path(&mut h, &[from, to], Modifiers::COMMAND);
+    assert!(
+        h.state().core.roll.selection.len() >= 3,
+        "box select still works"
+    );
+}
+
+#[test]
+fn the_slice_tool_splits_a_note_at_the_snapped_click_as_one_undo_step() {
+    let (mut h, ids, _dir) = start();
+    let at = roll(&mut h, &ids);
+    h.state_mut().core.roll.tool = ph_ui::piano_roll::Tool::Slice;
+    let grid = h.state().core.roll.grid();
+    let before = bass_notes(&h, &ids);
+    let first = before.iter().min_by_key(|n| n.start).unwrap().clone();
+    assert_eq!((first.start, first.length), (0, 720));
+    // click 500 ticks into the note: the cut snaps to the grid
+    click(&mut h, at(500.0, first.key as f64));
+    let mut after = bass_notes(&h, &ids);
+    after.sort_by_key(|n| (n.start, n.key));
+    assert_eq!(after.len(), 5, "one note became two");
+    let cut = snap(500, grid);
+    let head = after.iter().find(|n| n.id == first.id).unwrap();
+    assert_eq!((head.start, head.length), (0, cut));
+    let tail = after
+        .iter()
+        .find(|n| n.start == cut && n.key == first.key)
+        .expect("a note starts at the cut");
+    assert_eq!(tail.start + tail.length, 720, "the tail keeps the old end");
+    assert_eq!(tail.velocity, first.velocity);
+    // clicking exactly where a note starts (or past its end) changes nothing
+    click(&mut h, at(0.0, first.key as f64 + 0.0));
+    assert_eq!(bass_notes(&h, &ids).len(), 5);
+    // a single undo step puts the original note back
+    h.state_mut().core.send(ph_ui::mapping::undo_mine());
+    frames(&mut h, 8);
+    let undone = bass_notes(&h, &ids);
+    assert_eq!(undone.len(), 4, "both halves of the split undone together");
+    let n = undone.iter().find(|n| n.id == first.id).unwrap();
+    assert_eq!((n.start, n.length), (0, 720));
+}
+
+fn snap(t: u64, grid: u64) -> u64 {
+    ((t as f64 / grid as f64).round() as u64) * grid
+}
+
+#[test]
+fn the_mute_tool_toggles_notes_and_a_drag_sets_them_all_alike() {
+    let (mut h, ids, _dir) = start();
+    let at = roll(&mut h, &ids);
+    h.state_mut().core.roll.tool = ph_ui::piano_roll::Tool::Mute;
+    let notes = |h: &H| {
+        let mut v = bass_notes(h, &ids);
+        v.sort_by_key(|n| n.start);
+        v
+    };
+    let n0 = notes(&h)[0].clone();
+    assert!(!n0.muted);
+    click(&mut h, at(300.0, n0.key as f64));
+    assert!(notes(&h)[0].muted, "a click mutes");
+    assert_eq!(bass_notes(&h, &ids).len(), 4, "the note is still there");
+    click(&mut h, at(300.0, n0.key as f64));
+    assert!(!notes(&h)[0].muted, "and a second click unmutes");
+    // dragging across the first two notes (same key row) mutes both
+    drag(
+        &mut h,
+        at(300.0, n0.key as f64),
+        at(1500.0, n0.key as f64),
+        PointerButton::Primary,
+    );
+    let v = notes(&h);
+    assert!(v[0].muted && v[1].muted && !v[2].muted, "{v:?}");
+    // one undo step for the whole stroke
+    h.state_mut().core.send(ph_ui::mapping::undo_mine());
+    frames(&mut h, 8);
+    assert!(notes(&h).iter().all(|n| !n.muted));
+}
+
+#[test]
+fn the_toolbar_has_slice_and_mute_tools() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, ids, _dir) = start();
+    let _ = roll(&mut h, &ids);
+    h.get_by_label("Slice").click();
+    frames(&mut h, 3);
+    assert_eq!(h.state().core.roll.tool, ph_ui::piano_roll::Tool::Slice);
+    h.get_by_label("Mute").click();
+    frames(&mut h, 3);
+    assert_eq!(h.state().core.roll.tool, ph_ui::piano_roll::Tool::Mute);
+}

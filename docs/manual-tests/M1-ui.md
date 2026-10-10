@@ -152,6 +152,37 @@ cargo run --release -p ph-app -- C:\Users\you\beats\first --demo-agent
    `crates/ph-app/src/main.rs`) it lists connected clients with scopes and shows the grant prompt
    (Allow / Read only / Deny) when a new client connects.
 
+## Part 4: the T5c rough-edge fixes
+
+1. **Scrolling.** Open a Haus Synth instrument window and drag its bottom edge up until it is
+   small. Expected: a scroll bar appears and the mouse wheel scrolls; knob rows wrap onto new lines
+   instead of running off the right edge. The mixer, History and Agents windows scroll in both
+   directions. The piano roll, playlist and channel rack keep their own panning and zooming, with
+   their toolbars in place.
+2. **Effect windows.** In the mixer, open two effects of one insert (click each slot). The title
+   bars read like "Insert 4 - EQ". Drag a window over the other's title: the text slides to the
+   part of the bar that is still visible. Use the ^ / v buttons on the slots (or have an agent
+   run `mixer.move_effect`, or press Undo): each window follows its effect and keeps its place.
+   Removing an effect closes only its window.
+3. **Agents open windows.** From any MCP client run `ui.open_panel` with `instrument:<channel id>`
+   or `effect:<insert>:<slot>`; `ui.select` a channel; `ui.show_piano_roll`. The windows open and
+   the channel and pattern are selected.
+4. **Escape.** Open two instrument windows, click the channel rack, press Escape: the front-most
+   instrument window closes (then the next one). Escape in a text box does not close anything.
+5. **Solo.** Have an agent run `channel.solo` or `mixer.solo`. The S button lights up without
+   touching the mouse.
+6. **Agents window.** Connect an agent. It is listed at the top with its scopes, how long it has
+   been connected, how many calls it has made and how long it has been idle. Disconnect it: it
+   moves to "Remembered, not connected", greyed out. While a grant prompt is open, other clients
+   can still connect and work.
+7. **Piano roll tools.** Alt+drag in empty space draws a loop; the notes inside it are selected
+   (Ctrl+drag is still a box). Slice tool: click a note, it splits at the snapped position (one
+   Undo puts it back). Mute tool: click or drag across notes; muted notes are drawn washed out and
+   are silent; click again to unmute.
+8. **Quit with changes.** Make an edit and close the window (or File, Quit, New project, Open
+   project). Expected: "Save / Don't save / Cancel". Cancel keeps everything as it was; Save
+   writes the project and then goes ahead; Don't save goes ahead and discards.
+
 ## What to look for (the things tests cannot judge)
 
 - The 10 000-note piano roll (make one with the scripted agent or MIDI import) scrolls and zooms

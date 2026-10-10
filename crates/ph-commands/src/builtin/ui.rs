@@ -6,12 +6,12 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 
-const PANELS: &str = "browser, channel_rack, piano_roll, playlist, mixer, history";
+const PANELS: &str = "browser, channel_rack, piano_roll, playlist, mixer, history, agents, instrument:<channel_id>, effect:<insert>:<slot>";
 
 pub fn register(r: &mut Registry) {
     r.register(typed(
         "ui.open_panel",
-        "Open or focus a panel (browser, channel_rack, piano_roll, playlist, mixer, history).",
+        "Open or focus a panel, or `instrument:<channel_id>` / `effect:<insert>:<slot>` windows (see the param).",
         Scope::Compose,
         READ,
         open_panel,
@@ -49,26 +49,60 @@ pub fn register(r: &mut Registry) {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct Panel {
-    /// Panel name: browser, channel_rack, piano_roll, playlist, mixer or history.
+    /// Panel name: browser, channel_rack, piano_roll, playlist, mixer, history or agents.
+    /// Also `instrument:<channel_id>` (a channel's instrument window, e.g. `instrument:2`)
+    /// and `effect:<insert>:<slot>` (an effect's window, slots counted from 0, e.g. `effect:4:1`).
     panel: String,
 }
 
-fn check_panel(p: &Panel) -> CmdResult<()> {
+fn check_panel(project: &ph_core::Project, p: &Panel) -> CmdResult<()> {
+    let bad = |message: String| CmdError::BadParams {
+        command: "ui".into(),
+        message,
+    };
     if matches!(
         p.panel.as_str(),
-        "browser" | "channel_rack" | "piano_roll" | "playlist" | "mixer" | "history"
+        "browser" | "channel_rack" | "piano_roll" | "playlist" | "mixer" | "history" | "agents"
     ) {
-        Ok(())
-    } else {
-        Err(CmdError::BadParams {
-            command: "ui".into(),
-            message: format!("unknown panel {:?}; use one of {PANELS}", p.panel),
-        })
+        return Ok(());
     }
+    if let Some(id) = p.panel.strip_prefix("instrument:") {
+        let c = id
+            .parse::<u32>()
+            .map_err(|_| bad(format!("bad channel id in {:?}", p.panel)))?;
+        project
+            .channel(ChannelId(c))
+            .map_err(|_| bad(format!("no channel {c}")))?;
+        return Ok(());
+    }
+    if let Some(rest) = p.panel.strip_prefix("effect:") {
+        let parsed = rest
+            .split_once(':')
+            .and_then(|(i, s)| Some((i.parse::<u32>().ok()?, s.parse::<usize>().ok()?)));
+        let Some((i, s)) = parsed else {
+            return Err(bad(format!(
+                "bad effect window {:?}; use effect:<insert>:<slot>",
+                p.panel
+            )));
+        };
+        let has = project
+            .mixer
+            .get(i as usize)
+            .is_some_and(|m| s < m.effects.len());
+        return if has {
+            Ok(())
+        } else {
+            Err(bad(format!("insert {i} has no effect in slot {s}")))
+        };
+    }
+    Err(bad(format!(
+        "unknown panel {:?}; use one of {PANELS}",
+        p.panel
+    )))
 }
 
 fn open_panel(ctx: &mut CommandCtx<'_>, p: Panel) -> CmdResult<CommandOutput> {
-    check_panel(&p)?;
+    check_panel(ctx.project, &p)?;
     ctx.host.ui(UiRequest::Open {
         panel: p.panel.clone(),
     })?;
@@ -76,7 +110,7 @@ fn open_panel(ctx: &mut CommandCtx<'_>, p: Panel) -> CmdResult<CommandOutput> {
 }
 
 fn close_panel(ctx: &mut CommandCtx<'_>, p: Panel) -> CmdResult<CommandOutput> {
-    check_panel(&p)?;
+    check_panel(ctx.project, &p)?;
     ctx.host.ui(UiRequest::Close {
         panel: p.panel.clone(),
     })?;

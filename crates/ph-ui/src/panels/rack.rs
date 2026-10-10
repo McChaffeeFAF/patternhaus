@@ -275,11 +275,6 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 let srect = Rect::from_min_size(Pos2::new(x, mid - 10.0), Vec2::new(22.0, 20.0));
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(srect));
                 if toggle(&mut child, solo, "S", theme.colors.ok, &theme).clicked() {
-                    if solo {
-                        core.solo_channels.remove(&ch.id);
-                    } else {
-                        core.solo_channels.insert(ch.id);
-                    }
                     core.send(mapping::channel_solo(ch.id, !solo));
                 }
                 x += 26.0;

@@ -127,40 +127,39 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
     ui.separator();
     let panel_rect = ui.available_rect_before_wrap();
     let desc = ph_engine::catalog::instrument_descriptor(&ch.instrument);
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .show(ui, |ui| match &ch.instrument {
-            InstrumentSpec::Sampler {
-                sample,
-                root_key,
+    // the window itself scrolls (see `windows::show_content`)
+    match &ch.instrument {
+        InstrumentSpec::Sampler {
+            sample,
+            root_key,
+            params,
+        } => {
+            sampler(
+                ui,
+                core,
+                &ch,
+                sample.as_deref(),
+                *root_key,
                 params,
-            } => {
-                sampler(
-                    ui,
-                    core,
-                    &ch,
-                    sample.as_deref(),
-                    *root_key,
-                    params,
-                    desc.as_ref().ok(),
-                    &theme,
-                );
-            }
-            InstrumentSpec::Synth { preset, params } => {
-                synth(
-                    ui,
-                    core,
-                    &ch,
-                    preset.as_deref(),
-                    params,
-                    desc.as_ref().ok(),
-                    &theme,
-                );
-            }
-            _ => {
-                ui.label("No panel for this instrument type yet.");
-            }
-        });
+                desc.as_ref().ok(),
+                &theme,
+            );
+        }
+        InstrumentSpec::Synth { preset, params } => {
+            synth(
+                ui,
+                core,
+                &ch,
+                preset.as_deref(),
+                params,
+                desc.as_ref().ok(),
+                &theme,
+            );
+        }
+        _ => {
+            ui.label("No panel for this instrument type yet.");
+        }
+    }
 
     // dropping a sample on the panel replaces the sampler's sample
     if ui.input(|i| i.pointer.any_released())

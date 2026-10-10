@@ -36,9 +36,19 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             (
                 Tool::Select,
                 "Select",
-                "Box select (Alt+E, or Ctrl+drag in Draw)",
+                "Box select (Alt+E, or Ctrl+drag); Alt+drag in empty space lassos",
             ),
             (Tool::Delete, "Delete", "Drag over notes to delete (Alt+D)"),
+            (
+                Tool::Slice,
+                "Slice",
+                "Click a note to split it at the snapped position (Alt = no snap)",
+            ),
+            (
+                Tool::Mute,
+                "Mute",
+                "Click or drag over notes to mute or unmute them",
+            ),
         ] {
             if toggle(
                 ui,

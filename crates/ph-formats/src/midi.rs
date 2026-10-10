@@ -228,7 +228,7 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
         MidiExport::Pattern(id) => {
             let pat = project.pattern(id)?;
             for (ch, notes) in &pat.notes {
-                for n in notes.values() {
+                for n in notes.values().filter(|n| !n.muted) {
                     per_channel.entry(*ch).or_default().push((
                         n.start,
                         n.length,
@@ -251,7 +251,7 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
                 let pat = project.pattern(clip.pattern)?;
                 for (ch, notes) in &pat.notes {
                     for n in notes.values() {
-                        if n.start < clip.offset {
+                        if n.muted || n.start < clip.offset {
                             continue;
                         }
                         // The clip plays the pattern from `offset`, wrapping at its length.

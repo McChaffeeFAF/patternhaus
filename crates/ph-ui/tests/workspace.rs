@@ -6,6 +6,7 @@ mod common;
 use common::*;
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Vec2};
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use ph_core::{ChannelId, InsertId};
 use ph_ui::PhApp;
 use ph_ui::workspace::{TITLE_H, WindowId};
@@ -296,14 +297,15 @@ fn clicking_a_channel_opens_its_instrument_window_and_escape_closes_it() {
     key(&mut h, Key::Escape);
     assert!(!h.state().ws.is_visible(bass));
     assert!(h.state().ws.is_visible(kick));
-    // the rack was clicked last, so it holds the focus now and Escape leaves everything alone
+    // the rack was clicked last, so it is in front, but Escape still closes the front-most
+    // instrument window in z-order
+    assert!(h.state().ws.is_front(rack));
     key(&mut h, Key::Escape);
-    assert!(h.state().ws.is_visible(kick) && h.state().ws.is_visible(rack));
-    // focus the kick window by clicking its title, then Escape closes it
-    let p = at(&h, kick, 40.0, TITLE_H / 2.0);
-    click(&mut h, p);
+    assert!(
+        !h.state().ws.is_visible(kick),
+        "escape reached under the rack"
+    );
     key(&mut h, Key::Escape);
-    assert!(!h.state().ws.is_visible(kick));
     assert!(
         h.state().ws.is_visible(rack),
         "escape never closes the rack"
@@ -346,4 +348,518 @@ fn clicking_an_effect_slot_opens_its_window_and_deleting_the_channel_closes_inst
     assert!(h.state().ws.get(WindowId::Instrument(ids.bass)).is_none());
     assert!(h.state().ws.is_visible(WindowId::Effect(InsertId(4), 1)));
     let _ = ChannelId(0);
+}
+
+fn run_cmd(h: &mut H, req: ph_commands::Request) {
+    h.state()
+        .core
+        .studio
+        .session
+        .execute(&ph_commands::Caller::human(), req)
+        .expect("command runs");
+}
+
+fn settle_frames(h: &mut H, n: usize) {
+    for _ in 0..n {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn every_window_kind_has_a_title() {
+    let (h, ids, _dir) = start();
+    let core = &h.state().core;
+    let mut all = vec![
+        WindowId::Playlist,
+        WindowId::ChannelRack,
+        WindowId::PianoRoll,
+        WindowId::Mixer,
+        WindowId::History,
+        WindowId::Agents,
+        WindowId::Instrument(ids.kick),
+        WindowId::Instrument(ids.bass),
+        WindowId::Effect(InsertId(4), 0),
+        WindowId::Effect(InsertId(4), 1),
+        WindowId::Effect(InsertId(5), 0),
+    ];
+    // objects that do not exist still get a title
+    all.push(WindowId::Instrument(ChannelId(999)));
+    all.push(WindowId::Effect(InsertId(4), 9));
+    all.push(WindowId::Effect(InsertId(99), 0));
+    for id in all {
+        let t = ph_ui::windows::title_of(core, id);
+        assert!(!t.trim().is_empty(), "{id:?} has a blank title");
+    }
+    // effect titles read "<insert name> - <effect name>"
+    let eq = ph_ui::windows::title_of(core, WindowId::Effect(InsertId(4), 0));
+    assert!(eq.starts_with("Insert 4 - "), "{eq}");
+    assert!(!eq.ends_with(" - "), "{eq}");
+    let rev = ph_ui::windows::title_of(core, WindowId::Effect(InsertId(5), 0));
+    assert!(rev.starts_with("Reverb - "), "named insert: {rev}");
+}
+
+#[test]
+fn a_title_hidden_under_a_window_in_front_moves_into_view() {
+    let (mut h, ids, _dir) = start();
+    let fx = WindowId::Effect(InsertId(4), 0);
+    let inst = WindowId::Instrument(ids.bass);
+    h.state_mut().ws.show(fx);
+    h.state_mut().ws.show(inst);
+    frames(&mut h, 3);
+    // put the instrument window over the left of the effect window's title bar
+    let r = rect(&h, fx);
+    h.state_mut().ws.drag_move(inst, r.x + 150.0 - 500.0, r.y);
+    h.state_mut().ws.focus(inst);
+    frames(&mut h, 3);
+    let ws = &h.state().ws;
+    assert!(ws.is_front(inst));
+    assert!(
+        ws.title_start(fx, 100.0, 68.0) > 10.0,
+        "the title starts past the cover"
+    );
+}
+
+#[test]
+fn effect_windows_follow_their_effect_when_the_ui_or_an_agent_reorders() {
+    let (mut h, _ids, _dir) = start();
+    let eq = WindowId::Effect(InsertId(4), 0);
+    let comp = WindowId::Effect(InsertId(4), 1);
+    h.state_mut().core.sel.insert = 4;
+    h.state_mut().ws.show(eq);
+    h.state_mut().ws.show(comp);
+    frames(&mut h, 3);
+    // give each window its own place
+    let p = at(&h, eq, 60.0, TITLE_H / 2.0);
+    drag(&mut h, p, p + Vec2::new(0.0, 250.0));
+    let p = at(&h, comp, 60.0, TITLE_H / 2.0);
+    drag(&mut h, p, p + Vec2::new(200.0, 300.0));
+    let (eq_rect, comp_rect) = (rect(&h, eq), rect(&h, comp));
+    assert_ne!(eq_rect, comp_rect);
+    // an agent moves the EQ below the compressor: slots swap, windows follow with their rects
+    run_cmd(&mut h, ph_ui::mapping::effect_move(4, 0, 1));
+    settle_frames(&mut h, 6);
+    assert_eq!(
+        rect(&h, comp),
+        eq_rect,
+        "the EQ's window now sits at slot 1"
+    );
+    assert_eq!(
+        rect(&h, eq),
+        comp_rect,
+        "the compressor's window is at slot 0"
+    );
+    assert!(h.state().ws.is_visible(eq) && h.state().ws.is_visible(comp));
+    // undo puts them back again (a snapshot from outside the UI)
+    run_cmd(&mut h, ph_ui::mapping::undo_mine());
+    settle_frames(&mut h, 6);
+    assert_eq!(rect(&h, eq), eq_rect);
+    assert_eq!(rect(&h, comp), comp_rect);
+    // the UI's own "move down" button remaps directly, with the same result
+    h.state_mut().ws.show(WindowId::Mixer);
+    frames(&mut h, 3);
+    let downs: Vec<_> = h.query_all_by_label("v").collect();
+    assert!(!downs.is_empty(), "the mixer shows the move-down buttons");
+    downs[0].click();
+    settle_frames(&mut h, 8);
+    assert_eq!(rect(&h, comp), eq_rect);
+    assert_eq!(rect(&h, eq), comp_rect);
+    // removing the compressor closes its window (and only its window)
+    run_cmd(&mut h, ph_ui::mapping::effect_remove(4, 0));
+    settle_frames(&mut h, 6);
+    assert!(
+        h.state().ws.get(eq).is_some(),
+        "the EQ's window moved to slot 0"
+    );
+    assert!(h.state().ws.get(comp).is_none(), "nothing left in slot 1");
+}
+
+fn ui_cmd(h: &mut H, cmd: &str, params: serde_json::Value) {
+    run_cmd(h, ph_commands::Request::new(cmd, params));
+    settle_frames(h, 4);
+}
+
+#[test]
+fn agents_open_instrument_and_effect_windows_and_select_opens_them() {
+    let (mut h, ids, _dir) = start();
+    let inst = WindowId::Instrument(ids.snare);
+    let fx = WindowId::Effect(InsertId(4), 1);
+    assert!(!h.state().ws.is_visible(inst));
+    ui_cmd(
+        &mut h,
+        "ui.open_panel",
+        serde_json::json!({ "panel": format!("instrument:{}", ids.snare.0) }),
+    );
+    assert!(
+        h.state().ws.is_front(inst),
+        "instrument window opened in front"
+    );
+    ui_cmd(
+        &mut h,
+        "ui.open_panel",
+        serde_json::json!({ "panel": "effect:4:1" }),
+    );
+    assert!(h.state().ws.is_front(fx), "effect window opened in front");
+    ui_cmd(
+        &mut h,
+        "ui.close_panel",
+        serde_json::json!({ "panel": "effect:4:1" }),
+    );
+    assert!(!h.state().ws.is_visible(fx));
+    ui_cmd(
+        &mut h,
+        "ui.close_panel",
+        serde_json::json!({ "panel": format!("instrument:{}", ids.snare.0) }),
+    );
+    assert!(!h.state().ws.is_visible(inst));
+    // selecting a channel opens its instrument window
+    let hat = WindowId::Instrument(ids.hat);
+    ui_cmd(
+        &mut h,
+        "ui.select",
+        serde_json::json!({ "paths": [format!("channel/{}", ids.hat.0)] }),
+    );
+    assert!(h.state().ws.is_front(hat));
+    assert_eq!(h.state().core.sel.channel, Some(ids.hat));
+    // the piano roll request selects the pattern and the channel it names
+    ui_cmd(
+        &mut h,
+        "ui.show_piano_roll",
+        serde_json::json!({ "pattern": ids.bassline.0, "channel": ids.bass.0 }),
+    );
+    assert!(h.state().ws.is_front(WindowId::PianoRoll));
+    assert_eq!(h.state().core.sel.pattern, Some(ids.bassline));
+    assert_eq!(h.state().core.sel.channel, Some(ids.bass));
+    assert!(
+        h.state()
+            .core
+            .agent_select
+            .contains(&ph_core::ObjectPath::Channel(ids.bass))
+    );
+}
+
+#[test]
+fn small_windows_scroll_instead_of_clipping() {
+    let (mut h, ids, _dir) = start();
+    let w = WindowId::Instrument(ids.bass);
+    h.state_mut().ws.show(w);
+    frames(&mut h, 4);
+    // shrink it to the minimum size by dragging the bottom-right corner
+    let r = rect(&h, w);
+    let corner = at(&h, w, r.w - 2.0, r.h - 2.0);
+    drag(&mut h, corner, corner - Vec2::new(400.0, 400.0));
+    frames(&mut h, 4);
+    let info = h
+        .state()
+        .core
+        .scrolls
+        .get(&w)
+        .copied()
+        .expect("scroll area");
+    assert!(
+        info.content.y > info.viewport.y + 20.0,
+        "the content is taller than the window: {info:?}"
+    );
+    assert_eq!(info.offset.y, 0.0);
+    assert!(
+        info.content.x <= info.viewport.x + 1.0,
+        "knob rows wrap instead of overflowing sideways: {info:?}"
+    );
+    // a real mouse wheel over the window scrolls it
+    let over = at(&h, w, 100.0, TITLE_H + 80.0);
+    h.event(Event::PointerMoved(over));
+    h.step();
+    h.event(Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: Vec2::new(0.0, -120.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    });
+    frames(&mut h, 6);
+    let after = h.state().core.scrolls.get(&w).copied().unwrap();
+    assert!(after.offset.y > 20.0, "scrolled down: {after:?}");
+}
+
+#[test]
+fn the_mixer_and_other_windows_scroll_both_ways_but_the_editors_do_not_wrap_in_a_scroll_area() {
+    let (mut h, _ids, _dir) = start();
+    h.state_mut().ws.show(WindowId::Mixer);
+    h.state_mut().ws.show(WindowId::History);
+    h.state_mut().ws.show(WindowId::Agents);
+    frames(&mut h, 4);
+    for w in [WindowId::Mixer, WindowId::History, WindowId::Agents] {
+        assert!(h.state().core.scrolls.contains_key(&w), "{w:?} scrolls");
+    }
+    // the editors keep their own panning and zooming, with their toolbars pinned
+    for w in [
+        WindowId::Playlist,
+        WindowId::ChannelRack,
+        WindowId::PianoRoll,
+    ] {
+        assert!(
+            !h.state().core.scrolls.contains_key(&w),
+            "{w:?} pans itself"
+        );
+    }
+    // a mixer window smaller than its content scrolls sideways
+    let r = rect(&h, WindowId::Mixer);
+    let corner = at(&h, WindowId::Mixer, r.w - 2.0, r.h - 2.0);
+    drag(&mut h, corner, corner - Vec2::new(900.0, 400.0));
+    frames(&mut h, 4);
+    let i = h.state().core.scrolls[&WindowId::Mixer];
+    assert!(
+        i.content.x > i.viewport.x && i.content.y > i.viewport.y,
+        "{i:?}"
+    );
+}
+
+#[test]
+fn the_solo_display_follows_the_session_when_an_agent_solos() {
+    let (mut h, ids, _dir) = start();
+    h.state_mut().ws.show(WindowId::Mixer);
+    frames(&mut h, 3);
+    assert!(h.state().core.solo_channels.is_empty());
+    // an agent solos a channel and an insert; no snapshot is published for either
+    let agent =
+        ph_commands::Caller::agent("tester", ph_commands::Grant(vec![ph_commands::Scope::Full]));
+    for r in [
+        ph_ui::mapping::channel_solo(ids.kick, true),
+        ph_ui::mapping::mixer_solo(3, true),
+    ] {
+        h.state().core.studio.session.execute(&agent, r).unwrap();
+    }
+    settle_frames(&mut h, 6);
+    assert!(h.state().core.solo_channels.contains(&ids.kick));
+    assert!(h.state().core.solo_inserts.contains(&3));
+    // and un-solo
+    h.state()
+        .core
+        .studio
+        .session
+        .execute(&agent, ph_ui::mapping::channel_solo(ids.kick, false))
+        .unwrap();
+    settle_frames(&mut h, 6);
+    assert!(h.state().core.solo_channels.is_empty());
+}
+
+struct FakeAgents;
+
+impl ph_ui::AgentDirectory for FakeAgents {
+    fn clients(&self) -> Vec<ph_ui::ClientInfo> {
+        let c = |name: &str, live: bool| ph_ui::ClientInfo {
+            name: name.into(),
+            scopes: vec![ph_commands::Scope::Compose],
+            live,
+            connected_for: 42,
+            idle_for: 3,
+            commands: 9,
+        };
+        // remembered first on purpose: the panel must still put live clients on top
+        vec![c("Old Agent", false), c("Live Agent", true)]
+    }
+    fn pending_grants(&self) -> Vec<ph_ui::GrantRequest> {
+        vec![]
+    }
+    fn resolve_grant(&self, _: u64, _: Option<Vec<ph_commands::Scope>>) {}
+}
+
+#[test]
+fn the_agents_window_lists_live_connections_before_remembered_ones() {
+    let (mut h, _ids, _dir) = start();
+    h.state_mut().core.hooks.agents = Some(std::sync::Arc::new(FakeAgents));
+    h.state_mut().ws.show(WindowId::Agents);
+    frames(&mut h, 4);
+    let live = h.get_by_label("Live Agent");
+    let old = h.get_by_label("Old Agent");
+    assert!(
+        live.rect().min.y < old.rect().min.y,
+        "live clients are listed first"
+    );
+    assert!(h.query_by_label("disconnected").is_some());
+    assert!(
+        h.query_by_label_contains("9 command(s)").is_some(),
+        "live rows show the command count"
+    );
+    let _ = (live, old);
+}
+
+// ---- quitting, new and open with unsaved changes -----------------------------------------
+
+fn close_request(h: &mut H) -> Vec<egui::ViewportCommand> {
+    h.input_mut()
+        .viewports
+        .entry(egui::ViewportId::ROOT)
+        .or_default()
+        .events
+        .push(egui::ViewportEvent::Close);
+    h.step();
+    let cmds = h
+        .output()
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .map(|v| v.commands.clone())
+        .unwrap_or_default();
+    h.step();
+    cmds
+}
+
+fn make_dirty(h: &mut H) {
+    run_cmd(h, ph_ui::mapping::set_tempo(131.0));
+    settle_frames(h, 6);
+    assert!(h.state().core.dirty, "an edit makes the project dirty");
+}
+
+fn is_asking(h: &H) -> bool {
+    matches!(
+        h.state().core.dialog,
+        Some(ph_ui::core::Dialog::Unsaved { .. })
+    )
+}
+
+#[test]
+fn closing_a_clean_project_just_closes() {
+    let (mut h, _ids, _dir) = start();
+    h.state_mut().core.dirty = false;
+    let cmds = close_request(&mut h);
+    assert!(
+        !cmds
+            .iter()
+            .any(|c| matches!(c, egui::ViewportCommand::CancelClose))
+    );
+    assert!(!is_asking(&h));
+}
+
+#[test]
+fn closing_with_unsaved_changes_asks_and_cancel_keeps_the_app_open() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, _dir) = start();
+    make_dirty(&mut h);
+    let cmds = close_request(&mut h);
+    assert!(
+        cmds.iter()
+            .any(|c| matches!(c, egui::ViewportCommand::CancelClose)),
+        "the close was held back: {cmds:?}"
+    );
+    assert!(is_asking(&h));
+    assert!(h.query_by_label("Don't save").is_some());
+    h.get_by_label("Cancel").click();
+    frames(&mut h, 3);
+    assert!(!is_asking(&h), "the dialog closed");
+    assert!(!h.state().quit_confirmed, "and the app stays open");
+    assert!(h.state().core.dirty, "nothing was saved or discarded");
+}
+
+#[test]
+fn save_then_close_writes_the_project_and_lets_the_close_through() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, dir) = start();
+    make_dirty(&mut h);
+    close_request(&mut h);
+    assert!(is_asking(&h));
+    // the dialog's Save, not the transport bar's: it is the lower one
+    let saves: Vec<_> = h.query_all_by_label("Save").collect();
+    assert_eq!(saves.len(), 2, "transport Save and the dialog's Save");
+    saves
+        .into_iter()
+        .max_by(|a, b| a.rect().min.y.total_cmp(&b.rect().min.y))
+        .unwrap()
+        .click();
+    for _ in 0..40 {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        if h.state().quit_confirmed {
+            break;
+        }
+    }
+    assert!(
+        h.state().quit_confirmed,
+        "closing went ahead after the save"
+    );
+    assert!(!h.state().core.dirty);
+    assert!(
+        dir.path().join("project.json").exists(),
+        "the project was saved"
+    );
+}
+
+#[test]
+fn dont_save_closes_without_saving() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, dir) = start();
+    make_dirty(&mut h);
+    close_request(&mut h);
+    h.get_by_label("Don't save").click();
+    frames(&mut h, 3);
+    assert!(h.state().quit_confirmed);
+    assert!(h.state().core.dirty, "still unsaved: it was discarded");
+    assert!(!dir.path().join("project.json").exists());
+}
+
+#[test]
+fn new_and_open_ask_first_when_there_are_unsaved_changes() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, _dir) = start();
+    make_dirty(&mut h);
+    // File > New project asks; Cancel does nothing
+    h.state_mut()
+        .core
+        .app_action("app.new_project", &serde_json::Value::Null);
+    frames(&mut h, 3);
+    assert!(is_asking(&h));
+    h.get_by_label("Cancel").click();
+    frames(&mut h, 3);
+    assert_eq!(
+        h.state().core.project.channels.len(),
+        4,
+        "project untouched"
+    );
+    // Don't save -> a fresh project replaces it
+    h.state_mut()
+        .core
+        .app_action("app.new_project", &serde_json::Value::Null);
+    frames(&mut h, 3);
+    h.get_by_label("Don't save").click();
+    for _ in 0..40 {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+        if h.state().core.project.channels.is_empty() {
+            break;
+        }
+    }
+    assert!(h.state().core.project.channels.is_empty(), "a new project");
+    assert!(!h.state().quit_confirmed, "new does not quit");
+    // a clean project needs no question
+    h.state_mut().core.dirty = false;
+    h.state_mut()
+        .core
+        .ask_or_do(ph_ui::core::AfterPrompt::NewProject);
+    frames(&mut h, 3);
+    assert!(!is_asking(&h));
+}
+
+#[test]
+fn open_asks_first_when_there_are_unsaved_changes() {
+    use egui_kittest::kittest::Queryable;
+    let (mut h, _ids, _dir) = start();
+    make_dirty(&mut h);
+    h.state_mut()
+        .core
+        .app_action("app.open_project", &serde_json::Value::Null);
+    frames(&mut h, 3);
+    h.get_by_label("Open").click();
+    frames(&mut h, 3);
+    assert!(is_asking(&h), "Open asked before replacing the project");
+    match &h.state().core.dialog {
+        Some(ph_ui::core::Dialog::Unsaved {
+            then: ph_ui::core::AfterPrompt::OpenProject { .. },
+        }) => {}
+        other => panic!("{other:?}"),
+    }
+    h.get_by_label("Cancel").click();
+    frames(&mut h, 3);
+    assert_eq!(
+        h.state().core.project.channels.len(),
+        4,
+        "still this project"
+    );
 }

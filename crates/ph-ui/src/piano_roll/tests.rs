@@ -265,6 +265,19 @@ fn copy_and_paste_round_trips_through_note_add() {
 }
 
 #[test]
+fn copy_and_paste_keeps_muted_notes_muted() {
+    let (mut st, ..) = small();
+    st.action(PrAction::SelectAll);
+    st.action(PrAction::Copy);
+    // mute the first copied note as if it had been muted in the pattern
+    st.clipboard[0].muted = true;
+    let out = st.paste(0);
+    let PrOut::Cmd(r) = &out[0] else { panic!() };
+    assert_eq!(r.params["notes"][0]["muted"], true);
+    assert_eq!(r.params["notes"][1]["muted"], false);
+}
+
+#[test]
 fn velocity_lane_drag_sets_velocity() {
     let (mut st, ..) = small();
     let n = st.cache.notes[1].clone();
@@ -387,4 +400,78 @@ fn spike_ten_thousand_notes_frame_cost() {
         worst_avg < budget,
         "avg {worst_avg:.2} ms exceeds {budget} ms"
     );
+}
+
+#[test]
+fn a_lasso_selects_by_shape_not_by_bounding_box() {
+    let (mut st, ..) = small();
+    let notes: Vec<Note> = st.cache.notes.clone();
+    let (a, b) = (centre(&st, &notes[0]), centre(&st, &notes[1]));
+    // a triangle around `a` only; `b` is inside its bounding box but outside the triangle
+    let tri = [
+        Vec2::new(a.x - 30.0, b.y - 40.0),
+        Vec2::new(a.x - 30.0, a.y + 30.0),
+        Vec2::new(b.x + 30.0, a.y + 30.0),
+    ];
+    assert!(
+        b.x < tri[2].x && (tri[0].y..tri[1].y).contains(&b.y),
+        "setup: b is in the box"
+    );
+    assert_eq!(st.notes_in_lasso(&tri), vec![notes[0].id]);
+    // too few points select nothing, and a loop around both selects both
+    assert!(st.notes_in_lasso(&tri[..2]).is_empty());
+    let (top, bot) = (a.y.min(b.y) - 40.0, a.y.max(b.y) + 40.0);
+    let both = [
+        Vec2::new(a.x - 30.0, top),
+        Vec2::new(b.x + 30.0, top),
+        Vec2::new(b.x + 30.0, bot),
+        Vec2::new(a.x - 30.0, bot),
+    ];
+    assert_eq!(st.notes_in_lasso(&both).len(), 2);
+    // Alt+drag on empty space is a lasso, plain drag in Draw would have drawn a note
+    let alt = Mods {
+        alt: true,
+        ..Mods::default()
+    };
+    let far = Vec2::new(a.x, a.y - 200.0);
+    st.pointer_press(far, Btn::Primary, alt);
+    assert!(st.is_dragging());
+    for p in both {
+        st.pointer_move(p, alt);
+    }
+    let out = st.pointer_release(both[0], alt);
+    assert!(out.is_empty(), "no command: selection only");
+}
+
+#[test]
+fn slice_and_mute_tools_emit_one_batch_and_one_update() {
+    let (mut st, ..) = small();
+    let n = st.cache.notes[1].clone(); // key 64, start 480, length 480
+    st.tool = Tool::Slice;
+    let at = st.view.x_of(720.0);
+    let c = centre(&st, &n);
+    let out = st.pointer_press(Vec2::new(at, c.y), Btn::Primary, Mods::default());
+    let PrOut::Batch(reqs) = &out[0] else {
+        panic!("{out:?}")
+    };
+    assert_eq!(reqs.len(), 2);
+    assert_eq!(reqs[0].command, "note.update");
+    assert_eq!(reqs[0].params["updates"][0]["length"], 240);
+    assert_eq!(reqs[1].command, "note.add");
+    assert_eq!(reqs[1].params["notes"][0]["start"], 720);
+    assert_eq!(reqs[1].params["notes"][0]["length"], 240);
+    // at the very start of a note: nothing to cut
+    let at = st.view.x_of(480.0);
+    assert!(
+        st.pointer_press(Vec2::new(at + 0.5, c.y), Btn::Primary, Mods::default())
+            .is_empty()
+    );
+    // mute: press + release emits one note.update
+    st.tool = Tool::Mute;
+    st.pointer_press(c, Btn::Primary, Mods::default());
+    let out = st.pointer_release(c, Mods::default());
+    assert_eq!(out.len(), 1);
+    let PrOut::Cmd(r) = &out[0] else { panic!() };
+    assert_eq!(r.command, "note.update");
+    assert_eq!(r.params["updates"][0]["muted"], true);
 }

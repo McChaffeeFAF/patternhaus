@@ -93,76 +93,75 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 .color(theme.colors.text_dim),
         );
     }
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
-        .show(ui, |ui| {
-            for e in history.iter().rev() {
-                let is_live_do = matches!(e.kind, EntryKind::Do) && live.contains(&e.txn);
-                let reverted = matches!(e.kind, EntryKind::Do) && !live.contains(&e.txn);
-                ui.horizontal(|ui| {
+    // the window itself scrolls (see `windows::show_content`)
+    {
+        for e in history.iter().rev() {
+            let is_live_do = matches!(e.kind, EntryKind::Do) && live.contains(&e.txn);
+            let reverted = matches!(e.kind, EntryKind::Do) && !live.contains(&e.txn);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("{:>4}", e.txn))
+                        .monospace()
+                        .color(theme.colors.text_dim),
+                );
+                let fill = match &e.author {
+                    ph_commands::Author::Human => theme.colors.accent,
+                    ph_commands::Author::Agent(_) => theme.colors.agent,
+                };
+                badge(ui, &e.author.to_string(), fill);
+                let text = e.summary.clone().unwrap_or_else(|| {
+                    e.commands
+                        .first()
+                        .map_or("(no summary)".to_string(), |c| c.command.clone())
+                });
+                let label = match &e.kind {
+                    EntryKind::Do => text,
+                    EntryKind::Undo { of } => format!(
+                        "undo of {}",
+                        of.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
+                    ),
+                    EntryKind::Redo { of } => format!(
+                        "redo of {}",
+                        of.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
+                    ),
+                };
+                let mut rt = RichText::new(label);
+                if reverted {
+                    rt = rt.strikethrough().color(theme.colors.text_dim);
+                }
+                ui.label(rt);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if is_live_do
+                        && ui
+                            .small_button("Undo")
+                            .on_hover_text("Revert only this transaction")
+                            .clicked()
+                    {
+                        core.send(mapping::undo_txn(e.txn, "stop"));
+                    }
+                    if matches!(e.kind, EntryKind::Undo { .. })
+                        && live_undos.contains(&e.txn)
+                        && ui
+                            .small_button("Redo")
+                            .on_hover_text("Undo this undo")
+                            .clicked()
+                    {
+                        core.send(mapping::undo_txn(e.txn, "stop"));
+                    }
+                    let when = core
+                        .txn_times
+                        .get(&e.txn)
+                        .map_or("--:--:--".to_string(), |t| clock(*t));
                     ui.label(
-                        RichText::new(format!("{:>4}", e.txn))
+                        RichText::new(when)
                             .monospace()
+                            .size(10.0)
                             .color(theme.colors.text_dim),
                     );
-                    let fill = match &e.author {
-                        ph_commands::Author::Human => theme.colors.accent,
-                        ph_commands::Author::Agent(_) => theme.colors.agent,
-                    };
-                    badge(ui, &e.author.to_string(), fill);
-                    let text = e.summary.clone().unwrap_or_else(|| {
-                        e.commands
-                            .first()
-                            .map_or("(no summary)".to_string(), |c| c.command.clone())
-                    });
-                    let label = match &e.kind {
-                        EntryKind::Do => text,
-                        EntryKind::Undo { of } => format!(
-                            "undo of {}",
-                            of.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
-                        ),
-                        EntryKind::Redo { of } => format!(
-                            "redo of {}",
-                            of.iter().map(u64::to_string).collect::<Vec<_>>().join(", ")
-                        ),
-                    };
-                    let mut rt = RichText::new(label);
-                    if reverted {
-                        rt = rt.strikethrough().color(theme.colors.text_dim);
-                    }
-                    ui.label(rt);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if is_live_do
-                            && ui
-                                .small_button("Undo")
-                                .on_hover_text("Revert only this transaction")
-                                .clicked()
-                        {
-                            core.send(mapping::undo_txn(e.txn, "stop"));
-                        }
-                        if matches!(e.kind, EntryKind::Undo { .. })
-                            && live_undos.contains(&e.txn)
-                            && ui
-                                .small_button("Redo")
-                                .on_hover_text("Undo this undo")
-                                .clicked()
-                        {
-                            core.send(mapping::undo_txn(e.txn, "stop"));
-                        }
-                        let when = core
-                            .txn_times
-                            .get(&e.txn)
-                            .map_or("--:--:--".to_string(), |t| clock(*t));
-                        ui.label(
-                            RichText::new(when)
-                                .monospace()
-                                .size(10.0)
-                                .color(theme.colors.text_dim),
-                        );
-                    });
                 });
-            }
-        });
+            });
+        }
+    }
 }
 
 /// The modal conflict dialog. Returns nothing; it resolves through the core.

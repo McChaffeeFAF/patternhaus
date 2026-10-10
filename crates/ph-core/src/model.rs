@@ -151,6 +151,11 @@ pub struct Note {
     /// Fine pitch in cents.
     #[serde(default)]
     pub fine_pitch: f32,
+    /// A muted note stays in the pattern but is not played or analysed. Added after format
+    /// version 1; absent in older projects (so `false`), and omitted when `false` so projects
+    /// without muted notes serialise exactly as before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub muted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]

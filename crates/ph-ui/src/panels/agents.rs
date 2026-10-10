@@ -17,6 +17,12 @@ pub fn scope_name(s: Scope) -> &'static str {
     }
 }
 
+/// Live connections first (in the order given), then the remembered ones.
+pub fn live_first(mut clients: Vec<crate::core::ClientInfo>) -> Vec<crate::core::ClientInfo> {
+    clients.sort_by_key(|c| !c.live);
+    clients
+}
+
 pub fn show(ui: &mut Ui, core: &mut AppCore) {
     let theme = core.theme.clone();
     let dir = core.hooks.agents.clone();
@@ -54,20 +60,54 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     section_label(ui, "CONNECTED", &theme);
     match &dir {
         Some(d) => {
-            let clients = d.clients();
-            if clients.is_empty() {
+            let clients = live_first(d.clients());
+            if !clients.iter().any(|c| c.live) {
                 ui.label(RichText::new("No agent is connected.").color(theme.colors.text_dim));
             }
+            let mut shown_remembered = false;
             for c in clients {
-                ui.horizontal(|ui| {
-                    badge(ui, &c.name, theme.colors.agent);
-                    for s in &c.scopes {
-                        badge(ui, scope_name(*s), theme.colors.widget_hover);
-                    }
+                if !c.live && !shown_remembered {
+                    shown_remembered = true;
+                    ui.add_space(6.0);
                     ui.label(
-                        RichText::new(format!("{} s", c.connected_for))
+                        RichText::new("Remembered, not connected")
+                            .size(11.0)
                             .color(theme.colors.text_dim),
                     );
+                }
+                ui.horizontal(|ui| {
+                    let fill = if c.live {
+                        theme.colors.agent
+                    } else {
+                        theme.colors.agent.gamma_multiply(0.35)
+                    };
+                    badge(ui, &c.name, fill);
+                    for s in &c.scopes {
+                        badge(
+                            ui,
+                            scope_name(*s),
+                            if c.live {
+                                theme.colors.widget_hover
+                            } else {
+                                theme.colors.widget_hover.gamma_multiply(0.5)
+                            },
+                        );
+                    }
+                    if c.live {
+                        ui.label(
+                            RichText::new(format!(
+                                "connected {} s, {} command(s), idle {} s",
+                                c.connected_for, c.commands, c.idle_for
+                            ))
+                            .color(theme.colors.text_dim),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new("disconnected")
+                                .italics()
+                                .color(theme.colors.text_dim.gamma_multiply(0.7)),
+                        );
+                    }
                 });
             }
         }

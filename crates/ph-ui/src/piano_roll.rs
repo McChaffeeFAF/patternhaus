@@ -185,6 +185,10 @@ pub enum Tool {
     Draw,
     Select,
     Delete,
+    /// Click a note to split it at the (snapped) click position.
+    Slice,
+    /// Click or drag over notes to toggle whether they are muted.
+    Mute,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -212,6 +216,8 @@ pub struct Mods {
 pub enum PrOut {
     /// One command, one undo step.
     Cmd(Request),
+    /// Several commands that are one undo step.
+    Batch(Vec<Request>),
     /// Preview a note through the engine.
     Preview { key: u8, on: bool },
     /// Seek the transport (click in the ruler).
@@ -267,6 +273,16 @@ enum Drag {
         to: Vec2,
         additive: bool,
     },
+    /// Alt+drag: a freehand loop; the notes inside it are selected on release.
+    Lasso {
+        points: Vec<Vec2>,
+        additive: bool,
+    },
+    /// Mute tool: notes touched are all set to `to` (decided by the first note touched).
+    Mute {
+        ids: BTreeSet<NoteId>,
+        to: Option<bool>,
+    },
     /// Right-drag (or Delete tool) collecting notes to delete.
     Erase {
         ids: BTreeSet<NoteId>,
@@ -278,6 +294,20 @@ enum Drag {
     Pan {
         last: Vec2,
     },
+}
+
+/// Even-odd point-in-polygon test; the polygon is closed implicitly.
+fn point_in_polygon(p: Vec2, poly: &[Vec2]) -> bool {
+    let mut inside = false;
+    let mut j = poly.len() - 1;
+    for i in 0..poly.len() {
+        let (a, b) = (poly[i], poly[j]);
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
 }
 
 /// Per-roll state: view, tool, selection and the in-flight drag.
@@ -436,6 +466,52 @@ impl PianoRollState {
             .collect()
     }
 
+    /// Notes whose centre lies inside the loop (grid-relative points, closed automatically).
+    pub fn notes_in_lasso(&self, points: &[Vec2]) -> Vec<NoteId> {
+        if points.len() < 3 {
+            return Vec::new();
+        }
+        let (mut lo, mut hi) = (points[0], points[0]);
+        for p in points {
+            lo = Vec2::new(lo.x.min(p.x), lo.y.min(p.y));
+            hi = Vec2::new(hi.x.max(p.x), hi.y.max(p.y));
+        }
+        let range = self
+            .cache
+            .visible_range(self.view.tick_at(lo.x), self.view.tick_at(hi.x));
+        self.cache.notes[range]
+            .iter()
+            .filter(|n| {
+                let c = self.view.note_rect(n.key, n.start, n.length).center();
+                point_in_polygon(Vec2::new(c.x, c.y), points)
+            })
+            .map(|n| n.id)
+            .collect()
+    }
+
+    /// The Slice tool: split the clicked note (and the other selected notes the cut passes
+    /// through, when the clicked one is selected) at the snapped click position, as one
+    /// undo step.
+    fn slice(&mut self, id: NoteId, pos: Vec2, fine: bool) -> Option<PrOut> {
+        let (p, c) = self.pc()?;
+        let cut = snap_tick(self.view.tick_at(pos.x), if fine { 1 } else { self.grid() });
+        let targets: Vec<NoteId> = if self.selection.contains(&id) {
+            self.selection.iter().copied().collect()
+        } else {
+            vec![id]
+        };
+        let mut reqs = Vec::new();
+        for t in targets {
+            if let Some(n) = self.cache.get(t)
+                && cut > n.start
+                && cut < n.start + n.length
+            {
+                reqs.extend(mapping::note_slice(p, c, n, cut));
+            }
+        }
+        (!reqs.is_empty()).then_some(PrOut::Batch(reqs))
+    }
+
     fn pc(&self) -> Option<(PatternId, ChannelId)> {
         Some((self.pattern?, self.channel?))
     }
@@ -458,6 +534,20 @@ impl PianoRollState {
                     ids.insert(id);
                 }
                 self.drag = Drag::Erase { ids };
+            }
+            (Btn::Primary, Tool::Slice) => {
+                if let Some((id, _)) = hit {
+                    out.extend(self.slice(id, pos, mods.alt));
+                }
+            }
+            (Btn::Primary, Tool::Mute) => {
+                let mut ids = BTreeSet::new();
+                let mut to = None;
+                if let Some((id, _)) = hit {
+                    ids.insert(id);
+                    to = self.cache.get(id).map(|n| !n.muted);
+                }
+                self.drag = Drag::Mute { ids, to };
             }
             (Btn::Primary, tool) => match hit {
                 Some((id, zone)) => {
@@ -493,7 +583,12 @@ impl PianoRollState {
                     }
                 }
                 None => {
-                    if tool == Tool::Select || mods.ctrl {
+                    if mods.alt {
+                        self.drag = Drag::Lasso {
+                            points: vec![pos],
+                            additive: mods.shift,
+                        };
+                    } else if tool == Tool::Select || mods.ctrl {
                         self.drag = Drag::BoxSelect {
                             from: pos,
                             to: pos,
@@ -589,6 +684,24 @@ impl PianoRollState {
                 to: pos,
                 additive,
             },
+            Drag::Lasso {
+                mut points,
+                additive,
+            } => {
+                if points.last().is_none_or(|l| (*l - pos).length() >= 3.0) {
+                    points.push(pos);
+                }
+                Drag::Lasso { points, additive }
+            }
+            Drag::Mute { mut ids, mut to } => {
+                if let Some((id, _)) = self.note_at(pos) {
+                    if to.is_none() {
+                        to = self.cache.get(id).map(|n| !n.muted);
+                    }
+                    ids.insert(id);
+                }
+                Drag::Mute { ids, to }
+            }
             Drag::Erase { mut ids } => {
                 if let Some((id, _)) = self.note_at(pos) {
                     ids.insert(id);
@@ -641,6 +754,7 @@ impl PianoRollState {
                         start,
                         length: len,
                         velocity: 0.78,
+                        muted: false,
                     }],
                 )));
                 out.push(PrOut::SelectCreated);
@@ -673,6 +787,29 @@ impl PianoRollState {
                     self.selection.clear();
                 }
                 self.selection.extend(ids);
+            }
+            Drag::Lasso {
+                mut points,
+                additive,
+            } => {
+                points.push(pos);
+                let ids = self.notes_in_lasso(&points);
+                if !additive {
+                    self.selection.clear();
+                }
+                self.selection.extend(ids);
+            }
+            Drag::Mute { ids, to } => {
+                if let Some(to) = to {
+                    // all the notes touched go the same way, whichever way each started
+                    let ids: Vec<NoteId> = ids
+                        .into_iter()
+                        .filter(|i| self.cache.get(*i).is_some_and(|n| n.muted != to))
+                        .collect();
+                    if !ids.is_empty() {
+                        out.push(PrOut::Cmd(mapping::note_mute(p, c, &ids, to)));
+                    }
+                }
             }
             Drag::Erase { ids } => {
                 if !ids.is_empty() {
@@ -780,6 +917,7 @@ impl PianoRollState {
                         start: n.start - lo,
                         length: n.length,
                         velocity: n.velocity,
+                        muted: n.muted,
                     })
                     .collect();
                 if a == PrAction::Cut {
@@ -1117,6 +1255,12 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         r.max.y -= 1.0;
         r.max.x = r.max.x.max(r.min.x + 1.5);
         let base = lerp(ch_color.gamma_multiply(0.55), ch_color, n.velocity);
+        // a muted note is drawn washed out, with a dashed-looking outline
+        let base = if n.muted {
+            base.gamma_multiply(0.28)
+        } else {
+            base
+        };
         let sel = st.selection.contains(&n.id);
         let special = cx.agent_selected.contains(&n.id) || flash_map.contains_key(&n.id);
         if r.width() < 8.0 || r.height() < 9.0 {
@@ -1208,6 +1352,36 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                 Stroke::new(1.0, col.accent),
                 StrokeKind::Inside,
             );
+        }
+        Drag::Lasso { points, .. } => {
+            let pts: Vec<Pos2> = points.iter().map(|p| origin + *p).collect();
+            if pts.len() > 2 {
+                gp.add(Shape::convex_polygon(
+                    pts.clone(),
+                    col.accent.gamma_multiply(0.12),
+                    Stroke::NONE,
+                ));
+            }
+            let mut closed = pts;
+            if let Some(first) = closed.first().copied() {
+                closed.push(first);
+            }
+            gp.add(Shape::line(closed, Stroke::new(1.5, col.accent)));
+        }
+        Drag::Mute { ids, to } => {
+            for id in ids {
+                if let Some(n) = st.cache.get(*id) {
+                    let r = view
+                        .note_rect(n.key, n.start, n.length)
+                        .translate(origin.to_vec2());
+                    let c = if *to == Some(true) {
+                        col.text_dim
+                    } else {
+                        col.accent
+                    };
+                    gp.rect_filled(r, CornerRadius::same(2), c.gamma_multiply(0.6));
+                }
+            }
         }
         Drag::Erase { ids } => {
             for id in ids {

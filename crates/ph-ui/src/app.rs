@@ -5,17 +5,20 @@
 //! offscreen tests share the same code.
 
 use crate::core::{
-    AppCore, AppPaths, Dialog, Hooks, PanelAction, PanelId, RenameTarget, ToastKind,
+    AfterPrompt, AppCore, AppPaths, Dialog, EffectEdit, Hooks, PanelAction, PanelId, RenameTarget,
+    ToastKind,
 };
 use crate::keymap::{Chord, Context};
 use crate::mapping;
 use crate::panels;
 use crate::settings::{self, Layout};
 use crate::windows;
-use crate::workspace::{Rect as WRect, WindowId, Workspace};
+use crate::workspace::{Rect as WRect, WindowId, Workspace, match_effects};
 use egui::{Align2, Color32, Id, RichText, Ui};
 use ph_control::Studio;
+use ph_core::InsertId;
 use ph_engine::EngineConfig;
+use std::sync::Arc;
 
 pub struct PhApp {
     pub core: AppCore,
@@ -28,6 +31,12 @@ pub struct PhApp {
     pub work_rect: egui::Rect,
     theme_applied: bool,
     last_title: String,
+    /// The kinds of each insert's effects as the windows last saw them (to follow an effect
+    /// that moved), and the snapshot they were read from.
+    fx_kinds: std::collections::HashMap<u32, Vec<String>>,
+    fx_seen: Option<std::sync::Arc<ph_core::Project>>,
+    /// The person has agreed to close (saved, or chose not to), so a close request goes through.
+    pub quit_confirmed: bool,
 }
 
 impl PhApp {
@@ -76,6 +85,9 @@ impl PhApp {
             work_rect: egui::Rect::NOTHING,
             theme_applied: false,
             last_title: String::new(),
+            fx_kinds: Default::default(),
+            fx_seen: None,
+            quit_confirmed: false,
         })
     }
 
@@ -175,6 +187,90 @@ impl PhApp {
         }
     }
 
+    /// The window's close button (or Alt+F4): with unsaved changes, hold the close and ask.
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested()) && !self.quit_confirmed {
+            if self.core.dirty {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.core.dialog = Some(Dialog::Unsaved {
+                    then: AfterPrompt::Quit,
+                });
+            } else {
+                self.quit_confirmed = true;
+            }
+        }
+    }
+
+    /// Does what the person asked for once nothing stands in the way.
+    fn run_ready(&mut self) {
+        for what in std::mem::take(&mut self.core.ready) {
+            match what {
+                AfterPrompt::Quit => {
+                    self.quit_confirmed = true;
+                    self.core
+                        .ctx
+                        .send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                AfterPrompt::NewProject => self.core.send(mapping::project_new(None)),
+                AfterPrompt::OpenProject { path } => self.core.send(mapping::file_open(&path)),
+            }
+        }
+    }
+
+    /// Effect windows follow their effect (DESIGN section 9). Moves and removals the UI made
+    /// itself are applied directly; a new snapshot (an agent, an undo) is matched by insert and
+    /// effect kind. A window closes only when its effect is really gone.
+    fn follow_effects(&mut self) {
+        if std::mem::take(&mut self.core.project_replaced) {
+            self.core.effect_edits.clear();
+            self.fx_kinds.clear();
+            self.fx_seen = None;
+            self.ws.prune_objects(|_| true, |_, _| false);
+        }
+        for e in std::mem::take(&mut self.core.effect_edits) {
+            match e {
+                EffectEdit::Move { insert, from, to } => {
+                    self.ws
+                        .remap_effects(InsertId(insert), &Workspace::move_map(from, to));
+                    if let Some(k) = self.fx_kinds.get_mut(&insert)
+                        && (from as usize) < k.len()
+                        && (to as usize) < k.len()
+                    {
+                        let x = k.remove(from as usize);
+                        k.insert(to as usize, x);
+                    }
+                }
+                EffectEdit::Remove { insert, slot } => {
+                    let len = self.fx_kinds.get(&insert).map_or(0, |k| k.len() as u32);
+                    self.ws.remap_effects(
+                        InsertId(insert),
+                        &Workspace::remove_map(slot, len.max(slot + 1)),
+                    );
+                    if let Some(k) = self.fx_kinds.get_mut(&insert)
+                        && (slot as usize) < k.len()
+                    {
+                        k.remove(slot as usize);
+                    }
+                }
+            }
+        }
+        let p = self.core.project.clone();
+        if self.fx_seen.as_ref().is_some_and(|s| Arc::ptr_eq(s, &p)) {
+            return;
+        }
+        for (i, m) in p.mixer.iter().enumerate() {
+            let kinds: Vec<String> = m.effects.iter().map(|s| effect_kind(&s.effect)).collect();
+            if let Some(old) = self.fx_kinds.get(&(i as u32))
+                && *old != kinds
+            {
+                let map = match_effects(old, &kinds);
+                self.ws.remap_effects(InsertId(i as u32), &map);
+            }
+            self.fx_kinds.insert(i as u32, kinds);
+        }
+        self.fx_seen = Some(p);
+    }
+
     /// A project snapshot may delete the object behind an instrument or effect window.
     fn prune_windows(&mut self) {
         let p = self.core.project.clone();
@@ -258,6 +354,11 @@ impl PhApp {
         }
         let now = ctx.input(|i| i.time);
         self.core.update(now);
+        // keep polling the session's solo state while the window is idle
+        ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        self.handle_close_request(&ctx);
+        self.run_ready();
+        self.follow_effects();
         self.prune_windows();
         self.process_panel_requests();
         self.handle_keys(&ctx);
@@ -396,7 +497,8 @@ impl PhApp {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("New project…").clicked() {
-                    self.core.dialog = Some(Dialog::NewProject);
+                    self.core
+                        .app_action("app.new_project", &serde_json::Value::Null);
                     ui.close();
                 }
                 if ui.button("Open project…").clicked() {
@@ -420,7 +522,9 @@ impl PhApp {
                 }
                 ui.separator();
                 if ui.button("Quit").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    // goes through the same close request as the window's own close button
+                    self.core.ask_or_do(AfterPrompt::Quit);
+                    ui.close();
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -519,14 +623,29 @@ impl PhApp {
             return;
         };
         let mut close = false;
+        let mut follow_up: Option<Dialog> = None;
         let mut new_state: Option<Dialog> = None;
         match dialog {
-            Dialog::NewProject => {
-                modal(ctx, "New project", |ui| {
-                    ui.label("Discard the current project's unsaved changes and start a new one?");
+            Dialog::Unsaved { then } => {
+                let title = match &then {
+                    AfterPrompt::Quit => "Quit Patternhaus",
+                    AfterPrompt::NewProject => "New project",
+                    AfterPrompt::OpenProject { .. } => "Open project",
+                };
+                modal(ctx, title, |ui| {
+                    ui.label(format!(
+                        "\"{}\" has unsaved changes.",
+                        self.core.project.settings.title
+                    ));
                     ui.horizontal(|ui| {
-                        if ui.button("New project").clicked() {
-                            self.core.send(mapping::project_new(None));
+                        if ui.button("Save").clicked() {
+                            // do it once the save has gone through
+                            self.core.after_save = Some(then.clone());
+                            self.core.send(mapping::file_save());
+                            close = true;
+                        }
+                        if ui.button("Don't save").clicked() {
+                            self.core.ready.push(then.clone());
                             close = true;
                         }
                         if ui.button("Cancel").clicked() {
@@ -547,7 +666,14 @@ impl PhApp {
                     );
                     ui.horizontal(|ui| {
                         if ui.button("Open").clicked() {
-                            self.core.send(mapping::file_open(&path));
+                            if self.core.dirty {
+                                // ask first; this dialog is replaced by the question
+                                follow_up = Some(Dialog::Unsaved {
+                                    then: AfterPrompt::OpenProject { path: path.clone() },
+                                });
+                            } else {
+                                self.core.send(mapping::file_open(&path));
+                            }
                             close = true;
                         }
                         if ui.button("Cancel").clicked() {
@@ -683,7 +809,7 @@ impl PhApp {
             }
         }
         if close {
-            self.core.dialog = None;
+            self.core.dialog = follow_up;
         } else if let Some(s) = new_state {
             self.core.dialog = Some(s);
         }
@@ -713,6 +839,14 @@ impl PhApp {
                 }
             });
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
+    }
+}
+
+/// What identifies an effect inside its insert: its kind.
+fn effect_kind(e: &ph_core::EffectSpec) -> String {
+    match e {
+        ph_core::EffectSpec::Builtin { name, .. } => name.clone(),
+        ph_core::EffectSpec::Plugin { plugin_id, .. } => format!("plugin:{plugin_id}"),
     }
 }
 

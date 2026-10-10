@@ -33,6 +33,7 @@ pub struct PatternhausServer {
     agent: Arc<Agent>,
     hub: Arc<EventHub>,
     client: Mutex<String>,
+    conn: crate::connections::ConnGuard,
     subscribed: Arc<Mutex<HashSet<String>>>,
     log_events: Arc<AtomicBool>,
     forwarder: AtomicBool,
@@ -41,10 +42,14 @@ pub struct PatternhausServer {
 impl PatternhausServer {
     pub fn new(agent: Arc<Agent>) -> Result<Self, String> {
         let hub = agent.studio().events()?;
+        let conn = agent
+            .registry()
+            .open(crate::connections::Protocol::Mcp, "unknown");
         Ok(Self {
             agent,
             hub,
             client: Mutex::new("unknown".into()),
+            conn,
             subscribed: Arc::default(),
             log_events: Arc::default(),
             forwarder: AtomicBool::new(false),
@@ -56,8 +61,10 @@ impl PatternhausServer {
             let name = info.name.trim();
             if !name.is_empty() {
                 *self.client.lock().unwrap() = name.to_string();
+                self.conn.set_client(name);
             }
         }
+        self.conn.touch();
         let name = self.client.lock().unwrap().clone();
         self.start_forwarder(ctx.peer.clone(), &name);
         name
@@ -178,6 +185,7 @@ impl ServerHandler for PatternhausServer {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
         let client = self.note_client(&context);
+        self.conn.count_command();
         let agent = self.agent.clone();
         let name = request.name.to_string();
         let args = request.arguments.map_or(json!({}), Value::Object);

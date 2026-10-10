@@ -281,6 +281,7 @@ pub fn toggle(ui: &mut Ui, on: bool, label: &str, on_colour: Color32, theme: &Th
         .layout_no_wrap(label.into(), FontId::proportional(11.0), c.text);
     let size = Vec2::new((galley.size().x + 12.0).max(22.0), 20.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, label));
     let fill = if on {
         on_colour
     } else if resp.hovered() {
@@ -341,92 +342,106 @@ pub fn param_grid(
     theme: &Theme,
 ) -> Vec<(String, f64)> {
     let mut changes = Vec::new();
-    ui.horizontal_wrapped(|ui| {
-        for info in desc.params.iter().filter(|p| filter(p)) {
-            let id = salt.with(&info.id);
-            let cur = value_of(info);
-            ui.vertical(|ui| {
-                ui.set_width(66.0);
-                ui.vertical_centered(|ui| {
-                    if info.stepped
-                        && (info.unit == ParamUnit::Switch
-                            || info.max - info.min == 1.0 && info.choices.is_empty())
-                    {
-                        let on = cur >= 0.5;
-                        let r = toggle(
-                            ui,
-                            on,
-                            if on { "On" } else { "Off" },
-                            theme.colors.accent,
-                            theme,
-                        );
-                        if r.clicked() {
-                            changes.push((info.id.clone(), if on { info.min } else { info.max }));
-                        }
-                    } else if info.stepped && !info.choices.is_empty()
-                        || info.unit == ParamUnit::Choice
-                    {
-                        let mut sel = (cur - info.min).round() as i64;
-                        let n = if info.choices.is_empty() {
-                            (info.max - info.min) as i64 + 1
+    // Each cell is a vertical block, which egui's wrapping layout cannot wrap on its own, so
+    // the rows are cut here from the width that is available.
+    let cell = 66.0 + ui.spacing().item_spacing.x;
+    let avail = ui.available_width();
+    let per_row = if avail.is_finite() {
+        (((avail + ui.spacing().item_spacing.x) / cell).floor() as usize).max(1)
+    } else {
+        8
+    };
+    let params: Vec<&ParamInfo> = desc.params.iter().filter(|p| filter(p)).collect();
+    for row in params.chunks(per_row) {
+        ui.horizontal_top(|ui| {
+            for info in row.iter().copied() {
+                let id = salt.with(&info.id);
+                let cur = value_of(info);
+                ui.vertical(|ui| {
+                    ui.set_width(66.0);
+                    ui.vertical_centered(|ui| {
+                        if info.stepped
+                            && (info.unit == ParamUnit::Switch
+                                || info.max - info.min == 1.0 && info.choices.is_empty())
+                        {
+                            let on = cur >= 0.5;
+                            let r = toggle(
+                                ui,
+                                on,
+                                if on { "On" } else { "Off" },
+                                theme.colors.accent,
+                                theme,
+                            );
+                            if r.clicked() {
+                                changes
+                                    .push((info.id.clone(), if on { info.min } else { info.max }));
+                            }
+                        } else if info.stepped && !info.choices.is_empty()
+                            || info.unit == ParamUnit::Choice
+                        {
+                            let mut sel = (cur - info.min).round() as i64;
+                            let n = if info.choices.is_empty() {
+                                (info.max - info.min) as i64 + 1
+                            } else {
+                                info.choices.len() as i64
+                            };
+                            let before = sel;
+                            egui::ComboBox::from_id_salt(id)
+                                .width(58.0)
+                                .selected_text(format_param(info, cur))
+                                .show_ui(ui, |ui| {
+                                    for i in 0..n {
+                                        let label = info
+                                            .choices
+                                            .get(i as usize)
+                                            .cloned()
+                                            .unwrap_or_else(|| format!("{i}"));
+                                        ui.selectable_value(&mut sel, i, label);
+                                    }
+                                });
+                            if sel != before {
+                                changes.push((info.id.clone(), info.min + sel as f64));
+                            }
+                        } else if info.stepped {
+                            let mut v = cur as i64;
+                            let r = ui.add(
+                                egui::DragValue::new(&mut v)
+                                    .range(info.min as i64..=info.max as i64),
+                            );
+                            if r.double_clicked() {
+                                changes.push((info.id.clone(), info.default));
+                            } else if r.drag_stopped() || r.lost_focus() {
+                                changes.push((info.id.clone(), v as f64));
+                            }
                         } else {
-                            info.choices.len() as i64
+                            let (_, edit) =
+                                knob(ui, id, cur, info.min, info.max, info.default, 34.0, theme);
+                            if let Some(v) = edit.commit() {
+                                changes.push((info.id.clone(), v));
+                            }
+                            let _ = edit.shown(cur);
+                        }
+                        let shown = match (info.stepped, info.unit) {
+                            (false, _) => format_param(
+                                info,
+                                ui.data(|d| d.get_temp::<DragState>(id))
+                                    .map_or(cur, |s| s.value),
+                            ),
+                            _ => String::new(),
                         };
-                        let before = sel;
-                        egui::ComboBox::from_id_salt(id)
-                            .width(58.0)
-                            .selected_text(format_param(info, cur))
-                            .show_ui(ui, |ui| {
-                                for i in 0..n {
-                                    let label = info
-                                        .choices
-                                        .get(i as usize)
-                                        .cloned()
-                                        .unwrap_or_else(|| format!("{i}"));
-                                    ui.selectable_value(&mut sel, i, label);
-                                }
-                            });
-                        if sel != before {
-                            changes.push((info.id.clone(), info.min + sel as f64));
-                        }
-                    } else if info.stepped {
-                        let mut v = cur as i64;
-                        let r = ui.add(
-                            egui::DragValue::new(&mut v).range(info.min as i64..=info.max as i64),
+                        ui.label(
+                            egui::RichText::new(&info.name)
+                                .size(10.0)
+                                .color(theme.colors.text_dim),
                         );
-                        if r.double_clicked() {
-                            changes.push((info.id.clone(), info.default));
-                        } else if r.drag_stopped() || r.lost_focus() {
-                            changes.push((info.id.clone(), v as f64));
+                        if !shown.is_empty() {
+                            ui.label(egui::RichText::new(shown).size(10.0));
                         }
-                    } else {
-                        let (_, edit) =
-                            knob(ui, id, cur, info.min, info.max, info.default, 34.0, theme);
-                        if let Some(v) = edit.commit() {
-                            changes.push((info.id.clone(), v));
-                        }
-                        let _ = edit.shown(cur);
-                    }
-                    let shown = match (info.stepped, info.unit) {
-                        (false, _) => format_param(
-                            info,
-                            ui.data(|d| d.get_temp::<DragState>(id))
-                                .map_or(cur, |s| s.value),
-                        ),
-                        _ => String::new(),
-                    };
-                    ui.label(
-                        egui::RichText::new(&info.name)
-                            .size(10.0)
-                            .color(theme.colors.text_dim),
-                    );
-                    if !shown.is_empty() {
-                        ui.label(egui::RichText::new(shown).size(10.0));
-                    }
+                    });
                 });
-            });
-        }
-    });
+            }
+        });
+    }
     changes
 }
 
@@ -435,7 +450,8 @@ pub fn badge(ui: &mut Ui, text: &str, fill: Color32) {
     let galley =
         ui.painter()
             .layout_no_wrap(text.into(), FontId::proportional(10.0), Color32::BLACK);
-    let (rect, _) = ui.allocate_exact_size(galley.size() + Vec2::new(8.0, 3.0), Sense::hover());
+    let (rect, resp) = ui.allocate_exact_size(galley.size() + Vec2::new(8.0, 3.0), Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
     ui.painter()
         .galley(rect.min + Vec2::new(4.0, 1.5), galley, Color32::BLACK);

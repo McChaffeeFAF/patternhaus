@@ -22,6 +22,7 @@ fn error(id: &Value, code: i64, message: impl Into<String>) -> Value {
 }
 
 struct Conn {
+    guard: crate::connections::ConnGuard,
     agent: Arc<Agent>,
     client: String,
     notify: mpsc::UnboundedSender<String>,
@@ -40,11 +41,13 @@ impl Conn {
             ));
         }
         let method = req["method"].as_str().unwrap_or_default().to_string();
+        self.guard.touch();
         let params = req.get("params").cloned().unwrap_or(json!({}));
         let result = match method.as_str() {
             "rpc.hello" => {
                 if let Some(c) = params["client"].as_str().filter(|c| !c.is_empty()) {
                     self.client = c.to_string();
+                    self.guard.set_client(c);
                 }
                 json!({ "client": self.client })
             }
@@ -80,6 +83,7 @@ impl Conn {
                 json!({ "subscribed": true })
             }
             tool => {
+                self.guard.count_command();
                 let agent = self.agent.clone();
                 let (client, tool) = (self.client.clone(), tool.to_string());
                 let out = tokio::task::spawn_blocking(move || agent.call(&client, &tool, params))
@@ -108,6 +112,9 @@ pub async fn serve_jsonrpc<R, W>(
 {
     let (ntx, mut nrx) = mpsc::unbounded_channel::<String>();
     let mut conn = Conn {
+        guard: agent
+            .registry()
+            .open(crate::connections::Protocol::JsonRpc, "jsonrpc"),
         agent,
         client: "jsonrpc".into(),
         notify: ntx,

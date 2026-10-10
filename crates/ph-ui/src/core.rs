@@ -18,6 +18,7 @@ use crate::piano_roll::{Flash, PianoRollState, PrAction, PrOut, Tool};
 use crate::playlist::{PlOut, PlaylistState};
 use crate::theme::Theme;
 use crate::typing::TypingState;
+use crate::workspace::WindowId;
 use ph_commands::{
     Change, CmdError, HistoryEntry, Pending, Request, Scope, UiRequest, UndoConflict,
 };
@@ -113,14 +114,38 @@ pub enum RenameTarget {
     Track(u32),
 }
 
-#[derive(Clone, Debug)]
-pub enum Dialog {
+/// What was asked for while the project had unsaved changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AfterPrompt {
+    Quit,
     NewProject,
     OpenProject { path: String },
-    SaveAs { path: String, overwrite: bool },
-    Export { path: String, overwrite: bool },
-    Rename { target: RenameTarget, text: String },
-    Keymap { capturing: Option<usize> },
+}
+
+#[derive(Clone, Debug)]
+pub enum Dialog {
+    OpenProject {
+        path: String,
+    },
+    /// "Save / Don't save / Cancel" before something that would lose unsaved changes.
+    Unsaved {
+        then: AfterPrompt,
+    },
+    SaveAs {
+        path: String,
+        overwrite: bool,
+    },
+    Export {
+        path: String,
+        overwrite: bool,
+    },
+    Rename {
+        target: RenameTarget,
+        text: String,
+    },
+    Keymap {
+        capturing: Option<usize>,
+    },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -148,8 +173,14 @@ pub struct ConflictDialog {
 pub struct ClientInfo {
     pub name: String,
     pub scopes: Vec<Scope>,
-    /// Seconds since the client connected.
+    /// Connected right now. A remembered client that is not connected is listed greyed out.
+    pub live: bool,
+    /// Seconds since the client connected (live clients only).
     pub connected_for: u64,
+    /// Seconds since the client last did anything (live clients only).
+    pub idle_for: u64,
+    /// Tool calls the client has made on this connection (live clients only).
+    pub commands: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -192,6 +223,7 @@ pub struct Selection {
 }
 
 pub struct AppCore {
+    pub ctx: egui::Context,
     pub studio: Studio,
     pub dispatch: Dispatcher,
     pub link: EngineLink,
@@ -216,6 +248,8 @@ pub struct AppCore {
     pub txn_times: HashMap<u64, std::time::SystemTime>,
     history_dirty: bool,
     history_pending: Option<Pending<Vec<HistoryEntry>>>,
+    /// An in-flight read of the session's solo state (polled once per frame, see `update`).
+    solo_pending: Option<Pending<ph_commands::SoloState>>,
     pub toasts: Vec<Toast>,
     pub conflict: Option<ConflictDialog>,
     pub dialog: Option<Dialog>,
@@ -235,6 +269,34 @@ pub struct AppCore {
     pub solo_inserts: BTreeSet<u32>,
     pub now: f64,
     pub dirty: bool,
+    /// Size of the window content currently being drawn (windows that scroll give their
+    /// panels an unbounded `available_size`, so panels that lay out to a size read this).
+    pub view_size: egui::Vec2,
+    /// Last scroll state of each scrolling window: offset, content size and viewport size.
+    pub scrolls: HashMap<crate::workspace::WindowId, ScrollInfo>,
+    /// Effect moves and removals the UI performed itself, for the windows to follow.
+    pub effect_edits: Vec<EffectEdit>,
+    /// Waiting for a save to finish before doing what the person asked (quit, new, open).
+    pub after_save: Option<AfterPrompt>,
+    /// Ready to do now: the person said "Don't save", or the save they asked for finished.
+    pub ready: Vec<AfterPrompt>,
+    /// The whole project was replaced (file.open, new): effect windows cannot follow.
+    pub project_replaced: bool,
+}
+
+/// A window's scroll area, as last drawn.
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct ScrollInfo {
+    pub offset: egui::Vec2,
+    pub content: egui::Vec2,
+    pub viewport: egui::Vec2,
+}
+
+/// A change to an insert's effect list that the UI itself made (so its windows follow directly).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum EffectEdit {
+    Move { insert: u32, from: u32, to: u32 },
+    Remove { insert: u32, slot: u32 },
 }
 
 impl AppCore {
@@ -266,9 +328,10 @@ impl AppCore {
         // everything committed before the subscription is in it, everything after arrives on
         // `changes`.
         let project = studio.session.project().map_err(|e| e.to_string())?;
-        let link = EngineLink::spawn(studio.engine.clone(), ctx, project.clone());
+        let link = EngineLink::spawn(studio.engine.clone(), ctx.clone(), project.clone());
         let dispatch = Dispatcher::new(studio.session.clone());
         let mut core = AppCore {
+            ctx,
             studio,
             dispatch,
             link,
@@ -297,6 +360,7 @@ impl AppCore {
             txn_times: HashMap::new(),
             history_dirty: true,
             history_pending: None,
+            solo_pending: None,
             toasts: Vec::new(),
             conflict: None,
             dialog: None,
@@ -313,6 +377,12 @@ impl AppCore {
             solo_inserts: BTreeSet::new(),
             now: 0.0,
             dirty: false,
+            view_size: egui::Vec2::ZERO,
+            scrolls: HashMap::new(),
+            effect_edits: Vec::new(),
+            project_replaced: false,
+            after_save: None,
+            ready: Vec::new(),
         };
         core.fix_selection();
         Ok(core)
@@ -384,6 +454,23 @@ impl AppCore {
             self.history_dirty = false;
             self.history_pending = Some(self.studio.session.submit(|s, _| s.history().to_vec()));
         }
+        // Solo is session state with no `Change`, so an agent can solo something without any
+        // snapshot telling us. Read the session's real state once per frame instead: one small
+        // job on the control thread, never waited on.
+        if let Some(p) = &self.solo_pending {
+            match p.try_wait() {
+                Ok(Some(s)) => {
+                    self.solo_channels = s.channels;
+                    self.solo_inserts = s.inserts;
+                    self.solo_pending = None;
+                }
+                Ok(None) => {}
+                Err(_) => self.solo_pending = None,
+            }
+        }
+        if self.solo_pending.is_none() {
+            self.solo_pending = Some(self.studio.session.submit(|s, _| s.solo().clone()));
+        }
         // fade things out
         self.toasts.retain(|t| now - t.at < 7.0);
         self.touches.retain(|_, (_, at)| now - *at < 12.0);
@@ -412,6 +499,7 @@ impl AppCore {
             self.flashes.clear();
             self.solo_channels.clear();
             self.solo_inserts.clear();
+            self.project_replaced = true;
             self.dirty = false;
         } else {
             self.txn_times.insert(c.txn, std::time::SystemTime::now());
@@ -476,6 +564,9 @@ impl AppCore {
                 if d.request.command == "file.save" || d.request.command == "file.save_as" {
                     self.dirty = false;
                     self.toast(ToastKind::Info, "Saved");
+                    if let Some(p) = self.after_save.take() {
+                        self.ready.push(p);
+                    }
                 }
                 if d.request.command == "file.export_audio" {
                     let path = d.request.params["path"].as_str().unwrap_or("");
@@ -488,28 +579,39 @@ impl AppCore {
                     conflicts,
                 });
             }
-            Err(e) => self.toast(ToastKind::Error, e.to_string()),
+            Err(e) => {
+                if d.request.command.starts_with("file.save") && self.after_save.take().is_some() {
+                    self.toast(ToastKind::Warn, "Not saved, so nothing was closed");
+                }
+                self.toast(ToastKind::Error, e.to_string())
+            }
+        }
+    }
+
+    /// `ui.open_panel` / `ui.close_panel` names: a panel, `instrument:<channel>` or
+    /// `effect:<insert>:<slot>`.
+    fn queue_panel(&mut self, name: &str, a: PanelAction) {
+        if let Some(p) = PanelId::from_name(name) {
+            self.panel_requests.push((p, a));
+        } else if let Some(w) = WindowId::parse(name) {
+            self.window_requests.push((w, a));
         }
     }
 
     fn on_ui_request(&mut self, r: UiRequest) {
         match r {
-            UiRequest::Open { panel } => {
-                if let Some(p) = PanelId::from_name(&panel) {
-                    self.panel_requests.push((p, PanelAction::Open));
-                }
-            }
-            UiRequest::Close { panel } => {
-                if let Some(p) = PanelId::from_name(&panel) {
-                    self.panel_requests.push((p, PanelAction::Close));
-                }
-            }
+            UiRequest::Open { panel } => self.queue_panel(&panel, PanelAction::Open),
+            UiRequest::Close { panel } => self.queue_panel(&panel, PanelAction::Close),
             UiRequest::Select { paths } => {
                 self.agent_select = paths.iter().copied().collect();
                 self.agent_select_at = self.now;
                 for p in paths {
                     match p {
-                        ObjectPath::Channel(c) => self.sel.channel = Some(c),
+                        ObjectPath::Channel(c) => {
+                            self.sel.channel = Some(c);
+                            self.window_requests
+                                .push((WindowId::Instrument(c), PanelAction::Open));
+                        }
                         ObjectPath::Pattern(x) => self.sel.pattern = Some(x),
                         ObjectPath::Insert(i) => self.sel.insert = i.0,
                         ObjectPath::Note(pat, ch, _) => {
@@ -526,6 +628,10 @@ impl AppCore {
             UiRequest::PianoRoll { pattern, channel } => {
                 self.sel.pattern = Some(pattern);
                 self.sel.channel = Some(channel);
+                self.agent_select = [ObjectPath::Pattern(pattern), ObjectPath::Channel(channel)]
+                    .into_iter()
+                    .collect();
+                self.agent_select_at = self.now;
                 self.roll.focus(pattern, channel);
                 self.panel_requests
                     .push((PanelId::PianoRoll, PanelAction::Open));
@@ -552,6 +658,7 @@ impl AppCore {
                         self.send(r);
                     }
                 }
+                PrOut::Batch(reqs) => self.send_batch(reqs),
                 PrOut::Preview { key, on } => {
                     if let Some(c) = self.roll.channel {
                         self.preview(c, key, on);
@@ -627,6 +734,15 @@ impl AppCore {
         self.notice_dismissed = true;
     }
 
+    /// Do `what` now, or first ask Save / Don't save / Cancel when that would lose changes.
+    pub fn ask_or_do(&mut self, what: AfterPrompt) {
+        if self.dirty {
+            self.dialog = Some(Dialog::Unsaved { then: what });
+        } else {
+            self.ready.push(what);
+        }
+    }
+
     pub fn open_rename(&mut self, target: RenameTarget) {
         let text = match target {
             RenameTarget::Channel(c) => self.project.channels.get(&c).map(|c| c.name.clone()),
@@ -680,7 +796,7 @@ impl AppCore {
                     path: self.paths.project_dir.to_string_lossy().into_owned(),
                 })
             }
-            "app.new_project" => self.dialog = Some(Dialog::NewProject),
+            "app.new_project" => self.ask_or_do(AfterPrompt::NewProject),
             "app.export" => {
                 self.dialog = Some(Dialog::Export {
                     path: "exports/mix.wav".into(),
@@ -702,6 +818,8 @@ impl AppCore {
                 let t = match params["tool"].as_str() {
                     Some("select") => Tool::Select,
                     Some("delete") => Tool::Delete,
+                    Some("slice") => Tool::Slice,
+                    Some("mute") => Tool::Mute,
                     _ => Tool::Draw,
                 };
                 self.roll.tool = t;

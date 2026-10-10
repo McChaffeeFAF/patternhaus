@@ -219,6 +219,7 @@ fn clone(ctx: &mut CommandCtx<'_>, p: PatternOnly) -> CmdResult<CommandOutput> {
             spec.velocity = n.velocity;
             spec.pan = n.pan;
             spec.fine_pitch = n.fine_pitch;
+            spec.muted = n.muted;
             ed.add_note(id, *ch, spec)?;
             count += 1;
         }

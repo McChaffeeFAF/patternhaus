@@ -148,13 +148,41 @@ pub fn note_add(p: PatternId, c: ChannelId, notes: &[NewNote]) -> Request {
     let notes: Vec<Value> = notes
         .iter()
         .map(|n| {
-            json!({ "key": n.key, "start": n.start, "length": n.length, "velocity": n.velocity })
+            json!({ "key": n.key, "start": n.start, "length": n.length, "velocity": n.velocity, "muted": n.muted })
         })
         .collect();
     req(
         "note.add",
         json!({ "pattern": p, "channel": c, "notes": notes }),
     )
+}
+/// Mutes or unmutes notes.
+pub fn note_mute(p: PatternId, c: ChannelId, ids: &[NoteId], muted: bool) -> Request {
+    let updates: Vec<Value> = ids
+        .iter()
+        .map(|id| json!({ "id": id, "muted": muted }))
+        .collect();
+    req(
+        "note.update",
+        json!({ "pattern": p, "channel": c, "updates": updates }),
+    )
+}
+/// Splits a note at `cut` (ticks): the first part keeps the id, the second is a new note with
+/// the same key, velocity, pan, fine pitch and mute state. Send both as one batch.
+pub fn note_slice(p: PatternId, c: ChannelId, n: &ph_core::Note, cut: u64) -> Vec<Request> {
+    vec![
+        req(
+            "note.update",
+            json!({ "pattern": p, "channel": c, "updates": [{ "id": n.id, "length": cut - n.start }] }),
+        ),
+        req(
+            "note.add",
+            json!({ "pattern": p, "channel": c, "notes": [{
+                "key": n.key, "start": cut, "length": n.start + n.length - cut,
+                "velocity": n.velocity, "pan": n.pan, "fine_pitch": n.fine_pitch, "muted": n.muted
+            }] }),
+        ),
+    ]
 }
 pub fn note_remove(p: PatternId, c: ChannelId, ids: &[NoteId]) -> Request {
     req(
@@ -226,6 +254,8 @@ pub struct NewNote {
     pub start: Tick,
     pub length: Tick,
     pub velocity: f32,
+    /// Muted notes stay in the pattern but don't play (kept through copy/paste).
+    pub muted: bool,
 }
 
 // ---- playlist ----------------------------------------------------------------------------
@@ -441,6 +471,7 @@ mod tests {
                 start: 0,
                 length: 240,
                 velocity: 0.8,
+                muted: true,
             }],
         ));
         let id = NoteId(

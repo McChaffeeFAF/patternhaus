@@ -35,6 +35,7 @@ fn undo_all_by_agent_leaves_my_work() {
             start: 3600,
             length: 240,
             velocity: 0.9,
+            muted: false,
         }],
     ));
     settle(app);
