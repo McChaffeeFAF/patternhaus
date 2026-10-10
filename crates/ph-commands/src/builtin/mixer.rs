@@ -585,7 +585,19 @@ fn set_sidechain(ctx: &mut CommandCtx<'_>, p: SetSidechain) -> CmdResult<Command
     }
     let name = name_of(ctx.project, i)?;
     let mut ed = Edit::new(ctx.project);
-    ed.update_insert(i, |x| x.sidechain_from = src)?;
+    // A compressor only listens to the sidechain port when its `sidechain` choice says so
+    // (0 = internal, 1 = external), so the route and the param change together.
+    let external = if src.is_some() { 1.0 } else { 0.0 };
+    ed.update_insert(i, |x| {
+        x.sidechain_from = src;
+        for slot in &mut x.effects {
+            if let EffectSpec::Builtin { name, params } = &mut slot.effect
+                && name == "compressor"
+            {
+                params.insert("sidechain".into(), external);
+            }
+        }
+    })?;
     let summary = match p.source {
         Some(s) => format!("{name} sidechain now follows insert {s}"),
         None => format!("cleared the sidechain of {name}"),

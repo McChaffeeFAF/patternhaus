@@ -886,6 +886,21 @@ fn mixer_commands() {
     );
     r.run("mixer.set_sidechain", json!({ "insert": 2 }));
     assert_eq!(r.p().insert(InsertId(2)).unwrap().sidechain_from, None);
+    // The target compressor follows the route: external when fed, internal when cleared.
+    r.run(
+        "mixer.add_effect",
+        json!({ "insert": 4, "effect": { "kind": "builtin", "name": "compressor" } }),
+    );
+    let sc = |r: &Rig| -> Option<f64> {
+        r.p().insert(InsertId(4)).unwrap().effects.iter().find_map(|e| match &e.effect {
+            EffectSpec::Builtin { name, params } if name == "compressor" => params.get("sidechain").copied(),
+            _ => None,
+        })
+    };
+    r.run("mixer.set_sidechain", json!({ "insert": 4, "source": 1 }));
+    assert_eq!(sc(&r), Some(1.0));
+    r.run("mixer.set_sidechain", json!({ "insert": 4 }));
+    assert_eq!(sc(&r), Some(0.0));
     assert!(matches!(
         r.err("mixer.set_sidechain", json!({ "insert": 2, "source": 2 })),
         CmdError::Model(_)

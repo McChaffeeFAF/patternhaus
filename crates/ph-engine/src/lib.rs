@@ -142,6 +142,9 @@ pub struct EngineStats {
     pub nodes: Vec<NodeStats>,
     /// Current overload-shedding level (0 = none; 1 meters, 2 oversampling, 3 voices).
     pub shedding: u8,
+    /// Things that compile to silence or a pass-through: a sample that cannot be loaded, an
+    /// unsupported instrument or effect. Empty when the project is fully playable.
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -181,6 +184,8 @@ struct Inner {
     _collector: Collector,
     sample_rate: u32,
     buffer_frames: u32,
+    /// `project_warnings` of the project at this pointer (recomputed when it changes).
+    warnings: (usize, Vec<String>),
 }
 
 /// Command ring capacity (transport, previews) between control and audio threads.
@@ -301,6 +306,7 @@ impl Engine {
         Ok(Inner {
             sample_rate: handle.sample_rate,
             buffer_frames: handle.buffer_frames,
+            warnings: (0, Vec::new()),
             config,
             assets,
             ctl,
@@ -340,6 +346,7 @@ impl Engine {
         let inner = Inner {
             sample_rate: settings.sample_rate,
             buffer_frames: settings.max_frames as u32,
+            warnings: (0, Vec::new()),
             config,
             assets,
             ctl: parts.ctl,
@@ -410,7 +417,13 @@ impl Engine {
     }
 
     pub fn stats(&self) -> EngineStats {
-        let g = self.lock();
+        let mut g = self.lock();
+        let ptr = Arc::as_ptr(&g.project) as usize;
+        if g.warnings.0 != ptr {
+            let w = project_warnings(&g.project, &*g.assets);
+            g.warnings = (ptr, w);
+        }
+        let warnings = g.warnings.1.clone();
         let sh = &self.shared;
         let budget_us = g.buffer_frames as f32 / g.sample_rate.max(1) as f32 * 1e6;
         let nodes = g
@@ -437,6 +450,7 @@ impl Engine {
             suggest_buffer_frames: (suggest > 0).then_some(suggest),
             nodes,
             shedding: sh.shedding.load(Relaxed),
+            warnings,
         }
     }
 
@@ -530,4 +544,30 @@ pub fn render_offline(
     assets: &dyn AssetResolver,
 ) -> EngineResult<AudioBuffer> {
     offline::render(project, settings, assets, worker_count(0))
+}
+
+/// Instruments and effects of `project` that cannot be built (an unloadable sample, an
+/// unsupported or plugin-only instrument): the engine plays them as silence or a
+/// pass-through, so front ends and agents are told here. Off the audio thread only.
+pub fn project_warnings(project: &Project, assets: &dyn AssetResolver) -> Vec<String> {
+    let mut out = Vec::new();
+    for ch in project.channels_in_order() {
+        if let Err(e) = ph_instruments::create(&ch.instrument, assets) {
+            out.push(format!(
+                "channel {:?} (id {}): {e}; it will play silence",
+                ch.name, ch.id.0
+            ));
+        }
+    }
+    for (i, ins) in project.mixer.iter().enumerate() {
+        for (s, slot) in ins.effects.iter().enumerate() {
+            if let Err(e) = ph_effects::create(&slot.effect) {
+                out.push(format!(
+                    "insert {i} {:?}, effect slot {s}: {e}; the effect is skipped",
+                    ins.name
+                ));
+            }
+        }
+    }
+    out
 }

@@ -11,9 +11,28 @@
 //! **Contract (T0-level, orchestrator-owned):** `Studio`, `StudioConfig`, `AudioMode` and
 //! `EngineHost`. T4 (agent interface) and T5 (UI) build on these.
 
+mod agent;
+mod diff;
+mod endpoint;
+mod events;
+mod grants;
 mod host;
+mod jsonrpc;
+mod mcp;
+mod node_params;
+mod views;
 
+pub use agent::{Agent, ToolOutput, ToolSpec};
+pub use diff::{Diff, diff};
+pub use endpoint::{
+    LocalServer, connect, default_endpoint, default_grants_file, proxy_stdio, serve_local,
+    serve_local_with, serve_stdio,
+};
+pub use jsonrpc::serve_jsonrpc;
+pub use events::{Event, EventHub};
+pub use grants::{GrantPrompt, Grants, grant_text, parse_grant};
 pub use host::EngineHost;
+pub use mcp::PatternhausServer;
 
 use ph_commands::{Caller, Registry, Request, Session, SessionHandle, UiRequest};
 use ph_core::Project;
@@ -22,7 +41,7 @@ use ph_engine::{Engine, EngineConfig, SimulatedDevice};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// How the engine produces sound.
@@ -60,6 +79,10 @@ pub struct Studio {
     latest: Arc<Mutex<Arc<Project>>>,
     /// Stops the silent-mode pump thread on drop.
     pump_stop: Arc<AtomicBool>,
+    config: Arc<StudioConfig>,
+    assets: Arc<dyn ph_node::AssetResolver>,
+    registry: Arc<Registry>,
+    hub: Arc<OnceLock<Arc<EventHub>>>,
 }
 
 impl Drop for Studio {
@@ -125,8 +148,11 @@ impl Studio {
         let latest = Arc::new(Mutex::new(project.clone()));
 
         let (ui_tx, ui_requests) = channel();
-        let host = EngineHost::new(engine.clone(), assets, &config, ui_tx);
-        let session = Session::new(Arc::new(Registry::with_builtins()), (*project).clone());
+        let host = EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx);
+        let mut registry = Registry::with_builtins();
+        node_params::register(&mut registry);
+        let registry = Arc::new(registry);
+        let session = Session::new(registry.clone(), (*project).clone());
         let session = SessionHandle::spawn(session, host);
 
         // Bridge: every committed change goes to the engine (compiled off the audio thread).
@@ -151,6 +177,10 @@ impl Studio {
             ui_requests,
             latest,
             pump_stop,
+            config: Arc::new(config),
+            assets,
+            registry,
+            hub: Arc::new(OnceLock::new()),
         })
     }
 
@@ -159,14 +189,104 @@ impl Studio {
         self.latest.lock().unwrap().clone()
     }
 
-    /// Convenience: run one command as `caller`.
+    /// Convenience: run one command as `caller`. A successful `file.save` / `file.save_as`
+    /// also persists the per-author history log to `history/log.jsonl` next to the project.
     pub fn run(
         &self,
         caller: &Caller,
         command: &str,
         params: serde_json::Value,
     ) -> ph_commands::CmdResult<ph_commands::Executed> {
-        self.session.execute(caller, Request::new(command, params))
+        self.handle()
+            .execute(caller, Request::new(command, params))
+    }
+
+    /// A cloneable, `Send + Sync` handle to everything the agent interface needs.
+    pub fn handle(&self) -> StudioHandle {
+        StudioHandle {
+            session: self.session.clone(),
+            engine: self.engine.clone(),
+            latest: self.latest.clone(),
+            config: self.config.clone(),
+            assets: self.assets.clone(),
+            registry: self.registry.clone(),
+            hub: self.hub.clone(),
+        }
+    }
+}
+
+/// A cloneable view of a running [`Studio`] for front ends that run on their own threads
+/// (MCP and JSON-RPC connections, the CLI). It carries no UI receiver.
+#[derive(Clone)]
+pub struct StudioHandle {
+    pub session: SessionHandle,
+    pub engine: Arc<Engine>,
+    latest: Arc<Mutex<Arc<Project>>>,
+    pub config: Arc<StudioConfig>,
+    pub assets: Arc<dyn ph_node::AssetResolver>,
+    pub registry: Arc<Registry>,
+    hub: Arc<OnceLock<Arc<EventHub>>>,
+}
+
+impl StudioHandle {
+    /// The snapshot the engine is playing (or about to).
+    pub fn project(&self) -> Arc<Project> {
+        self.latest.lock().unwrap().clone()
+    }
+
+    /// The live event hub (started on first use).
+    pub fn events(&self) -> Result<Arc<EventHub>, String> {
+        if let Some(h) = self.hub.get() {
+            return Ok(h.clone());
+        }
+        let h = EventHub::start(&self.session, self.engine.clone())?;
+        Ok(self.hub.get_or_init(|| h).clone())
+    }
+
+    /// Runs one command as `caller` (history is persisted on save).
+    pub fn execute(
+        &self,
+        caller: &Caller,
+        req: Request,
+    ) -> ph_commands::CmdResult<ph_commands::Executed> {
+        let done = self.session.execute(caller, req)?;
+        self.after_save(std::slice::from_ref(&done));
+        Ok(done)
+    }
+
+    /// Runs commands as one transaction.
+    pub fn batch(
+        &self,
+        caller: &Caller,
+        reqs: Vec<Request>,
+    ) -> ph_commands::CmdResult<Vec<ph_commands::Executed>> {
+        let done = self.session.batch(caller, reqs)?;
+        self.after_save(&done);
+        Ok(done)
+    }
+
+    /// `file.save` writes `project.json`; the history log lives in the session, which the
+    /// command cannot see, so it is written here, through the session handle.
+    pub(crate) fn after_save(&self, done: &[ph_commands::Executed]) {
+        for d in done {
+            if matches!(d.command.as_str(), "file.save" | "file.save_as") {
+                if let Some(dir) = d.result["path"].as_str() {
+                    if let Err(e) = self.save_history(std::path::Path::new(dir)) {
+                        eprintln!("could not write the history log: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Persists the history log (`history/log.jsonl`) into a project folder.
+    pub fn save_history(&self, dir: &std::path::Path) -> Result<(), String> {
+        let entries = self.session.history().map_err(|e| e.to_string())?;
+        let values: Vec<serde_json::Value> = entries
+            .iter()
+            .filter_map(|e| serde_json::to_value(e).ok())
+            .collect();
+        ph_formats::write_history_log(dir, &values).map_err(|e| e.to_string())
     }
 }
 

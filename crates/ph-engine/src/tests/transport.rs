@@ -223,3 +223,49 @@ fn file_resolver_feeds_the_sampler() {
     let out = render_offline(&proj, &rs, &missing).unwrap();
     assert_eq!(peak(&out.channels[0]), 0.0);
 }
+
+#[test]
+fn stats_warn_about_unplayable_instruments_and_effects() {
+    use super::GenAssets;
+    let mut p = Project::empty("w");
+    let mut ch = p.channels.values().next().cloned();
+    if ch.is_none() {
+        let id = ChannelId(1);
+        let c = Channel {
+            id,
+            name: "Ghost".into(),
+            color: 0,
+            instrument: InstrumentSpec::Sampler {
+                sample: Some("gen:nothing".into()),
+                root_key: 60,
+                params: Default::default(),
+            },
+            volume: 0.8,
+            pan: 0.0,
+            muted: false,
+            insert: InsertId(0),
+        };
+        p.channels = Arc::new([(id, c.clone())].into_iter().collect());
+        p.channel_order = Arc::new(vec![id]);
+        ch = Some(c);
+    }
+    let _ = ch;
+    p.mixer = Arc::new({
+        let mut m = (*p.mixer).clone();
+        m[0].effects.push(EffectSlot {
+            effect: EffectSpec::Builtin {
+                name: "no_such_effect".into(),
+                params: Default::default(),
+            },
+            bypass: false,
+            mix: 1.0,
+        });
+        m
+    });
+    let w = crate::project_warnings(&p, &GenAssets);
+    assert_eq!(w.len(), 2, "{w:?}");
+    assert!(w[0].contains("Ghost") && w[0].contains("silence"), "{w:?}");
+    assert!(w[1].contains("effect slot 0"), "{w:?}");
+    let clean = Project::empty("c");
+    assert!(crate::project_warnings(&clean, &GenAssets).is_empty());
+}
