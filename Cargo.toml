@@ -19,6 +19,7 @@ ph-instruments = { path = "crates/ph-instruments" }
 ph-effects = { path = "crates/ph-effects" }
 ph-formats = { path = "crates/ph-formats" }
 ph-control = { path = "crates/ph-control" }
+ph-ui = { path = "crates/ph-ui" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 schemars = "1"
@@ -33,6 +34,11 @@ cpal = "0.18"
 rtrb = "0.4"
 hound = "3.5"
 flacenc = { version = "0.5", default-features = false }
+egui = "0.36"
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
+egui_dock = "0.21"
+egui_kittest = { version = "0.36", features = ["wgpu", "snapshot"] }
+toml = "1"
 
 [profile.dev]
 # DSP is unusably slow unoptimised; keep debug info but optimise a little, and dependencies fully.

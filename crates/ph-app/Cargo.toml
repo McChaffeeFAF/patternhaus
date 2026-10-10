@@ -1,0 +1,20 @@
+[package]
+name = "ph-app"
+description = "Patternhaus desktop application (binary)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ph-app"
+path = "src/main.rs"
+
+[dependencies]
+ph-core.workspace = true
+ph-commands.workspace = true
+ph-engine.workspace = true
+ph-control.workspace = true
+ph-ui.workspace = true
+eframe.workspace = true

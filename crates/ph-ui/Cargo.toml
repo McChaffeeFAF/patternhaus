@@ -1,0 +1,27 @@
+[package]
+name = "ph-ui"
+description = "Patternhaus desktop UI: panels, widgets, keymap and themes (egui)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ph-core.workspace = true
+ph-node.workspace = true
+ph-commands.workspace = true
+ph-engine.workspace = true
+ph-control.workspace = true
+egui.workspace = true
+eframe.workspace = true
+egui_dock.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+dirs = "6"
+
+[dev-dependencies]
+egui_kittest.workspace = true
+tempfile.workspace = true
+image = { version = "0.25", default-features = false, features = ["png"] }
