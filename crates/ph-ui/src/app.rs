@@ -320,6 +320,8 @@ impl PhApp {
         }
         let now = ctx.input(|i| i.time);
         self.core.update(now);
+        // keep polling the session's solo state while the window is idle
+        ctx.request_repaint_after(std::time::Duration::from_millis(300));
         self.follow_effects();
         self.prune_windows();
         self.process_panel_requests();

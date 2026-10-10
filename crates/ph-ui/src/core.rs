@@ -217,6 +217,8 @@ pub struct AppCore {
     pub txn_times: HashMap<u64, std::time::SystemTime>,
     history_dirty: bool,
     history_pending: Option<Pending<Vec<HistoryEntry>>>,
+    /// An in-flight read of the session's solo state (polled once per frame, see `update`).
+    solo_pending: Option<Pending<ph_commands::SoloState>>,
     pub toasts: Vec<Toast>,
     pub conflict: Option<ConflictDialog>,
     pub dialog: Option<Dialog>,
@@ -322,6 +324,7 @@ impl AppCore {
             txn_times: HashMap::new(),
             history_dirty: true,
             history_pending: None,
+            solo_pending: None,
             toasts: Vec::new(),
             conflict: None,
             dialog: None,
@@ -412,6 +415,23 @@ impl AppCore {
         if self.history_dirty && self.history_pending.is_none() {
             self.history_dirty = false;
             self.history_pending = Some(self.studio.session.submit(|s, _| s.history().to_vec()));
+        }
+        // Solo is session state with no `Change`, so an agent can solo something without any
+        // snapshot telling us. Read the session's real state once per frame instead: one small
+        // job on the control thread, never waited on.
+        if let Some(p) = &self.solo_pending {
+            match p.try_wait() {
+                Ok(Some(s)) => {
+                    self.solo_channels = s.channels;
+                    self.solo_inserts = s.inserts;
+                    self.solo_pending = None;
+                }
+                Ok(None) => {}
+                Err(_) => self.solo_pending = None,
+            }
+        }
+        if self.solo_pending.is_none() {
+            self.solo_pending = Some(self.studio.session.submit(|s, _| s.solo().clone()));
         }
         // fade things out
         self.toasts.retain(|t| now - t.at < 7.0);

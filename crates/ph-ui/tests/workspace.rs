@@ -612,3 +612,31 @@ fn the_mixer_and_other_windows_scroll_both_ways_but_the_editors_do_not_wrap_in_a
         "{i:?}"
     );
 }
+
+#[test]
+fn the_solo_display_follows_the_session_when_an_agent_solos() {
+    let (mut h, ids, _dir) = start();
+    h.state_mut().ws.show(WindowId::Mixer);
+    frames(&mut h, 3);
+    assert!(h.state().core.solo_channels.is_empty());
+    // an agent solos a channel and an insert; no snapshot is published for either
+    let agent = ph_commands::Caller::agent("tester", ph_commands::Grant(vec![ph_commands::Scope::Full]));
+    for r in [
+        ph_ui::mapping::channel_solo(ids.kick, true),
+        ph_ui::mapping::mixer_solo(3, true),
+    ] {
+        h.state().core.studio.session.execute(&agent, r).unwrap();
+    }
+    settle_frames(&mut h, 6);
+    assert!(h.state().core.solo_channels.contains(&ids.kick));
+    assert!(h.state().core.solo_inserts.contains(&3));
+    // and un-solo
+    h.state()
+        .core
+        .studio
+        .session
+        .execute(&agent, ph_ui::mapping::channel_solo(ids.kick, false))
+        .unwrap();
+    settle_frames(&mut h, 6);
+    assert!(h.state().core.solo_channels.is_empty());
+}

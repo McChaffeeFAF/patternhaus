@@ -249,11 +249,6 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         if i > 0 {
             let solo = core.solo_inserts.contains(&(i as u32));
             if toggle(ui, solo, "S", theme.colors.ok, &theme).clicked() {
-                if solo {
-                    core.solo_inserts.remove(&(i as u32));
-                } else {
-                    core.solo_inserts.insert(i as u32);
-                }
                 core.send(mapping::mixer_solo(i as u32, !solo));
             }
         }
