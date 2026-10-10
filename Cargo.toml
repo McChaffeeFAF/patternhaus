@@ -14,10 +14,14 @@ ph-core = { path = "crates/ph-core" }
 ph-node = { path = "crates/ph-node" }
 ph-commands = { path = "crates/ph-commands" }
 ph-engine = { path = "crates/ph-engine" }
+ph-formats = { path = "crates/ph-formats" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 schemars = "1"
 thiserror = "2"
+midly = "0.5"
+proptest = "1"
+tempfile = "3"
 
 [profile.dev]
 # DSP is unusably slow unoptimised; keep debug info but optimise a little, and dependencies fully.

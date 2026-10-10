@@ -13,3 +13,8 @@ serde.workspace = true
 serde_json.workspace = true
 schemars.workspace = true
 thiserror.workspace = true
+ph-formats.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
