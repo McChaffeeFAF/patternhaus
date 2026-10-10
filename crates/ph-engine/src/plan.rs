@@ -468,6 +468,25 @@ fn seed(kind: u64, a: u64, b: u64) -> u64 {
 }
 
 /// Strip gains from volume, balance-law pan and mute.
+/// Exponent of the channel volume knob: `gain = v ^ k`, fitted so FL's two documented
+/// anchors hold exactly: 100% = 0 dB, and the 78% default = -5.2 dB
+/// (`docs/formats/fl-behaviour-notes.md` §1; the shape between them is owner check OC-1..3).
+pub(crate) const CHANNEL_VOLUME_EXPONENT: f32 = 2.409;
+
+/// A channel strip: FL's channel volume curve and its default Circular pan law
+/// (constant power, -3 dB per side at centre, 0 dB on the panned side at the extremes;
+/// fl-behaviour-notes §2).
+pub(crate) fn channel_gain(volume: f32, pan: f32, muted: bool) -> [f32; 2] {
+    if muted {
+        return [0.0, 0.0];
+    }
+    let g = volume.clamp(0.0, 1.0).powf(CHANNEL_VOLUME_EXPONENT);
+    let theta = (pan.clamp(-1.0, 1.0) as f64 + 1.0) * std::f64::consts::FRAC_PI_4;
+    [g * theta.cos() as f32, g * theta.sin() as f32]
+}
+
+/// A mixer insert: linear fader gain and a balance pan. FL's fader scale and mixer pan
+/// law are owner checks OC-6..OC-9 (fl-behaviour-notes §3, §4), so this stays as it was.
 fn strip_gain(volume: f32, pan: f32, muted: bool) -> [f32; 2] {
     if muted {
         return [0.0, 0.0];
@@ -687,7 +706,7 @@ pub(crate) fn compile(
                 let identity = instrument_identity(&ch.instrument);
                 let ps = instrument_params(&ch.instrument);
                 let muted = ch.muted || (!solo.is_empty() && !solo.contains(&ch.id));
-                let gain = strip_gain(ch.volume, ch.pan, muted);
+                let gain = channel_gain(ch.volume, ch.pan, muted);
                 let choke = match &ch.instrument {
                     InstrumentSpec::Sampler { params, .. } => params
                         .get("choke_group")

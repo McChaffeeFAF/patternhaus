@@ -410,8 +410,8 @@ async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
     assert!(secs["text"].as_str().unwrap().contains("Beat"), "{secs}");
 
     // -- listen, then fix what the numbers say ------------------------------------------
-    // The first mix peaks over full scale; an agent sees that in the numbers and puts a limiter
-    // on the master.
+    // An agent reads the numbers: a peak over full scale shows up as a clipping warning, and
+    // the loudness says how far the mix is from a normal level.
     let first = ok(&c, "analyze", json!({ "what": ["loudness", "health"] })).await;
     let peak = first["loudness"]["true_peak_dbtp"].as_f64().unwrap();
     if peak > -1.0 {
@@ -419,10 +419,22 @@ async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
             first["health"]["warnings"].to_string().contains("clipping"),
             "{first}"
         );
+    }
+    // FL-style channel levels (78% = -5.2 dB, -3 dB pan law at centre) leave headroom, so a
+    // quiet first mix gets the master limiter's input gain raised toward about -11 LUFS.
+    let lufs0 = first["loudness"]["integrated_lufs"].as_f64().unwrap();
+    let boost_db = (-11.0 - lufs0).clamp(0.0, 12.0);
+    if peak > -1.0 || boost_db > 0.0 {
         ok(
             &c,
             "add_effect",
             json!({ "insert": 0, "effect": { "kind": "builtin", "name": "limiter" } }),
+        )
+        .await;
+        ok(
+            &c,
+            "set_effect_param",
+            json!({ "insert": 0, "index": 0, "param": "input_gain", "value": boost_db }),
         )
         .await;
         let again = ok(&c, "analyze", json!({ "what": ["loudness"] })).await;
@@ -474,11 +486,13 @@ async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
         "{}",
         a["chords"]
     );
-    // The audio estimate is reported alongside (tuned kick drums pull it off the written key,
-    // which is why the note-based estimate is the exact one).
+    // The audio estimate is reported alongside. With harmonic/percussive separation the tuned
+    // kicks no longer drag it off the key signature (before T7 it read F# minor), but on this
+    // short mix it can still pick the relative major; the note-based estimate is the exact one.
+    let audio_key = a["key"]["from_audio"]["key"].as_str().unwrap_or("");
     assert!(
-        a["key"]["from_audio"]["confidence"].as_f64().is_some(),
-        "{}",
+        ["A minor", "C major"].contains(&audio_key),
+        "audio key {audio_key}: {}",
         a["key"]
     );
     assert!(a["masking"]["stems"].as_u64().unwrap() >= 4);

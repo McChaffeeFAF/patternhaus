@@ -230,3 +230,28 @@ fn choke_group_cuts_other_channels() {
         "still sounding after the choke"
     );
 }
+
+/// FL's documented channel anchors (docs/formats/fl-behaviour-notes.md §1, §2): 100% = 0 dB,
+/// the 78% default = -5.2 dB, Circular pan law = -3 dB per side at centre, 0 dB on the
+/// panned side at the extremes.
+#[test]
+fn channel_strip_follows_fl_volume_and_circular_pan() {
+    use crate::plan::channel_gain;
+    let db = |g: f32| 20.0 * (g as f64).log10();
+    let [l, r] = channel_gain(1.0, 1.0, false);
+    assert!(
+        l.abs() < 1e-7 && (r - 1.0).abs() < 1e-6,
+        "hard right at 100%: {l} {r}"
+    );
+    let [l, r] = channel_gain(1.0, -1.0, false);
+    assert!((l - 1.0).abs() < 1e-6 && r.abs() < 1e-7);
+    let [l, r] = channel_gain(1.0, 0.0, false);
+    assert!((db(l) + 3.01).abs() < 0.01 && (db(r) + 3.01).abs() < 0.01);
+    let [_, r] = channel_gain(0.78, 1.0, false);
+    assert!((db(r) + 5.2).abs() < 0.01, "78% = {} dB", db(r));
+    // the FL default sampler state: 78% at centre = -8.2 dB (manual: [LVL])
+    let [l, _] = channel_gain(0.78, 0.0, false);
+    assert!((db(l) + 8.2).abs() < 0.02, "{}", db(l));
+    assert_eq!(channel_gain(0.78, 0.0, true), [0.0, 0.0]);
+    assert_eq!(channel_gain(0.0, 0.0, false), [0.0, 0.0]);
+}
