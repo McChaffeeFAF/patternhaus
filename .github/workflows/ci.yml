@@ -11,7 +11,7 @@ env:
 
 jobs:
   checks:
-    name: fmt + layering + provenance
+    name: fmt + layering + provenance + notices
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,24 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: factory assets match soundgen output
         run: cargo run --release -p soundgen -- check
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about@0.9.2
+      - name: THIRD_PARTY_NOTICES.md is up to date
+        run: cargo xtask notices --check
+
+  licences:
+    name: licences + advisories (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - name: default build (MIT/Apache)
+        run: cargo deny check
+      - name: with the asio feature (the GPLv3 build adds no GPL crates)
+        run: cargo deny --features ph-engine/asio check licenses bans sources
 
   test:
     name: test (${{ matrix.os }})
@@ -36,9 +54,66 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - name: Linux audio/GUI dev packages
+      - name: Linux audio/GUI dev packages, software Vulkan for offscreen UI tests
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libjack-jackd2-dev libudev-dev libxkbcommon-dev libwayland-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libjack-jackd2-dev libudev-dev libxkbcommon-dev libwayland-dev mesa-vulkan-drivers
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets
+      - name: M1 acceptance (criterion 1) and the --connect endpoint e2e
+        run: cargo test -p ph-cli --test acceptance_m1 --test e2e_connect
+      - name: golden renders, oracle and round trip (criteria 4, 6, 8)
+        run: cargo xtask golden
       - run: cargo test --workspace
+      - name: real-time safety in release, assert_no_alloc on (criterion 5)
+        env:
+          CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS: "true"
+        run: cargo test -p ph-engine --release --lib
+
+  miri:
+    name: Miri (engine lock-free pieces)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      - name: Linux audio dev packages (build scripts only)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: mailbox, scheduler, pool hand-off, collector, audition (several seeds)
+        env:
+          RUSTFLAGS: ""
+          MIRIFLAGS: -Zmiri-many-seeds=0..4
+        run: cargo miri test -p ph-engine --lib rt_miri
+
+  loom:
+    name: loom (engine lock-free protocols)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux audio dev packages
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: loom
+      - name: mailbox put/take, scheduler, pool hand-off models
+        env:
+          RUSTFLAGS: --cfg loom -D warnings
+          LOOM_MAX_PREEMPTIONS: "3"
+        run: cargo test -p ph-engine --lib --release loom_models
+
+  perf:
+    name: perf report (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux audio dev packages
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - uses: Swatinem/rust-cache@v2
+      - name: reference project vs perf/baseline-7800x3d.json (reports only; the gate runs locally)
+        run: cargo xtask perf --report
