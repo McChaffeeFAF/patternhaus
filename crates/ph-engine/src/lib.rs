@@ -14,6 +14,7 @@
 //! sample references.
 
 pub mod assets;
+pub mod catalog;
 mod control;
 mod device;
 mod offline;
