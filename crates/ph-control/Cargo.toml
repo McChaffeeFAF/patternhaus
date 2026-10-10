@@ -8,12 +8,18 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ph-analysis.workspace = true
 ph-core.workspace = true
 ph-node.workspace = true
 ph-commands.workspace = true
 ph-engine.workspace = true
 ph-formats.workspace = true
+schemars.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+base64 = "0.22"
+rmcp = { version = "3.5", default-features = false, features = ["server", "transport-async-rw"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util", "io-std", "net", "time"] }
 
 [dev-dependencies]
 tempfile.workspace = true

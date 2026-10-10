@@ -1,0 +1,19 @@
+[package]
+name = "ph-analysis"
+description = "Patternhaus perception: loudness, spectrum, mix health, onsets, key and chords, masking, and PNG snapshots, so agents can hear and see the result."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ph-core.workspace = true
+ph-node.workspace = true
+ph-dsp.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tiny-skia = "0.12"
+
+[dev-dependencies]
+png = "0.18"
