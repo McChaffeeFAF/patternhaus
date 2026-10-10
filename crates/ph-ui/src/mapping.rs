@@ -148,7 +148,7 @@ pub fn note_add(p: PatternId, c: ChannelId, notes: &[NewNote]) -> Request {
     let notes: Vec<Value> = notes
         .iter()
         .map(|n| {
-            json!({ "key": n.key, "start": n.start, "length": n.length, "velocity": n.velocity })
+            json!({ "key": n.key, "start": n.start, "length": n.length, "velocity": n.velocity, "muted": n.muted })
         })
         .collect();
     req(
@@ -254,6 +254,8 @@ pub struct NewNote {
     pub start: Tick,
     pub length: Tick,
     pub velocity: f32,
+    /// Muted notes stay in the pattern but don't play (kept through copy/paste).
+    pub muted: bool,
 }
 
 // ---- playlist ----------------------------------------------------------------------------
@@ -469,6 +471,7 @@ mod tests {
                 start: 0,
                 length: 240,
                 velocity: 0.8,
+                muted: true,
             }],
         ));
         let id = NoteId(

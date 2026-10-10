@@ -754,6 +754,7 @@ impl PianoRollState {
                         start,
                         length: len,
                         velocity: 0.78,
+                        muted: false,
                     }],
                 )));
                 out.push(PrOut::SelectCreated);
@@ -916,6 +917,7 @@ impl PianoRollState {
                         start: n.start - lo,
                         length: n.length,
                         velocity: n.velocity,
+                        muted: n.muted,
                     })
                     .collect();
                 if a == PrAction::Cut {

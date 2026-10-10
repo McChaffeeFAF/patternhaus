@@ -111,6 +111,7 @@ pub fn build_beat(session: &SessionHandle) -> Ids {
             start,
             length: 720,
             velocity: 0.85,
+            muted: false,
         })
         .collect();
     run(session, mapping::note_add(bassline, bass, &notes));

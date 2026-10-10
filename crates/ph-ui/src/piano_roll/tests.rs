@@ -265,6 +265,19 @@ fn copy_and_paste_round_trips_through_note_add() {
 }
 
 #[test]
+fn copy_and_paste_keeps_muted_notes_muted() {
+    let (mut st, ..) = small();
+    st.action(PrAction::SelectAll);
+    st.action(PrAction::Copy);
+    // mute the first copied note as if it had been muted in the pattern
+    st.clipboard[0].muted = true;
+    let out = st.paste(0);
+    let PrOut::Cmd(r) = &out[0] else { panic!() };
+    assert_eq!(r.params["notes"][0]["muted"], true);
+    assert_eq!(r.params["notes"][1]["muted"], false);
+}
+
+#[test]
 fn velocity_lane_drag_sets_velocity() {
     let (mut st, ..) = small();
     let n = st.cache.notes[1].clone();
