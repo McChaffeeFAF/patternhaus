@@ -292,6 +292,8 @@ pub struct PianoRollState {
     pub pattern: Option<PatternId>,
     pub channel: Option<ChannelId>,
     pub clipboard: Vec<NewNote>,
+    /// Notes a command just created; selected as soon as they show up in a snapshot.
+    pub want: BTreeSet<NoteId>,
     pub cache: NoteCache,
     drag: Drag,
     ticks_per_bar: Tick,
@@ -312,6 +314,7 @@ impl Default for PianoRollState {
             pattern: None,
             channel: None,
             clipboard: Vec::new(),
+            want: BTreeSet::new(),
             cache: NoteCache::default(),
             drag: Drag::None,
             ticks_per_bar: 3840,
@@ -342,6 +345,22 @@ impl PianoRollState {
         self.pattern_len = project.pattern_length(p).unwrap_or(self.ticks_per_bar);
         let cache = &self.cache;
         self.selection.retain(|id| cache.get(*id).is_some());
+        if !self.want.is_empty() {
+            let found: Vec<NoteId> = self
+                .want
+                .iter()
+                .copied()
+                .filter(|i| cache.get(*i).is_some())
+                .collect();
+            if !found.is_empty() {
+                self.selection.clear();
+                for i in found {
+                    self.want.remove(&i);
+                    self.selection.insert(i);
+                }
+                self.want.clear();
+            }
+        }
     }
 
     /// The effective grid in ticks.

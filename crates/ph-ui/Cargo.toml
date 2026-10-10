@@ -13,6 +13,7 @@ ph-node.workspace = true
 ph-commands.workspace = true
 ph-engine.workspace = true
 ph-control.workspace = true
+ph-formats.workspace = true
 egui.workspace = true
 eframe.workspace = true
 egui_dock.workspace = true
