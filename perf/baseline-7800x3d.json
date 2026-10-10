@@ -1,0 +1,11 @@
+{
+  "project": "reference: 16 synth channels x 8-voice chords, 8 inserts",
+  "sample_rate": 48000,
+  "buffer_frames": 256,
+  "all_cores_dsp_load_mean_pct": 9.79,
+  "all_cores_dsp_load_median_pct": 8.97,
+  "all_cores_dsp_load_worst_pct": 20.13,
+  "one_thread_dsp_load_mean_pct": 47.80,
+  "one_thread_dsp_load_median_pct": 41.38,
+  "one_thread_dsp_load_worst_pct": 113.84
+}

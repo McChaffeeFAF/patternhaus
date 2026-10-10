@@ -115,26 +115,82 @@ fn engine(threads: usize) -> (Engine, ph_engine::SimulatedDevice) {
     (engine, dev)
 }
 
-/// Mean and worst DSP load over `blocks` callbacks.
-fn measure(threads: usize, blocks: usize) -> (f64, f64) {
+/// Block times over `blocks` callbacks, in seconds.
+fn block_times(threads: usize, blocks: usize) -> Vec<f64> {
     let (_engine, mut dev) = engine(threads);
+    (0..blocks)
+        .map(|_| {
+            let t = Instant::now();
+            let b = dev.pull(BUFFER as usize);
+            let dt = t.elapsed().as_secs_f64();
+            std::hint::black_box(&b);
+            dt
+        })
+        .collect()
+}
+
+/// Mean, median and worst DSP load (block time / buffer duration).
+fn loads(times: &[f64]) -> (f64, f64, f64) {
     let budget = BUFFER as f64 / SR as f64;
-    let mut total = 0.0;
-    let mut worst: f64 = 0.0;
-    for _ in 0..blocks {
-        let t = Instant::now();
-        let b = dev.pull(BUFFER as usize);
-        let dt = t.elapsed().as_secs_f64();
-        std::hint::black_box(&b);
-        total += dt;
-        worst = worst.max(dt);
+    let mut sorted = times.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let mean = times.iter().sum::<f64>() / times.len() as f64;
+    let median = sorted[sorted.len() / 2];
+    let worst = *sorted.last().unwrap();
+    (mean / budget, median / budget, worst / budget)
+}
+
+/// `PH_PERF_OUT=<file>`: measure only (no criterion run) and write the figures as JSON for
+/// `cargo xtask perf`. Each configuration is measured in 5 runs of 2000 blocks; the
+/// reported figure is the median of the runs, which keeps one noisy run from deciding.
+fn perf_json(path: &str) {
+    let mut fields = Vec::new();
+    for (label, threads) in [("all_cores", 0usize), ("one_thread", 1)] {
+        let mut means = Vec::new();
+        let mut medians = Vec::new();
+        let mut worsts = Vec::new();
+        for _ in 0..5 {
+            let (mean, median, worst) = loads(&block_times(threads, 2000));
+            means.push(mean);
+            medians.push(median);
+            worsts.push(worst);
+        }
+        let mid = |v: &mut Vec<f64>| {
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2] * 100.0
+        };
+        fields.push(format!(
+            "  \"{label}_dsp_load_mean_pct\": {:.2},
+  \"{label}_dsp_load_median_pct\": {:.2},
+  \"{label}_dsp_load_worst_pct\": {:.2}",
+            mid(&mut means),
+            mid(&mut medians),
+            mid(&mut worsts)
+        ));
     }
-    (total / blocks as f64 / budget, worst / budget)
+    let json = format!(
+        "{{
+  \"project\": \"reference: 16 synth channels x 8-voice chords, 8 inserts\",
+  \"sample_rate\": {SR},
+  \"buffer_frames\": {BUFFER},
+{}
+}}
+",
+        fields.join(
+            ",
+"
+        )
+    );
+    std::fs::write(path, json).expect("write perf json");
 }
 
 fn bench(c: &mut Criterion) {
+    if let Ok(path) = std::env::var("PH_PERF_OUT") {
+        perf_json(&path);
+        return;
+    }
     for (label, threads) in [("all cores", 0usize), ("one thread", 1)] {
-        let (mean, worst) = measure(threads, 2000);
+        let (mean, _, worst) = loads(&block_times(threads, 2000));
         println!(
             "reference project, 48 kHz / {BUFFER} frames, {label}: DSP load {:.1}% mean, {:.1}% worst block",
             mean * 100.0,

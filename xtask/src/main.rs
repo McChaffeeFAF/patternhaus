@@ -1,10 +1,23 @@
-//! `cargo xtask <check-layers|check-provenance|check>`
+//! `cargo xtask <check-layers|check-provenance|check|golden|perf|notices>`
+//!
+//! - `check`: layering and provenance (CI, every OS).
+//! - `golden [--update]`: the golden render tests (`crates/ph-control/tests/golden.rs`);
+//!   `--update` rewrites `tests/projects/` and `tests/golden/` (say why in the PR).
+//! - `perf [--report|--update]`: runs the reference benchmark and compares it with
+//!   `perf/baseline-7800x3d.json`; fails on a regression of more than 10% (the local gate on
+//!   the owner's machine). `--report` only prints (CI runners are noisy); `--update`
+//!   records the current numbers as the baseline.
+//! - `notices [--check]`: regenerates `THIRD_PARTY_NOTICES.md` with cargo-about;
+//!   `--check` fails if the committed file is out of date.
 //!
 //! check-layers enforces DESIGN §2: a crate may depend only on the `ph-*` crates its layer
 //! allows. Adding a crate means adding it to `LAYERS` (and to the design doc's diagram).
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use tasks::{golden, notices, perf};
+
+mod tasks;
 
 /// crate -> `ph-*` crates it may depend on (directly). Anything else is a layering error.
 const LAYERS: &[(&str, &[&str])] = &[
@@ -79,19 +92,24 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("ph-app", &["*"]),
 ];
 
+const USAGE: &str = "usage: cargo xtask <check-layers|check-provenance|check|golden [--update]|perf [--report|--update]|notices [--check]>";
+
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
         .to_path_buf();
-    let task = std::env::args().nth(1).unwrap_or_default();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let task = args.first().cloned().unwrap_or_default();
+    let flag = |f: &str| args.iter().any(|a| a == f);
     let result = match task.as_str() {
         "check-layers" => check_layers(&root),
         "check-provenance" => check_provenance(&root),
         "check" => check_layers(&root).and_then(|_| check_provenance(&root)),
-        _ => Err(vec![
-            "usage: cargo xtask <check-layers|check-provenance|check>".into(),
-        ]),
+        "golden" => golden(&root, flag("--update")),
+        "perf" => perf(&root, flag("--report"), flag("--update")),
+        "notices" => notices(&root, flag("--check")),
+        _ => Err(vec![USAGE.into()]),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

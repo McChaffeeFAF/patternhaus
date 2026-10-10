@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Repository checks: crate layering, asset provenance."
+description = "Repository tasks: layering and provenance checks, golden renders, the perf gate, third-party notices."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,3 +8,4 @@ publish = false
 
 [dependencies]
 toml = "0.9"
+serde_json = "1"
