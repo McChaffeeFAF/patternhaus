@@ -296,6 +296,22 @@ mod tests {
             assert_eq!(cmd, "app.toggle_panel");
             assert_eq!(params["panel"], panel);
         }
+        // History and Agents keep their chords; Escape closes the front instrument/effect window
+        let ctrl = mods(true, false, false);
+        assert_eq!(
+            look(Key::H, ctrl, Context::Global).unwrap().1["panel"],
+            "history"
+        );
+        assert_eq!(
+            look(Key::A, mods(true, true, false), Context::Global)
+                .unwrap()
+                .1["panel"],
+            "agents"
+        );
+        assert_eq!(
+            look(Key::Escape, none, Context::Global).unwrap().0,
+            "app.close_window"
+        );
         assert_eq!(
             look(Key::Z, mods(true, false, false), Context::Global)
                 .unwrap()

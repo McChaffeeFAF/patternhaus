@@ -35,6 +35,7 @@ key = "Ctrl+Shift+Z"
 command = "history.redo"
 
 # ---- windows (FL: F5 playlist, F6 channel rack, F7 piano roll, F8 browser, F9 mixer) ----
+# Each F-key shows the window and raises it; pressed again while it is in front, it hides.
 [[bind]]
 key = "F5"
 command = "app.toggle_panel"
@@ -64,6 +65,11 @@ params = { panel = "mixer" }
 key = "F10"
 command = "app.toggle_panel"
 params = { panel = "inspector" }
+
+# Escape closes the front instrument or effect window (other windows ignore it)
+[[bind]]
+key = "Escape"
+command = "app.close_window"
 
 [[bind]]
 key = "Ctrl+H"

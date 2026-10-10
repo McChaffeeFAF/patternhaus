@@ -16,7 +16,6 @@ ph-control.workspace = true
 ph-formats.workspace = true
 egui.workspace = true
 eframe.workspace = true
-egui_dock.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true

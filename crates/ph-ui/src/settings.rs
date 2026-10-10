@@ -1,19 +1,16 @@
 //! Per-user settings: keymap file, theme choice and saved layouts.
 
-use crate::core::PanelId;
 use crate::keymap::Keymap;
 use crate::theme::Theme;
-use egui_dock::DockState;
+use crate::workspace::Workspace;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// A saved window layout: the dock tree plus panels living in their own OS windows.
+/// A saved window layout: every window's rectangle, visibility, maximized state, stacking and
+/// detach flag, plus the browser dock.
 #[derive(Serialize, Deserialize)]
 pub struct Layout {
-    pub dock: DockState<PanelId>,
-    #[serde(default)]
-    pub detached: BTreeSet<PanelId>,
+    pub workspace: Workspace,
 }
 
 pub fn keymap_path(config: &Path) -> PathBuf {
@@ -127,7 +124,6 @@ pub fn save_layout(path: &Path, layout: &Layout) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    // RON, not JSON: the dock tree holds `Rect::NOTHING` (infinite floats) that JSON cannot carry.
     let text = ron::ser::to_string_pretty(layout, ron::ser::PrettyConfig::default())
         .map_err(|e| e.to_string())?;
     std::fs::write(path, text).map_err(|e| e.to_string())
@@ -144,57 +140,26 @@ pub fn load_layout(path: &Path) -> Option<Layout> {
     }
 }
 
-/// The layout a fresh install opens with.
-pub fn default_dock() -> DockState<PanelId> {
-    use egui_dock::NodeIndex;
-    let mut dock = DockState::new(vec![PanelId::ChannelRack]);
-    let tree = dock.main_surface_mut();
-    let [_, below] = tree.split_below(
-        NodeIndex::root(),
-        0.27,
-        vec![PanelId::Playlist, PanelId::PianoRoll],
-    );
-    tree.split_below(
-        below,
-        0.58,
-        vec![
-            PanelId::Mixer,
-            PanelId::Inspector,
-            PanelId::History,
-            PanelId::Agents,
-        ],
-    );
-    tree.split_left(NodeIndex::root(), 0.17, vec![PanelId::Browser]);
-    dock
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn default_layout_has_every_panel_once() {
-        let dock = default_dock();
-        let mut seen: Vec<PanelId> = dock.iter_all_tabs().map(|(_, t)| *t).collect();
-        seen.sort();
-        let mut all = PanelId::ALL.to_vec();
-        all.sort();
-        assert_eq!(seen, all);
-    }
-
-    #[test]
-    fn layouts_round_trip_through_json() {
+    fn layouts_round_trip_through_a_file() {
+        use crate::workspace::{Rect, WindowId};
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("layout.ron");
-        let layout = Layout {
-            dock: default_dock(),
-            detached: [PanelId::Mixer].into(),
-        };
+        let mut workspace = Workspace::new(Rect::new(0.0, 0.0, 1200.0, 800.0));
+        workspace.show(WindowId::Mixer);
+        workspace.drag_move(WindowId::Mixer, 200.0, 300.0);
+        let layout = Layout { workspace };
         save_layout(&path, &layout).unwrap();
         let back = load_layout(&path).unwrap();
-        assert_eq!(back.detached, layout.detached);
-        assert_eq!(back.dock.iter_all_tabs().count(), 8);
-        assert!(load_layout(&dir.path().join("missing.json")).is_none());
+        assert_eq!(back.workspace, layout.workspace);
+        assert!(load_layout(&dir.path().join("missing.ron")).is_none());
+        // a layout from the old docked shell is ignored, not fatal
+        std::fs::write(&path, "(dock: (surfaces: []), detached: [])").unwrap();
+        assert!(load_layout(&path).is_none());
     }
 
     #[test]

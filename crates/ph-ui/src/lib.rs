@@ -19,6 +19,8 @@ pub mod steps;
 pub mod theme;
 pub mod typing;
 pub mod widgets;
+pub mod windows;
+pub mod workspace;
 
 pub use app::PhApp;
 pub use core::{AgentDirectory, AppCore, AppPaths, ClientInfo, GrantRequest, Hooks};

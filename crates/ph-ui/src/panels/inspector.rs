@@ -7,7 +7,7 @@ use crate::mapping;
 use crate::theme::{Theme, rgb};
 use crate::widgets::{self, param_grid};
 use egui::{CollapsingHeader, CornerRadius, Id, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
-use ph_core::InstrumentSpec;
+use ph_core::{ChannelId, InstrumentSpec};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -102,16 +102,12 @@ pub const SYNTH_SECTIONS: [&str; 7] = [
     "Voice and output",
 ];
 
-pub fn show(ui: &mut Ui, core: &mut AppCore) {
+/// The instrument window of one channel (`WindowId::Instrument`).
+pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
     let theme = core.theme.clone();
     let project = core.project.clone();
-    let Some(ch) = core
-        .sel
-        .channel
-        .and_then(|c| project.channels.get(&c))
-        .cloned()
-    else {
-        ui.label("Select a channel in the rack.");
+    let Some(ch) = project.channels.get(&channel).cloned() else {
+        ui.label("This channel no longer exists.");
         return;
     };
     ui.horizontal(|ui| {

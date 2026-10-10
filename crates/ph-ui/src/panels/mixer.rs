@@ -2,10 +2,11 @@
 //! sends, route-to-master and sidechain for the selected insert, and generic effect panels
 //! built from `ph_engine::catalog` descriptors.
 
-use crate::core::{AppCore, PanelAction, PanelId, RenameTarget};
+use crate::core::{AppCore, PanelAction, RenameTarget};
 use crate::mapping;
 use crate::theme::rgb;
 use crate::widgets::{self, Edit, fader, knob, param_grid, toggle};
+use crate::workspace::WindowId;
 use egui::{
     Align2, CornerRadius, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
 };
@@ -335,6 +336,10 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                             .clicked()
                         {
                             core.sel.effect = Some(idx);
+                            core.window_requests.push((
+                                WindowId::Effect(InsertId(ins as u32), idx as u32),
+                                PanelAction::Open,
+                            ));
                         }
                         if toggle(ui, slot.bypass, "Byp", theme.colors.warn, &theme).clicked() {
                             core.send(mapping::effect_bypass(ins as u32, idx, !slot.bypass));
@@ -355,16 +360,19 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
                         if idx > 0 && ui.small_button("^").on_hover_text("Move up").clicked() {
                             core.send(mapping::effect_move(ins as u32, idx, idx - 1));
+                            close_effect_windows(core, ins as u32, idx - 1, idx);
                             core.sel.effect = Some(idx - 1);
                         }
                         if idx + 1 < m.effects.len()
                             && ui.small_button("v").on_hover_text("Move down").clicked()
                         {
                             core.send(mapping::effect_move(ins as u32, idx, idx + 1));
+                            close_effect_windows(core, ins as u32, idx, idx + 1);
                             core.sel.effect = Some(idx + 1);
                         }
                         if ui.small_button("x").on_hover_text("Remove").clicked() {
                             core.send(mapping::effect_remove(ins as u32, idx));
+                            close_effect_windows(core, ins as u32, idx, m.effects.len());
                             core.sel.effect = None;
                         }
                     });
@@ -431,25 +439,64 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                     }
                 });
 
-                // ---- effect panel
-                ui.add_space(8.0);
-                widgets::section_label(ui, "EFFECT PARAMETERS", &theme);
-                match core
-                    .sel
-                    .effect
-                    .and_then(|i| m.effects.get(i).map(|s| (i, s)))
-                {
-                    Some((idx, slot)) => effect_panel(ui, core, ins as u32, idx, &slot.effect),
-                    None => {
-                        ui.label(
-                            RichText::new("Select an effect to edit its parameters.")
-                                .color(theme.colors.text_dim),
-                        );
-                    }
-                }
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new("Click an effect to open its own window.")
+                        .size(11.0)
+                        .color(theme.colors.text_dim),
+                );
             }
         });
-    let _ = (PanelId::Mixer, PanelAction::Open);
+}
+
+/// Slots shift when an effect moves or is removed, so the windows for the slots it touched
+/// close rather than silently showing another effect.
+fn close_effect_windows(core: &mut AppCore, insert: u32, from: usize, to_incl: usize) {
+    for slot in from..=to_incl {
+        core.window_requests.push((
+            WindowId::Effect(InsertId(insert), slot as u32),
+            PanelAction::Close,
+        ));
+    }
+}
+
+/// The contents of an effect window: the slot's bypass and mix, and every parameter knob.
+pub fn effect_window(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize) {
+    let theme = core.theme.clone();
+    let Some(slot) = core
+        .project
+        .mixer
+        .get(insert as usize)
+        .and_then(|m| m.effects.get(index))
+        .cloned()
+    else {
+        ui.label("This effect no longer exists.");
+        return;
+    };
+    ui.horizontal(|ui| {
+        if toggle(ui, slot.bypass, "Bypass", theme.colors.warn, &theme).clicked() {
+            core.send(mapping::effect_bypass(insert, index, !slot.bypass));
+        }
+        let (_, e) = knob(
+            ui,
+            Id::new(("fxwin_mix", insert, index)),
+            slot.mix as f64,
+            0.0,
+            1.0,
+            1.0,
+            22.0,
+            &theme,
+        );
+        if let Some(v) = e.commit() {
+            core.send(mapping::effect_mix(insert, index, v as f32));
+        }
+        ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
+    });
+    ui.separator();
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .id_salt(("fxwin", insert, index))
+        .show(ui, |ui| effect_panel(ui, core, insert, index, &slot.effect));
 }
 
 fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effect: &EffectSpec) {
