@@ -6,9 +6,18 @@ done with the mouse and FL-compatible shortcuts. Everything below was also exerc
 
 ## Start the app
 
+From a source checkout:
+
 ```powershell
-cd E:\patternhaus-wt\t5          # or main, once merged
+cd E:\patternhaus
 cargo run --release -p ph-app -- C:\Users\you\beats\first   # a new folder is fine
+```
+
+On the owner's machine there's a prebuilt copy with a launcher. It finds the factory assets and opens
+the checkpoint project folder:
+
+```powershell
+E:\patternhaus-bin\Patternhaus.bat                       # or: Patternhaus.bat <project_dir> --demo-agent
 ```
 
 Options:
