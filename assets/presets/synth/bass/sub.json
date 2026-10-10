@@ -1,0 +1,18 @@
+{
+  "osc1_wave": 3,
+  "osc1_level": 1.0,
+  "sub_level": 0.4,
+  "sub_wave": 1,
+  "sub_oct": 0,
+  "f1_on": 1,
+  "f1_cutoff": 700,
+  "f1_res": 0.0,
+  "amp_attack": 0.003,
+  "amp_decay": 0.2,
+  "amp_sustain": 0.9,
+  "amp_release": 0.12,
+  "voice_mode": 1,
+  "glide_mode": 1,
+  "glide_time": 0.04,
+  "volume": -6.7
+}

@@ -1,0 +1,15 @@
+{
+  "osc1_wave": 0,
+  "osc1_level": 0.0,
+  "noise_level": 1.0,
+  "f1_on": 1,
+  "f1_cutoff": 2000,
+  "f1_res": 0.3,
+  "f1_type": 2,
+  "f1_model": 1,
+  "amp_attack": 0.001,
+  "amp_decay": 0.25,
+  "amp_sustain": 0.0,
+  "amp_release": 0.2,
+  "volume": 4.7
+}

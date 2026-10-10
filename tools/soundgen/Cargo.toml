@@ -1,0 +1,13 @@
+[package]
+name = "soundgen"
+description = "Patternhaus factory sound generator: drum synthesis and physical models (not shipped)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+hound.workspace = true
+tempfile.workspace = true

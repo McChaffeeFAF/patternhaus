@@ -1,0 +1,23 @@
+{
+  "osc1_wave": 3,
+  "osc1_level": 1.0,
+  "osc2_wave": 3,
+  "osc2_level": 0.5,
+  "osc2_oct": 1,
+  "osc2_semi": 5,
+  "osc2_fine": 50,
+  "osc3_wave": 3,
+  "osc3_level": 0.3,
+  "osc3_oct": 2,
+  "osc3_semi": 5,
+  "osc3_fine": -30,
+  "f1_on": 1,
+  "f1_cutoff": 14000,
+  "f1_res": 0.0,
+  "amp_attack": 0.001,
+  "amp_decay": 2.2,
+  "amp_sustain": 0.0,
+  "amp_release": 1.5,
+  "amp_curve": 0.6,
+  "volume": -8.8
+}
