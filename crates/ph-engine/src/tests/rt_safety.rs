@@ -66,6 +66,13 @@ fn callback_never_allocates_while_plans_swap_every_block() {
     engine.transport(TransportCommand::Play);
     let stop = AtomicBool::new(false);
     let swaps = AtomicUsize::new(0);
+    // Loose lockstep between the swapper and the device: the swapper posts one plan per pulled
+    // block, and the device never runs more than one block ahead of it. So a swap is always in
+    // flight while the next callback runs (the race under test), but the number of swaps, seeks
+    // and previews per block no longer depends on how this machine schedules threads. Unpaced,
+    // a slow Linux runner seeked many times per block (every seek silences all voices) and a
+    // slow Windows runner starved the swapper below 300 swaps.
+    let pulled = AtomicUsize::new(0);
     let blocks = 4000;
     let mut l = vec![0.0f32; 128];
     let mut r = vec![0.0f32; 128];
@@ -74,7 +81,14 @@ fn callback_never_allocates_while_plans_swap_every_block() {
     std::thread::scope(|s| {
         s.spawn(|| {
             let mut k = 0;
+            let mut seen = 0;
             while !stop.load(Ordering::Relaxed) {
+                let p = pulled.load(Ordering::Acquire);
+                if p == seen {
+                    std::thread::yield_now();
+                    continue;
+                }
+                seen = p;
                 engine
                     .set_project(variants[k % variants.len()].clone())
                     .unwrap();
@@ -84,13 +98,21 @@ fn callback_never_allocates_while_plans_swap_every_block() {
                 if k % 7 == 0 {
                     engine.preview_note(base.channel_order[3], 48, 0.8, k % 14 == 0);
                 }
-                swaps.fetch_add(1, Ordering::Relaxed);
+                swaps.fetch_add(1, Ordering::Release);
                 k += 1;
             }
         });
-        for _ in 0..blocks {
+        for b in 0..blocks {
+            // stay at most one block ahead of the swapper (bounded wait so a bug cannot hang CI)
+            let t0 = std::time::Instant::now();
+            while swaps.load(Ordering::Acquire) + 1 < b
+                && t0.elapsed() < std::time::Duration::from_secs(5)
+            {
+                std::thread::yield_now();
+            }
             // `pull_into` wraps the callback in `assert_no_alloc`
             dev.pull_into(&mut l, &mut r);
+            pulled.fetch_add(1, Ordering::Release);
             finite &= l.iter().chain(&r).all(|v| v.is_finite());
             if peak(&l) > 1e-3 {
                 loud += 1;

@@ -9,6 +9,11 @@ on:
         description: Version label in the zip names (e.g. nightly-20261010-abc1234, v0.1.0-m1)
         type: string
         required: true
+      ref:
+        description: Commit to build (default: the triggering commit)
+        type: string
+        required: false
+        default: ''
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,6 +31,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Linux audio/GUI dev packages
         if: runner.os == 'Linux'
@@ -54,6 +61,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
