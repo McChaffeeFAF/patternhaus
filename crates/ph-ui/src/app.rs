@@ -9,7 +9,6 @@ use crate::core::{
     AfterPrompt, AppCore, AppPaths, Dialog, EffectEdit, Hooks, PanelAction, PanelId, RenameTarget,
     ToastKind,
 };
-use crate::hint;
 use crate::keymap::{Chord, Context};
 use crate::mapping;
 use crate::motion;
@@ -20,6 +19,7 @@ use crate::toolbar;
 use crate::widgets::{btn, menu_item};
 use crate::windows;
 use crate::workspace::{Rect as WRect, WindowId, Workspace, match_effects};
+use crate::{dnd, hint};
 use egui::{Align2, Id, RichText, Ui};
 use ph_control::Studio;
 use ph_core::InsertId;
@@ -423,6 +423,7 @@ impl PhApp {
             .show(ui, |ui| self.hint_bar(ui));
         ui.painter()
             .hline(r.response.rect.x_range(), r.response.rect.top(), line);
+        self.core.drop_zones.clear();
         if self.ws.browser.visible {
             let r = egui::Panel::left("browser")
                 .resizable(true)
@@ -434,6 +435,9 @@ impl PhApp {
                         .inner_margin(egui::Margin::same(6)),
                 )
                 .show(ui, |ui| panels::browser::show(ui, &mut self.core));
+            self.core
+                .drop_zones
+                .push((r.response.rect, dnd::DropZone::Browser));
             self.ws.set_browser_width(r.response.rect.width());
         }
         egui::CentralPanel::default()
@@ -449,6 +453,7 @@ impl PhApp {
         if let Some(h) = hint::take_help_request(&ctx) {
             self.core.toast(ToastKind::Info, hint::line(&h));
         }
+        dnd::frame(&mut self.core, &ctx);
         self.core.publish_hint(hint::current(&ctx));
 
         if let Some(sp) = &mut self.splash

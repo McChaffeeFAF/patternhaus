@@ -119,11 +119,21 @@ fn main() -> eframe::Result {
         .unwrap_or_else(|| PathBuf::from("assets"));
     let project_dir = args.project_dir.clone();
     let (project, is_new) = load_or_new(&project_dir);
+    // library folders: those named on the command line, then the ones dropped on the browser
+    // in earlier sessions (remembered in settings)
+    let mut libraries = args.libraries.clone();
+    let config_dir = args.config.clone().or_else(settings::default_config_dir);
+    for f in settings::load_prefs(config_dir.as_deref()).library_folders {
+        if f.is_dir() && !libraries.contains(&f) {
+            libraries.push(f);
+        }
+    }
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(ph_ui::app::window_title("Untitled", false))
             .with_icon(std::sync::Arc::new(ph_ui::icon::viewport_icon()))
+            .with_drag_and_drop(true)
             .with_inner_size([1500.0, 920.0])
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
@@ -139,7 +149,7 @@ fn main() -> eframe::Result {
             let studio_cfg = |audio| StudioConfig {
                 project_dir: project_dir.clone(),
                 assets_dir: assets_dir.clone(),
-                library_roots: args.libraries.clone(),
+                library_roots: libraries.clone(),
                 exports_dir: None,
                 engine: engine_cfg.clone(),
                 audio,
@@ -179,7 +189,7 @@ fn main() -> eframe::Result {
             let paths = AppPaths {
                 project_dir: project_dir.clone(),
                 assets_dir: assets_dir.clone(),
-                library_roots: args.libraries.clone(),
+                library_roots: libraries.clone(),
                 config_dir: args.config.clone(),
             };
             let mut app = PhApp::new(&cc.egui_ctx, studio, paths, hooks, engine_cfg, notice)?;

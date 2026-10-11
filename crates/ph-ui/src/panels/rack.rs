@@ -162,6 +162,10 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 let row_rect = ui
                     .allocate_space(Vec2::new(layout.total_width(n_steps) + 340.0, ROW_H))
                     .1;
+                core.drop_zones.push((
+                    row_rect.intersect(ui.clip_rect()),
+                    crate::dnd::DropZone::RackRow(ch.id),
+                ));
                 let selected = core.sel.channel == Some(ch.id);
                 let p = ui.painter();
                 p.rect_filled(

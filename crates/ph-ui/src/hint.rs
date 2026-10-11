@@ -34,6 +34,12 @@ fn register(ctx: &Context, hint: UiHint) {
     ctx.data_mut(|d| d.insert_temp(Id::new(NEXT), hint));
 }
 
+/// Shows `hint` in the bar next frame, as a widget under the pointer would. Used by drops, which
+/// have no widget to hover.
+pub fn announce(ctx: &Context, hint: UiHint) {
+    register(ctx, hint);
+}
+
 /// A "Help" menu entry asks the shell to show this hint as a toast.
 pub fn request_help(ctx: &Context, hint: UiHint) {
     ctx.data_mut(|d| d.insert_temp(Id::new(HELP), hint));

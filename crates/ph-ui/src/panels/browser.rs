@@ -61,6 +61,14 @@ impl BrowserState {
             .collect();
     }
 
+    /// Shows another library folder (the caller keeps `AppPaths` and the settings in step).
+    pub fn add_library(&mut self, dir: &std::path::Path) {
+        if !self.paths.library_roots.iter().any(|r| r == dir) {
+            self.paths.library_roots.push(dir.to_path_buf());
+        }
+        self.rescan();
+    }
+
     pub fn set_project_dir(&mut self, dir: PathBuf) {
         self.paths.project_dir = dir;
         self.rescan();

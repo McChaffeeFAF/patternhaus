@@ -96,6 +96,16 @@ pub fn title_of(core: &AppCore, id: WindowId) -> String {
 /// content can outgrow them sit in a scroll area, so nothing is cut off. The piano roll, the
 /// playlist and the channel rack (its step grid) pan and zoom on their own.
 pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
+    let zone = match id {
+        WindowId::ChannelRack => Some(crate::dnd::DropZone::Rack),
+        WindowId::Playlist => Some(crate::dnd::DropZone::Playlist),
+        WindowId::PianoRoll => Some(crate::dnd::DropZone::PianoRoll),
+        _ => None,
+    };
+    if let Some(z) = zone {
+        core.drop_zones
+            .push((ui.max_rect().intersect(ui.clip_rect()), z));
+    }
     // (scroll sideways too, scroll area id) - instrument and effect windows wrap their knob
     // rows instead of scrolling sideways
     let scroll_x = match id {
