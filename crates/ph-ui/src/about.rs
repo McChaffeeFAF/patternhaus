@@ -24,8 +24,7 @@ pub fn licence_text(asio: bool) -> Vec<String> {
         );
     }
     out.push(
-        "Third-party components and their licences, including the bundled Barlow,          Barlow Condensed and Share Tech Mono fonts (SIL Open Font Licence 1.1) and the          symphonia decoders (MPL-2.0, unmodified), are listed in THIRD_PARTY_NOTICES.md, shipped next to this \
-         program."
+ "Third-party components and their licences, including the bundled Barlow, Barlow Condensed and Share Tech Mono fonts (SIL Open Font Licence 1.1) and the symphonia decoders (MPL-2.0, unmodified), are listed in THIRD_PARTY_NOTICES.md, shipped next to this program."
             .into(),
     );
     out.push(
