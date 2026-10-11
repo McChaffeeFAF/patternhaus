@@ -11,10 +11,16 @@ env:
 
 jobs:
   checks:
-    name: fmt + layering + provenance + notices
+    name: fmt + layering + provenance + notices + workflows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: lint the workflow files (actionlint)
+        # An invalid workflow file fails silently on GitHub (a release workflow just stops running),
+        # so check them here like code.
+        run: |
+          bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7
+          ./actionlint -color
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
