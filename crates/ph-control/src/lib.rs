@@ -48,6 +48,16 @@ use std::sync::mpsc::{Receiver, channel};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+/// What the pointer is over in the UI, as the hint bar shows it: the control's name, its
+/// current value and its gestures. The UI publishes it (`Studio::set_ui_hint`) and agents read
+/// it with `get_state { view: "ui" }`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct UiHint {
+    pub name: String,
+    pub value: String,
+    pub gestures: String,
+}
+
 /// How the engine produces sound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AudioMode {
@@ -87,6 +97,7 @@ pub struct Studio {
     assets: Arc<dyn ph_node::AssetResolver>,
     registry: Arc<Registry>,
     hub: Arc<OnceLock<Arc<EventHub>>>,
+    ui_hint: Arc<Mutex<Option<UiHint>>>,
 }
 
 impl Drop for Studio {
@@ -183,12 +194,24 @@ impl Studio {
             assets,
             registry,
             hub: Arc::new(OnceLock::new()),
+            ui_hint: Arc::new(Mutex::new(None)),
         })
     }
 
     /// The snapshot the engine is playing (or about to).
     pub fn project(&self) -> Arc<Project> {
         self.latest.lock().unwrap().clone()
+    }
+
+    /// Publishes the UI's current hint (what the pointer is over); `None` when nothing is.
+    /// Called by the UI once per change.
+    pub fn set_ui_hint(&self, hint: Option<UiHint>) {
+        *self.ui_hint.lock().unwrap() = hint;
+    }
+
+    /// The hint the UI is showing, if a UI is running and the pointer is over a control.
+    pub fn ui_hint(&self) -> Option<UiHint> {
+        self.ui_hint.lock().unwrap().clone()
     }
 
     /// Convenience: run one command as `caller`. A successful `file.save` / `file.save_as`
@@ -212,6 +235,7 @@ impl Studio {
             assets: self.assets.clone(),
             registry: self.registry.clone(),
             hub: self.hub.clone(),
+            ui_hint: self.ui_hint.clone(),
         }
     }
 }
@@ -227,9 +251,15 @@ pub struct StudioHandle {
     pub assets: Arc<dyn ph_node::AssetResolver>,
     pub registry: Arc<Registry>,
     hub: Arc<OnceLock<Arc<EventHub>>>,
+    ui_hint: Arc<Mutex<Option<UiHint>>>,
 }
 
 impl StudioHandle {
+    /// The hint the UI is showing (see [`Studio::ui_hint`]).
+    pub fn ui_hint(&self) -> Option<UiHint> {
+        self.ui_hint.lock().unwrap().clone()
+    }
+
     /// The snapshot the engine is playing (or about to).
     pub fn project(&self) -> Arc<Project> {
         self.latest.lock().unwrap().clone()
