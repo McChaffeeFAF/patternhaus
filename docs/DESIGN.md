@@ -314,10 +314,26 @@ These match the *behaviour* of FL's window system. Its look is not copied.
 
 Shortcuts and gestures are functional conventions, so we match them for muscle memory. FL's visual design, icons and trade dress are not copied. Every binding is remappable, and the keymap is a file. Each binding names a command id from the registry.
 
-**Look**
-- **Modern flat dark:** vector-drawn controls, colour-coded channels and patterns.
-- Scales at any DPI.
-- Ships dark and light themes, and accepts user theme files (TOML colour and metric tokens).
+**Look: revised 2026-10-10** with owner sign-off on the visual-direction canvas (https://claude.ai/artifact/AJfwGWHTjpk2dH8n8oKf5J).
+
+The aim is a professional first impression, at FL-level density and polish, in our own visual language. FL's trade dress is never copied.
+- **Themes:**
+  - **Neon Slate** (default): slate surfaces, neon blue `#38c6ff` accent, purple for agents.
+  - **Red Line** (alternate): wine-black surfaces, red `#ff3b5c` accent, cyan for agents, yellow for clipping.
+- **Neon means something:** playhead, active steps, meters, selection, and the focused window's edge glow. Glow is used only on live elements.
+- **Type** (all OFL, bundled, replacing egui's default fonts):
+  - labels: uppercase Barlow Condensed with wide tracking;
+  - content (names the user types): Barlow, kept in the case it was typed;
+  - readouts: Share Tech Mono.
+- **Details:**
+  - LCD-style transport readout;
+  - hardware-style step pads, knobs with value arcs, fader caps, LEDs;
+  - vertical mixer-strip names;
+  - a hint bar.
+- **Motion:** step pads flash on hit, meters hold their peaks, the playhead has a soft trail, the focused window glows, and knob arcs ease.
+- **Customisable like FL:** a full theme/skin system (colours, fonts, control styles, density) that users can share, a customisable toolbar, right-click menus everywhere, and an options menu per window.
+- **Grid down to 1/64:** musical snap names (1/4 to 1/64, plus triplets); a five-tier grid (bar, beat, 1/16, 1/32, 1/64) that fades in by zoom; and a minimum drawn width and click target for tiny notes.
+- **Scaling:** works at any DPI.
 
 **Shared with agents.** The UI reads only snapshots, and every change goes through commands. So anything you can see, an agent can query, and anything you can do, an agent can do.
 
