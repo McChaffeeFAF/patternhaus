@@ -1,0 +1,72 @@
+# Reusable: builds release binaries on Windows, Linux and macOS and packages each as a zip
+# (packaging/package.sh). Called by nightly.yml and release.yml.
+name: build-dist
+
+on:
+  workflow_call:
+    inputs:
+      label:
+        description: Version label in the zip names (e.g. nightly-20261010-abc1234, v0.1.0-m1)
+        type: string
+        required: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows-x64 }
+          - { os: ubuntu-latest, name: linux-x64 }
+          - { os: macos-latest, name: macos-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Linux audio/GUI dev packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libjack-jackd2-dev libudev-dev libxkbcommon-dev libwayland-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dist
+      - run: cargo build --release --locked -p ph-app -p ph-cli
+      - name: package
+        shell: bash
+        run: packaging/package.sh target/release "patternhaus-${{ inputs.label }}-${{ matrix.name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patternhaus-${{ matrix.name }}
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # The GPLv3 ASIO build (DESIGN §11). Off unless the repository variable PH_BUILD_ASIO is
+  # "true": the owner turns it on after accepting Steinberg's ASIO SDK terms (GPLv3 option,
+  # trademark rules). asio-sys fetches the SDK from Steinberg's official download
+  # (https://www.steinberg.net/asiosdk), or uses CPAL_ASIO_DIR if set. See
+  # docs/building-asio.md.
+  build-asio:
+    name: build (windows-x64-asio, GPLv3)
+    if: vars.PH_BUILD_ASIO == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: dist-asio
+      - name: build with ASIO (bindgen uses the runner's LLVM)
+        env:
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
+        run: cargo build --release --locked -p ph-app -p ph-cli --features ph-app/asio
+      - name: package
+        shell: bash
+        run: packaging/package.sh target/release "patternhaus-${{ inputs.label }}-windows-x64-asio-gpl3" gpl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patternhaus-windows-x64-asio-gpl3
+          path: dist/*.zip
+          if-no-files-found: error

@@ -1,0 +1,91 @@
+# Patternhaus dependency policy (cargo-deny). CI: `cargo deny check` (default features)
+# and `cargo deny --features ph-app/asio check` (the GPL ASIO build, DESIGN §11).
+#
+# Licence policy, decided in M1/T7:
+# - Allowed everywhere: permissive licences compatible with shipping Patternhaus under
+#   MIT OR Apache-2.0 (the list below).
+# - MPL-2.0: allowed only for dependencies we use unmodified, named one by one below.
+#   MPL is file-level copyleft: using an unmodified MPL crate puts no obligation on our own
+#   code, only on changes to the MPL files themselves (which we would have to publish). We
+#   take symphonia (sample decoding) from crates.io as is, and a patched copy would need its
+#   own review.
+# - OFL-1.1 and the Ubuntu Font Licence: only for the fonts egui bundles
+#   (`epaint_default_fonts`). Both allow bundling the fonts with any software; they only
+#   restrict selling the fonts on their own and reusing the reserved font names.
+# - GPL/LGPL/AGPL: denied. The only GPL code in a release is Steinberg's ASIO SDK in the
+#   optional `asio` build (not a crate; see docs/building-asio.md). A crate offered under
+#   "X OR GPL" is fine: we take X.
+# Every exception is listed below with its reason, and the release notes list them too.
+
+[graph]
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+]
+all-features = false
+
+[advisories]
+# RustSec database: deny known vulnerabilities and yanked crates; unmaintained crates are
+# reported for our direct dependencies only.
+yanked = "deny"
+unmaintained = "workspace"
+ignore = []
+
+[licenses]
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "BSL-1.0",
+    "0BSD",
+]
+confidence-threshold = 0.9
+exceptions = [
+    # MPL-2.0, unmodified (see the header).
+    { crate = "symphonia", allow = ["MPL-2.0"] },
+    { crate = "symphonia-core", allow = ["MPL-2.0"] },
+    { crate = "symphonia-metadata", allow = ["MPL-2.0"] },
+    { crate = "symphonia-utils-xiph", allow = ["MPL-2.0"] },
+    { crate = "symphonia-bundle-flac", allow = ["MPL-2.0"] },
+    { crate = "symphonia-bundle-mp3", allow = ["MPL-2.0"] },
+    { crate = "symphonia-codec-pcm", allow = ["MPL-2.0"] },
+    { crate = "symphonia-codec-vorbis", allow = ["MPL-2.0"] },
+    { crate = "symphonia-format-ogg", allow = ["MPL-2.0"] },
+    { crate = "symphonia-format-riff", allow = ["MPL-2.0"] },
+    # egui's bundled fonts (Hack, Ubuntu, Noto Emoji, emoji-icon-font).
+    { crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
+    # Public-domain dedication (no conditions at all; CC0-like). MIDI file I/O.
+    { crate = "midly", allow = ["Unlicense"] },
+    # The one-clause BSD licence: BSD-2-Clause without the binary-redistribution clause, so
+    # strictly more permissive. Test-time allocation checker (`assert_no_alloc`).
+    { crate = "assert_no_alloc", allow = ["BSD-1-Clause"] },
+]
+
+[licenses.private]
+# Workspace crates are MIT OR Apache-2.0 (checked like any other crate).
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+    # Copyleft audio libraries must never come in by accident.
+    { crate = "libmp3lame-sys" },
+    { crate = "fftw" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -2,8 +2,9 @@
 //! FTZ/DAZ, and the `assert_no_alloc` wrapper.
 
 use crate::plan::Plan;
+use crate::sync::AtomicPtr;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering::*};
+use std::sync::atomic::{AtomicBool, Ordering::*};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -15,9 +16,9 @@ pub(crate) fn no_alloc<T>(f: impl FnOnce() -> T) -> T {
 }
 
 /// Sets flush-to-zero and denormals-are-zero for the current thread; returns the previous
-/// control state for [`restore_fp`].
+/// control state for [`restore_fp`]. A no-op under Miri, which cannot run inline assembly.
 pub(crate) fn enable_ftz_daz() -> u64 {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
     unsafe {
         let mut csr: u32 = 0;
         std::arch::asm!("stmxcsr [{}]", in(reg) &mut csr, options(nostack));
@@ -25,14 +26,14 @@ pub(crate) fn enable_ftz_daz() -> u64 {
         std::arch::asm!("ldmxcsr [{}]", in(reg) &new, options(nostack));
         csr as u64
     }
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
     unsafe {
         let fpcr: u64;
         std::arch::asm!("mrs {}, fpcr", out(reg) fpcr, options(nomem, nostack));
         std::arch::asm!("msr fpcr, {}", in(reg) fpcr | (1 << 24), options(nomem, nostack));
         fpcr
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     {
         0
     }
@@ -40,42 +41,68 @@ pub(crate) fn enable_ftz_daz() -> u64 {
 
 /// Restores the floating-point control state saved by [`enable_ftz_daz`].
 pub(crate) fn restore_fp(saved: u64) {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", not(miri)))]
     unsafe {
         let csr = saved as u32;
         std::arch::asm!("ldmxcsr [{}]", in(reg) &csr, options(nostack));
     }
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(all(target_arch = "aarch64", not(miri)))]
     unsafe {
         std::arch::asm!("msr fpcr, {}", in(reg) saved, options(nomem, nostack));
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    #[cfg(any(miri, not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     let _ = saved;
 }
 
-/// Single-slot lock-free exchange carrying a new plan to the audio thread.
-pub(crate) struct Mailbox(AtomicPtr<Plan>);
+/// Single-slot lock-free exchange of an owned box between threads: carries new plans to the
+/// audio thread, and audition voices to it and back (see `audition.rs`).
+///
+/// Ownership protocol: a pointer in the slot came from `Box::into_raw` and is owned by the
+/// slot. `put`/`try_put` move ownership in, `take` moves it out; the swap or compare-exchange
+/// makes each transfer happen exactly once, and `AcqRel` publishes the box's contents with
+/// it. Checked by Miri (`tests::rt_miri`) and loom (`loom_models`).
+pub(crate) struct Mailbox<T>(AtomicPtr<T>);
 
-impl Mailbox {
+// SAFETY: the mailbox only moves `Box<T>`s between threads (like a channel of `T`).
+unsafe impl<T: Send> Send for Mailbox<T> {}
+unsafe impl<T: Send> Sync for Mailbox<T> {}
+
+impl<T> Mailbox<T> {
     pub fn new() -> Self {
         Self(AtomicPtr::new(std::ptr::null_mut()))
     }
 
-    /// Posts a plan; returns the previous one if the audio thread had not taken it.
-    pub fn put(&self, plan: Box<Plan>) -> Option<Box<Plan>> {
-        let old = self.0.swap(Box::into_raw(plan), AcqRel);
-        // SAFETY: every pointer in the slot came from `Box::into_raw` and is owned by it.
+    /// Posts a box; returns the previous one if the other side had not taken it.
+    pub fn put(&self, item: Box<T>) -> Option<Box<T>> {
+        let old = self.0.swap(Box::into_raw(item), AcqRel);
+        // SAFETY: every pointer in the slot came from `Box::into_raw` and is owned by it;
+        // the swap took it out, so this is its only owner.
         (!old.is_null()).then(|| unsafe { Box::from_raw(old) })
     }
 
-    /// Takes the posted plan, if any. Real-time safe (one atomic swap).
-    pub fn take(&self) -> Option<Box<Plan>> {
+    /// Posts a box only if the slot is empty; gives it back otherwise. Real-time safe (one
+    /// compare-exchange, nothing is freed).
+    pub fn try_put(&self, item: Box<T>) -> Result<(), Box<T>> {
+        let p = Box::into_raw(item);
+        match self
+            .0
+            .compare_exchange(std::ptr::null_mut(), p, AcqRel, Acquire)
+        {
+            Ok(_) => Ok(()),
+            // SAFETY: `p` was never published, so we still own it.
+            Err(_) => Err(unsafe { Box::from_raw(p) }),
+        }
+    }
+
+    /// Takes the posted box, if any. Real-time safe (one atomic swap).
+    pub fn take(&self) -> Option<Box<T>> {
         let p = self.0.swap(std::ptr::null_mut(), AcqRel);
+        // SAFETY: as in `put`.
         (!p.is_null()).then(|| unsafe { Box::from_raw(p) })
     }
 }
 
-impl Drop for Mailbox {
+impl<T> Drop for Mailbox<T> {
     fn drop(&mut self) {
         drop(self.take());
     }

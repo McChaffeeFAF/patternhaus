@@ -2,7 +2,56 @@
 
 An open-source, pattern-based digital audio workstation in Rust, in the workflow tradition of FL Studio. AI agents can drive every part of it.
 
-> **Status: pre-alpha.** The design phase is complete, and implementation of milestone 1 ("make a beat") is starting. Nothing is usable yet.
+> **Status: pre-alpha.** Milestone 1, "make a beat", is complete (`v0.1.0-m1`, see [CHANGELOG.md](CHANGELOG.md)). You can program drums and a synth, mix with the built-in effects, arrange, play live, save, and export WAV/FLAC, by hand or through an AI agent. Expect rough edges.
+
+## Install and run
+
+**Prebuilt builds.** Download a zip for Windows, Linux or macOS:
+- from the [`nightly`](https://github.com/McChaffeeFAF/patternhaus/releases/tag/nightly) pre-release, rebuilt on every push to `main`;
+- or from a milestone [release](https://github.com/McChaffeeFAF/patternhaus/releases).
+
+Unzip it anywhere. Each zip holds `ph-app`, `patternhaus-cli`, the factory `assets/`, the
+licences, `THIRD_PARTY_NOTICES.md` and a short README.
+
+- **Windows:** run `Patternhaus.bat [project_dir]`, the launcher. Without an argument it opens
+  `Documents\Patternhaus Projects\first`.
+- **Linux/macOS:** run `./patternhaus.sh [project_dir]`. The macOS binaries are unsigned; allow
+  them in System Settings → Privacy & Security.
+- **Or run `ph-app` directly:**
+  `ph-app [project_dir] [--buffer 256] [--silent] [--demo-agent] [--assets DIR]`.
+  A project is a folder holding `project.json`; a new folder is fine.
+
+**From source** (Rust stable):
+
+```bash
+cargo run --release -p ph-app -- path/to/project
+```
+
+**Let an agent drive it (MCP).** `patternhaus-cli` speaks MCP over stdio:
+
+```bash
+patternhaus-cli mcp --headless --project path/to/project   # its own studio, no audio device
+patternhaus-cli mcp --connect                              # attach to the running ph-app
+claude mcp add patternhaus -- /path/to/patternhaus-cli mcp --connect   # e.g. for Claude Code
+```
+
+The agent sees the same commands as the UI (`list_commands`, `run`, `get_state`, ...). It can
+`render` and `analyze` the result, and `snapshot` returns PNG images. `patternhaus-cli --help`
+lists the shell commands (`run`, `render`, `analyze`, `snapshot`, `commands`).
+
+## Developing
+
+Start with [AGENTS.md](AGENTS.md). Before a PR, run:
+
+```bash
+cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace && cargo xtask check && cargo deny check
+```
+
+Other repository tasks:
+- `cargo xtask golden [--update]`: the golden renders;
+- `cargo xtask perf`: the performance gate on the reference machine;
+- `cargo xtask notices`: regenerates the third-party notices.
 
 ## What it will be
 

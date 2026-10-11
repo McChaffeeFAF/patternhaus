@@ -587,6 +587,12 @@ impl PhApp {
                     ui.close();
                 }
             });
+            ui.menu_button("Help", |ui| {
+                if ui.button("About Patternhaus…").clicked() {
+                    self.core.dialog = Some(Dialog::About);
+                    ui.close();
+                }
+            });
         });
     }
 
@@ -751,6 +757,13 @@ impl PhApp {
                     });
                 });
                 new_state = Some(Dialog::Rename { target, text });
+            }
+            Dialog::About => {
+                if crate::about::show(ctx) {
+                    new_state = Some(Dialog::About);
+                } else {
+                    close = true;
+                }
             }
             Dialog::Keymap { mut capturing } => {
                 let mut open = true;

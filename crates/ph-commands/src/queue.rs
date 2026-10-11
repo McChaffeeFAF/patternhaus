@@ -332,6 +332,89 @@ mod tests {
         assert!(Arc::ptr_eq(&heard.last().unwrap().project, &project));
     }
 
+    /// M1 criterion 3: a human and an agent edit at the same time from their own threads;
+    /// undoing the agent's work reverts only the agent's notes, and an undo that would
+    /// overwrite the human's later edit stops and names the conflict.
+    #[test]
+    fn concurrent_human_and_agent_edits_undo_per_author() {
+        let h = spawn();
+        let (pat, ch) = setup(&h);
+        let human = Caller::human();
+        let claude = Caller::agent("claude", Grant(vec![Scope::Compose]));
+        let edit = |who: Caller, key: u32| {
+            let h = h.clone();
+            std::thread::spawn(move || {
+                for i in 0..20 {
+                    let notes = [json!({ "key": key, "start": i * 240, "length": 240 })];
+                    h.execute(
+                        &who,
+                        Request::new(
+                            "note.add",
+                            json!({ "pattern": pat, "channel": ch, "notes": notes }),
+                        ),
+                    )
+                    .unwrap();
+                }
+            })
+        };
+        let (a, b) = (edit(human.clone(), 60), edit(claude.clone(), 72));
+        a.join().unwrap();
+        b.join().unwrap();
+        let notes = |h: &SessionHandle| {
+            let p = h.project().unwrap();
+            let mut keys: Vec<u8> = p
+                .pattern(PatternId(pat))
+                .unwrap()
+                .notes
+                .values()
+                .flat_map(|m| m.values().map(|n| n.key))
+                .collect();
+            keys.sort_unstable();
+            keys
+        };
+        assert_eq!(notes(&h).len(), 40, "both authors' edits landed");
+
+        // undo everything the agent did: only the human's notes remain
+        h.undo_author(&claude.author, &human.author, UndoMode::Stop)
+            .unwrap();
+        assert_eq!(
+            notes(&h),
+            vec![60u8; 20],
+            "the agent's notes are gone, mine stay"
+        );
+
+        // the agent adds a note, the human then edits it: undoing the agent conflicts
+        let out = h
+            .execute(
+                &claude,
+                Request::new(
+                    "note.add",
+                    json!({ "pattern": pat, "channel": ch, "notes": [{ "key": 84, "start": 0, "length": 240 }] }),
+                ),
+            )
+            .unwrap();
+        let id = out.result["notes"][0].as_u64().expect("note id");
+        h.execute(
+            &human,
+            Request::new(
+                "note.update",
+                json!({ "pattern": pat, "channel": ch, "updates": [{ "id": id, "velocity": 0.3 }] }),
+            ),
+        )
+        .unwrap();
+        let before = h.project().unwrap();
+        let r = h.undo(&claude.author, UndoMode::Stop);
+        assert!(
+            matches!(r, Err(CmdError::UndoConflict(ref c)) if c[0].changed_by.contains(&Author::Human)),
+            "{r:?}"
+        );
+        assert_eq!(
+            *h.project().unwrap(),
+            *before,
+            "a stopped undo changes nothing"
+        );
+    }
+
     #[test]
     fn undo_and_batch_go_through_the_same_queue() {
         let h = spawn();

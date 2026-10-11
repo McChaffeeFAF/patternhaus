@@ -296,3 +296,46 @@ fn muted_notes_are_not_analysed() {
     assert_eq!(keys, vec![64], "the muted C is not heard, so not analysed");
     assert_eq!(song_notes(&p).len(), 1);
 }
+
+/// A tuned 808-style kick on every beat: a sine at `midi` with a fast pitch drop and a long decay.
+fn mix_808(audio: &mut [Vec<f32>], sr: u32, midi: u8, gain: f64) {
+    let t = timing();
+    let f = 440.0 * 2f64.powf((midi as f64 - 69.0) / 12.0);
+    let beat = t.seconds_per_bar() / 4.0;
+    let len = audio[0].len();
+    let mut at = 0.0;
+    while (at * sr as f64) < len as f64 {
+        let s0 = (at * sr as f64) as usize;
+        let mut phase = 0.0;
+        for i in s0..(s0 + (0.6 * sr as f64) as usize).min(len) {
+            let tt = (i - s0) as f64 / sr as f64;
+            let freq = f * (1.0 + 2.0 * (-tt / 0.02).exp());
+            phase += 2.0 * PI * freq / sr as f64;
+            let v = (gain * phase.sin() * (-tt / 0.25).exp()) as f32;
+            for ch in audio.iter_mut() {
+                ch[i] += v;
+            }
+        }
+        at += beat;
+    }
+}
+
+#[test]
+fn key_from_audio_survives_tuned_808_kick() {
+    let t = timing();
+    let sr = 48_000;
+    let mut notes = Vec::new();
+    for (bar, (root, q)) in [(9u8, "m"), (5, ""), (0, ""), (7, "")].iter().enumerate() {
+        notes.extend(chord_bar(bar as u64, *root, q));
+    }
+    // 255 = no kick (control). F2 (41) pulled the pre-HPSS estimate to F major.
+    for tuning in [255u8, 41, 42, 43, 44, 46, 48, 49, 50, 53] {
+        let mut audio = render(&notes, sr, 8.0);
+        if tuning != 255 {
+            mix_808(&mut audio, sr, tuning, 0.9);
+        }
+        let key = key_from_audio(&audio, sr, &t).unwrap();
+
+        assert_eq!(key.key, "A minor", "kick tuned to midi {tuning}");
+    }
+}

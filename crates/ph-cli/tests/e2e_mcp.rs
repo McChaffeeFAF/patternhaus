@@ -3,106 +3,11 @@
 //! checks the result by analysis and snapshots. This is the agent half of M1 acceptance
 //! criterion 1 (DESIGN §12).
 
-use base64::Engine as _;
-use rmcp::model::*;
-use rmcp::service::{RoleClient, RunningService};
-use rmcp::transport::TokioChildProcess;
-use rmcp::{ClientHandler, ServiceExt};
+mod common;
+
+use common::*;
 use serde_json::{Value, json};
-use std::path::{Path, PathBuf};
-
-#[derive(Clone, Default)]
-struct Agent;
-
-impl ClientHandler for Agent {
-    fn get_info(&self) -> ClientConfig {
-        ClientConfig::new(
-            ClientCapabilities::default(),
-            Implementation::new("e2e-agent", "1.0"),
-        )
-    }
-}
-
-type Client = RunningService<RoleClient, Agent>;
-
-async fn connect(project: &Path, extra: &[&str]) -> Client {
-    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_patternhaus-cli"));
-    cmd.args(["mcp", "--headless", "--project"])
-        .arg(project)
-        .args(extra);
-    Agent
-        .serve(TokioChildProcess::new(cmd).expect("spawn patternhaus-cli"))
-        .await
-        .expect("MCP initialize")
-}
-
-struct Reply {
-    json: Value,
-    is_error: bool,
-    images: Vec<Vec<u8>>,
-    texts: Vec<String>,
-}
-
-async fn call(c: &Client, tool: &str, args: Value) -> Reply {
-    let obj = args.as_object().cloned().unwrap_or_default();
-    let res = c
-        .call_tool(CallToolRequestParams::new(tool.to_string()).with_arguments(obj))
-        .await
-        .unwrap_or_else(|e| panic!("{tool}: {e}"));
-    let v = serde_json::to_value(&res).unwrap();
-    let mut r = Reply {
-        json: Value::Null,
-        is_error: res.is_error.unwrap_or(false),
-        images: vec![],
-        texts: vec![],
-    };
-    for b in v["content"].as_array().unwrap() {
-        match b["type"].as_str() {
-            Some("text") => {
-                let t = b["text"].as_str().unwrap().to_string();
-                if r.json.is_null() {
-                    r.json = serde_json::from_str(&t).unwrap_or(Value::Null);
-                }
-                r.texts.push(t);
-            }
-            Some("image") => {
-                assert_eq!(b["mimeType"], "image/png");
-                r.images.push(
-                    base64::engine::general_purpose::STANDARD
-                        .decode(b["data"].as_str().unwrap())
-                        .unwrap(),
-                );
-            }
-            _ => {}
-        }
-    }
-    r
-}
-
-async fn ok(c: &Client, tool: &str, args: Value) -> Value {
-    let r = call(c, tool, args.clone()).await;
-    assert!(!r.is_error, "{tool} {args}: {}", r.texts.join("\n"));
-    r.json
-}
-
-fn id(v: &Value, key: &str) -> u64 {
-    v["results"][0]["result"][key]
-        .as_u64()
-        .unwrap_or_else(|| panic!("no {key} in {v}"))
-}
-
-fn assert_png(bytes: &[u8], min_w: u32) -> (u32, u32) {
-    let dec = png::Decoder::new(std::io::Cursor::new(bytes));
-    let r = dec.read_info().expect("a valid PNG");
-    let (w, h) = (r.info().width, r.info().height);
-    assert!(w >= min_w && h >= 200, "{w}x{h}");
-    (w, h)
-}
-
-fn screenshot_dir() -> Option<PathBuf> {
-    std::env::var_os("PH_SAVE_SCREENSHOTS")
-        .map(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/screenshots/M1"))
-}
+use std::path::PathBuf;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
@@ -410,8 +315,8 @@ async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
     assert!(secs["text"].as_str().unwrap().contains("Beat"), "{secs}");
 
     // -- listen, then fix what the numbers say ------------------------------------------
-    // The first mix peaks over full scale; an agent sees that in the numbers and puts a limiter
-    // on the master.
+    // An agent reads the numbers: a peak over full scale shows up as a clipping warning, and
+    // the loudness says how far the mix is from a normal level.
     let first = ok(&c, "analyze", json!({ "what": ["loudness", "health"] })).await;
     let peak = first["loudness"]["true_peak_dbtp"].as_f64().unwrap();
     if peak > -1.0 {
@@ -419,10 +324,22 @@ async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
             first["health"]["warnings"].to_string().contains("clipping"),
             "{first}"
         );
+    }
+    // FL-style channel levels (78% = -5.2 dB, -3 dB pan law at centre) leave headroom, so a
+    // quiet first mix gets the master limiter's input gain raised toward about -11 LUFS.
+    let lufs0 = first["loudness"]["integrated_lufs"].as_f64().unwrap();
+    let boost_db = (-11.0 - lufs0).clamp(0.0, 12.0);
+    if peak > -1.0 || boost_db > 0.0 {
         ok(
             &c,
             "add_effect",
             json!({ "insert": 0, "effect": { "kind": "builtin", "name": "limiter" } }),
+        )
+        .await;
+        ok(
+            &c,
+            "set_effect_param",
+            json!({ "insert": 0, "index": 0, "param": "input_gain", "value": boost_db }),
         )
         .await;
         let again = ok(&c, "analyze", json!({ "what": ["loudness"] })).await;
@@ -474,11 +391,13 @@ async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
         "{}",
         a["chords"]
     );
-    // The audio estimate is reported alongside (tuned kick drums pull it off the written key,
-    // which is why the note-based estimate is the exact one).
+    // The audio estimate is reported alongside. With harmonic/percussive separation the tuned
+    // kicks no longer drag it off the key signature (before T7 it read F# minor), but on this
+    // short mix it can still pick the relative major; the note-based estimate is the exact one.
+    let audio_key = a["key"]["from_audio"]["key"].as_str().unwrap_or("");
     assert!(
-        a["key"]["from_audio"]["confidence"].as_f64().is_some(),
-        "{}",
+        ["A minor", "C major"].contains(&audio_key),
+        "audio key {audio_key}: {}",
         a["key"]
     );
     assert!(a["masking"]["stems"].as_u64().unwrap() >= 4);

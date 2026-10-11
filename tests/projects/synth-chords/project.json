@@ -1,0 +1,1243 @@
+{
+  "format_version": 1,
+  "settings": {
+    "title": "synth-chords",
+    "bpm": 100.0,
+    "time_signature": {
+      "numerator": 4,
+      "denominator": 4
+    },
+    "swing": 0.0
+  },
+  "channels": {
+    "0": {
+      "id": 0,
+      "name": "Pad",
+      "color": 6266528,
+      "instrument": {
+        "kind": "synth",
+        "preset": "pad/warm",
+        "params": {}
+      },
+      "volume": 0.78,
+      "pan": 0.0,
+      "muted": false,
+      "insert": 1
+    },
+    "1": {
+      "id": 1,
+      "name": "Bass",
+      "color": 13789470,
+      "instrument": {
+        "kind": "synth",
+        "preset": "bass/acid",
+        "params": {}
+      },
+      "volume": 0.78,
+      "pan": 0.0,
+      "muted": false,
+      "insert": 2
+    },
+    "2": {
+      "id": 2,
+      "name": "Lead",
+      "color": 10145074,
+      "instrument": {
+        "kind": "synth",
+        "preset": "pluck/bell",
+        "params": {}
+      },
+      "volume": 0.78,
+      "pan": 0.25,
+      "muted": false,
+      "insert": 3
+    }
+  },
+  "channel_order": [
+    0,
+    1,
+    2
+  ],
+  "patterns": {
+    "0": {
+      "id": 0,
+      "name": "Chords",
+      "color": 6266528,
+      "length": null,
+      "notes": {
+        "0": {
+          "0": {
+            "id": 0,
+            "key": 50,
+            "start": 0,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "1": {
+            "id": 1,
+            "key": 57,
+            "start": 0,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "2": {
+            "id": 2,
+            "key": 62,
+            "start": 0,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "3": {
+            "id": 3,
+            "key": 65,
+            "start": 0,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "4": {
+            "id": 4,
+            "key": 69,
+            "start": 0,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "10": {
+            "id": 10,
+            "key": 46,
+            "start": 3840,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "11": {
+            "id": 11,
+            "key": 53,
+            "start": 3840,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "12": {
+            "id": 12,
+            "key": 58,
+            "start": 3840,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "13": {
+            "id": 13,
+            "key": 62,
+            "start": 3840,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "14": {
+            "id": 14,
+            "key": 65,
+            "start": 3840,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "20": {
+            "id": 20,
+            "key": 41,
+            "start": 7680,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "21": {
+            "id": 21,
+            "key": 53,
+            "start": 7680,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "22": {
+            "id": 22,
+            "key": 57,
+            "start": 7680,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "23": {
+            "id": 23,
+            "key": 60,
+            "start": 7680,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "24": {
+            "id": 24,
+            "key": 65,
+            "start": 7680,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "30": {
+            "id": 30,
+            "key": 48,
+            "start": 11520,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "31": {
+            "id": 31,
+            "key": 55,
+            "start": 11520,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "32": {
+            "id": 32,
+            "key": 60,
+            "start": 11520,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "33": {
+            "id": 33,
+            "key": 64,
+            "start": 11520,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "34": {
+            "id": 34,
+            "key": 67,
+            "start": 11520,
+            "length": 3600,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        },
+        "1": {
+          "5": {
+            "id": 5,
+            "key": 38,
+            "start": 0,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "6": {
+            "id": 6,
+            "key": 38,
+            "start": 720,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "7": {
+            "id": 7,
+            "key": 38,
+            "start": 1440,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "8": {
+            "id": 8,
+            "key": 38,
+            "start": 2400,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "9": {
+            "id": 9,
+            "key": 38,
+            "start": 2880,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "15": {
+            "id": 15,
+            "key": 34,
+            "start": 3840,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "16": {
+            "id": 16,
+            "key": 34,
+            "start": 4560,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "17": {
+            "id": 17,
+            "key": 34,
+            "start": 5280,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "18": {
+            "id": 18,
+            "key": 34,
+            "start": 6240,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "19": {
+            "id": 19,
+            "key": 34,
+            "start": 6720,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "25": {
+            "id": 25,
+            "key": 29,
+            "start": 7680,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "26": {
+            "id": 26,
+            "key": 29,
+            "start": 8400,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "27": {
+            "id": 27,
+            "key": 29,
+            "start": 9120,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "28": {
+            "id": 28,
+            "key": 29,
+            "start": 10080,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "29": {
+            "id": 29,
+            "key": 29,
+            "start": 10560,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "35": {
+            "id": 35,
+            "key": 36,
+            "start": 11520,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "36": {
+            "id": 36,
+            "key": 36,
+            "start": 12240,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "37": {
+            "id": 37,
+            "key": 36,
+            "start": 12960,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "38": {
+            "id": 38,
+            "key": 36,
+            "start": 13920,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "39": {
+            "id": 39,
+            "key": 36,
+            "start": 14400,
+            "length": 480,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        },
+        "2": {
+          "40": {
+            "id": 40,
+            "key": 74,
+            "start": 0,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "41": {
+            "id": 41,
+            "key": 77,
+            "start": 1920,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "42": {
+            "id": 42,
+            "key": 81,
+            "start": 3840,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "43": {
+            "id": 43,
+            "key": 79,
+            "start": 5760,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "44": {
+            "id": 44,
+            "key": 77,
+            "start": 7680,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "45": {
+            "id": 45,
+            "key": 74,
+            "start": 9600,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "46": {
+            "id": 46,
+            "key": 72,
+            "start": 11520,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "47": {
+            "id": 47,
+            "key": 69,
+            "start": 13440,
+            "length": 960,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        }
+      }
+    }
+  },
+  "pattern_order": [
+    0
+  ],
+  "mixer": [
+    {
+      "name": "Master",
+      "color": null,
+      "volume": 1.0,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": false,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 1",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [
+        {
+          "effect": {
+            "kind": "builtin",
+            "name": "eq",
+            "params": {
+              "b2_freq": 400.0,
+              "b2_gain": -3.0
+            }
+          },
+          "bypass": false,
+          "mix": 1.0
+        }
+      ],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 2",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 3",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [
+        {
+          "effect": {
+            "kind": "builtin",
+            "name": "delay",
+            "params": {
+              "feedback": 0.4,
+              "mix": 0.3,
+              "time_l": 450.0,
+              "time_r": 300.0
+            }
+          },
+          "bypass": false,
+          "mix": 1.0
+        }
+      ],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 4",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 5",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 6",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 7",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 8",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 9",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 10",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 11",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 12",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 13",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 14",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 15",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 16",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 17",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 18",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 19",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 20",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 21",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 22",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 23",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 24",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 25",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 26",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 27",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 28",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 29",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 30",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 31",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 32",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    }
+  ],
+  "tracks": [
+    {
+      "name": "Track 1",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 2",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 3",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 4",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 5",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 6",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 7",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 8",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 9",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 10",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 11",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 12",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 13",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 14",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 15",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 16",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 17",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 18",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 19",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 20",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 21",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 22",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 23",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 24",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 25",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 26",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 27",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 28",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 29",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 30",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 31",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 32",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 33",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 34",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 35",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 36",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 37",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 38",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 39",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 40",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 41",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 42",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 43",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 44",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 45",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 46",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 47",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 48",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 49",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 50",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 51",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 52",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 53",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 54",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 55",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 56",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 57",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 58",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 59",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 60",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 61",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 62",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 63",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 64",
+      "color": null,
+      "muted": false
+    }
+  ],
+  "clips": {
+    "0": {
+      "id": 0,
+      "track": 0,
+      "pattern": 0,
+      "start": 0,
+      "length": 15360,
+      "offset": 0
+    }
+  },
+  "next_ids": {
+    "channel": 3,
+    "pattern": 1,
+    "clip": 1,
+    "note": 48
+  }
+}

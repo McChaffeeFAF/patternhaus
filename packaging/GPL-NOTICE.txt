@@ -1,0 +1,9 @@
+This build of Patternhaus includes ASIO support, built with the Steinberg ASIO SDK under
+the GNU General Public License version 3. This binary as a whole is therefore distributed
+under GPLv3 (https://www.gnu.org/licenses/gpl-3.0.html). The corresponding source is the
+Patternhaus repository at the commit in COMMIT.txt, built with `--features ph-app/asio`,
+plus the ASIO SDK from Steinberg (https://www.steinberg.net/developers/).
+
+ASIO is a trademark and software of Steinberg Media Technologies GmbH.
+
+The Patternhaus source code itself is MIT OR Apache-2.0; builds without ASIO are not GPL.

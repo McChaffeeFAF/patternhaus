@@ -81,8 +81,11 @@ the audio thread. Tests run the engine under `assert_no_alloc`.
    solo, replacing the whole project) are registered the same way, with a params struct,
    scope and flags, but the session runs them: add the id to `SESSION_COMMANDS` in
    `session_cmd.rs` and a handler in `session_cmd::run`. They cannot be batched.
-6. Tests: the schema test is automatic. Add at least one behaviour test (golden test once
-   T7 lands), and add the command to `docs/parity/fl-studio.md` if it maps to an FL feature.
+6. Tests: the schema test is automatic. Add at least one behaviour test that calls the
+   command by its id, asserting exact results. `ph-control`'s `coverage.rs` fails CI for any
+   served command without one. If it changes the sound, extend a golden project
+   (`cargo xtask golden --update`, and say why in the PR). Add the command to
+   `docs/parity/fl-studio.md` if it maps to an FL feature.
 
 ## How to add a processor (instrument or effect)
 
@@ -105,12 +108,19 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo xtask check
+cargo deny check          # licence policy (deny.toml), advisories, bans
 ```
+
+When dependencies change, also run `cargo xtask notices` (it regenerates
+`THIRD_PARTY_NOTICES.md`; CI checks it is current). The engine's lock-free code has Miri
+(`cargo +nightly miri test -p ph-engine --lib rt_miri`) and loom
+(`RUSTFLAGS="--cfg loom" cargo test -p ph-engine --lib --release loom_models`) checks. Run them
+when you touch `rt.rs`, `sched.rs`, `pool.rs` or `audition.rs`.
 
 CI runs the same commands on Windows, Linux and macOS. Expectations:
 - Unit tests in every crate.
 - Property tests for anything history- or merge-related.
-- Golden renders for anything audible (T7 harness).
+- Golden renders for anything audible (`tests/projects/`, `cargo xtask golden`).
 - Fuzzing for every importer.
 - A DSP change must not move a golden render unless the change is intended. If it is,
   regenerate the render and explain why in the PR.
@@ -140,3 +150,6 @@ Drum samples come from `tools/soundgen` (`cargo run -p soundgen -- render` regen
 | 2026-10-10 | `ph-control` `Grants` | Added, no break: `Grants::clients()` (remembered grants by client), used by ph-app's Agents panel adapter (`ph-app/src/agents.rs`) that wires `serve_local_with` + `GrantPrompt` to `ph_ui::AgentDirectory`. |
 | 2026-10-10 | `ph-control` connection registry (T5c) | Added, no break: `LocalServer::connections() -> Vec<ConnectionInfo>` (client name, scopes, protocol, `connected_at`, `last_activity`, `commands`), `Agent::connections()`, and the types `Connections`, `ConnGuard`, `ConnectionInfo`, `Protocol`. Every MCP and JSON-RPC connection registers itself and leaves the list when it ends. `Grants::peek` (the grant without prompting); `Grants::grant_for` now asks at most one prompt per client at a time. `Agent::new`, `serve_local_with` and `serve_jsonrpc` keep their signatures. |
 | 2026-10-10 | `ph-core` `Note.muted` (T5c) | Added, no break: `Note.muted: bool` (`#[serde(default, skip_serializing_if = "Not::not")]`: older projects load unmuted and unmuted notes serialise exactly as before, so `format_version` stays 1), `NoteSpec.muted` (default false) and `note.update { muted }`. A muted note stays in the pattern and in undo but is not played by the engine plan, not analysed by `ph-analysis`, and not exported to MIDI. `note.copy`, channel and pattern clones keep it. Code that builds `ph_core::Note` by struct literal needs the new field (only `Edit::add_note` did). Solo needed no contract change (the UI polls `Session::solo()`). |
+| 2026-10-10 | `ph-engine` API (T7) | Added, no break: `Engine::audition(&self, sample: &str, velocity: f32) -> EngineResult<()>`, `Engine::audition_instrument(&self, &InstrumentSpec, key, velocity, seconds) -> EngineResult<()>` (renders a preset note offline on the calling thread) and `Engine::stop_audition()`. One preview voice outside the project graph, mixed into the device output after the master insert at a fixed level (0.5 × velocity); it never reaches meters, `render_offline` or exports. Decoding and resampling happen on the calling thread; voices travel to and from the audio thread through two single-slot mailboxes, so nothing is allocated or freed there. `ph-ui`: the browser preview uses it, and the temporary "audition channel" project swap is gone (`EngineLink::spawn` lost its unused `project` argument, `EngineLink::set_latest` and `live::audition_project` were removed; `EngineLink::audition` now takes a `live::Audition`). |
+| 2026-10-10 | `ph-control` (T7) | Added, no break: `ph_control::studio_registry() -> Registry` (the built-ins plus `query.node_params`, exactly what `Studio::start` serves). The criterion 8 guard (`coverage.rs`) checks every command in it for a schema test and a behaviour test. |
+| 2026-10-10 | `ph-engine` API (T7) | Added, no break: `pub const ASIO_BUILD: bool` (true when built with the `asio` feature; the About box shows the GPLv3 notice). `ph-ui` and `ph-app` gained an `asio` feature that forwards to `ph-engine/asio`. |

@@ -1,0 +1,53 @@
+# Milestone releases: pushing a tag `v*` (e.g. v0.1.0-m1) builds the same zips as the nightly
+# and creates a GitHub release with them. Release notes come from the tag's section of
+# CHANGELOG.md. Tags with a suffix (-m1, -rc1) are marked pre-release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    uses: ./.github/workflows/build-dist.yml
+    with:
+      label: ${{ github.ref_name }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: release notes from CHANGELOG.md
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          awk -v tag="$tag" '
+            /^## / { if (found) exit; if (index($0, "[" tag "]") || index($0, " " tag)) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $tag" >&2
+            exit 1
+          fi
+          {
+            echo
+            echo "Each zip holds ph-app, patternhaus-cli, the factory assets, THIRD_PARTY_NOTICES.md, the licences and a README."
+            echo "These builds are MIT OR Apache-2.0. An archive marked asio-gpl3, if present, is the GPLv3 ASIO build."
+          } >> notes.md
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/*.zip $pre \
+            --title "Patternhaus $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --verify-tag

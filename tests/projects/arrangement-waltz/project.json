@@ -1,0 +1,1056 @@
+{
+  "format_version": 1,
+  "settings": {
+    "title": "arrangement-waltz",
+    "bpm": 90.0,
+    "time_signature": {
+      "numerator": 3,
+      "denominator": 4
+    },
+    "swing": 0.0
+  },
+  "channels": {
+    "0": {
+      "id": 0,
+      "name": "Kick",
+      "color": 6266528,
+      "instrument": {
+        "kind": "sampler",
+        "sample": "factory:drums/haus808/kick",
+        "root_key": 60,
+        "params": {}
+      },
+      "volume": 0.78,
+      "pan": 0.0,
+      "muted": false,
+      "insert": 0
+    },
+    "1": {
+      "id": 1,
+      "name": "Tom",
+      "color": 13789470,
+      "instrument": {
+        "kind": "sampler",
+        "sample": "factory:drums/haus808/tom_mid",
+        "root_key": 60,
+        "params": {}
+      },
+      "volume": 0.78,
+      "pan": 0.0,
+      "muted": false,
+      "insert": 0
+    },
+    "2": {
+      "id": 2,
+      "name": "Sub loop",
+      "color": 10145074,
+      "instrument": {
+        "kind": "sampler",
+        "sample": "factory:drums/haus808/sub_c2",
+        "root_key": 60,
+        "params": {
+          "loop_mode": 1.0
+        }
+      },
+      "volume": 0.78,
+      "pan": 0.0,
+      "muted": false,
+      "insert": 0
+    },
+    "3": {
+      "id": 3,
+      "name": "Organ",
+      "color": 12211667,
+      "instrument": {
+        "kind": "synth",
+        "preset": "keys/organ",
+        "params": {}
+      },
+      "volume": 0.78,
+      "pan": 0.0,
+      "muted": false,
+      "insert": 0
+    }
+  },
+  "channel_order": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "patterns": {
+    "0": {
+      "id": 0,
+      "name": "Drums",
+      "color": 6266528,
+      "length": null,
+      "notes": {
+        "0": {
+          "0": {
+            "id": 0,
+            "key": 60,
+            "start": 0,
+            "length": 240,
+            "velocity": 0.9,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "1": {
+            "id": 1,
+            "key": 60,
+            "start": 2880,
+            "length": 240,
+            "velocity": 0.9,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        },
+        "1": {
+          "2": {
+            "id": 2,
+            "key": 60,
+            "start": 960,
+            "length": 240,
+            "velocity": 0.7,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "3": {
+            "id": 3,
+            "key": 60,
+            "start": 1920,
+            "length": 240,
+            "velocity": 0.7,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "4": {
+            "id": 4,
+            "key": 60,
+            "start": 3840,
+            "length": 240,
+            "velocity": 0.7,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "5": {
+            "id": 5,
+            "key": 60,
+            "start": 4800,
+            "length": 240,
+            "velocity": 0.7,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        }
+      }
+    },
+    "1": {
+      "id": 1,
+      "name": "Music",
+      "color": 13789470,
+      "length": null,
+      "notes": {
+        "2": {
+          "6": {
+            "id": 6,
+            "key": 60,
+            "start": 0,
+            "length": 5760,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        },
+        "3": {
+          "7": {
+            "id": 7,
+            "key": 60,
+            "start": 0,
+            "length": 2880,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "8": {
+            "id": 8,
+            "key": 64,
+            "start": 0,
+            "length": 2880,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "9": {
+            "id": 9,
+            "key": 67,
+            "start": 0,
+            "length": 2880,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "10": {
+            "id": 10,
+            "key": 59,
+            "start": 2880,
+            "length": 2880,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "11": {
+            "id": 11,
+            "key": 62,
+            "start": 2880,
+            "length": 2880,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "12": {
+            "id": 12,
+            "key": 67,
+            "start": 2880,
+            "length": 2880,
+            "velocity": 0.78,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        }
+      }
+    },
+    "2": {
+      "id": 2,
+      "name": "Extra",
+      "color": 10145074,
+      "length": null,
+      "notes": {
+        "1": {
+          "13": {
+            "id": 13,
+            "key": 64,
+            "start": 0,
+            "length": 240,
+            "velocity": 1.0,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "14": {
+            "id": 14,
+            "key": 64,
+            "start": 480,
+            "length": 240,
+            "velocity": 1.0,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "15": {
+            "id": 15,
+            "key": 64,
+            "start": 960,
+            "length": 240,
+            "velocity": 1.0,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "16": {
+            "id": 16,
+            "key": 64,
+            "start": 1440,
+            "length": 240,
+            "velocity": 1.0,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "17": {
+            "id": 17,
+            "key": 64,
+            "start": 1920,
+            "length": 240,
+            "velocity": 1.0,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          },
+          "18": {
+            "id": 18,
+            "key": 64,
+            "start": 2400,
+            "length": 240,
+            "velocity": 1.0,
+            "pan": 0.0,
+            "fine_pitch": 0.0
+          }
+        }
+      }
+    }
+  },
+  "pattern_order": [
+    0,
+    1,
+    2
+  ],
+  "mixer": [
+    {
+      "name": "Master",
+      "color": null,
+      "volume": 1.0,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [
+        {
+          "effect": {
+            "kind": "builtin",
+            "name": "compressor",
+            "params": {
+              "threshold": -12.0
+            }
+          },
+          "bypass": false,
+          "mix": 1.0
+        }
+      ],
+      "sends": [],
+      "route_to_master": false,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 1",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 2",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 3",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 4",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 5",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 6",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 7",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 8",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 9",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 10",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 11",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 12",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 13",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 14",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 15",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 16",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 17",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 18",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 19",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 20",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 21",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 22",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 23",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 24",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 25",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 26",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 27",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 28",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 29",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 30",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 31",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    },
+    {
+      "name": "Insert 32",
+      "color": null,
+      "volume": 0.8,
+      "pan": 0.0,
+      "muted": false,
+      "effects": [],
+      "sends": [],
+      "route_to_master": true,
+      "sidechain_from": null
+    }
+  ],
+  "tracks": [
+    {
+      "name": "Track 1",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 2",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 3",
+      "color": null,
+      "muted": true
+    },
+    {
+      "name": "Track 4",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 5",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 6",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 7",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 8",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 9",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 10",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 11",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 12",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 13",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 14",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 15",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 16",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 17",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 18",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 19",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 20",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 21",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 22",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 23",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 24",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 25",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 26",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 27",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 28",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 29",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 30",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 31",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 32",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 33",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 34",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 35",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 36",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 37",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 38",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 39",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 40",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 41",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 42",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 43",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 44",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 45",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 46",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 47",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 48",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 49",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 50",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 51",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 52",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 53",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 54",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 55",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 56",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 57",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 58",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 59",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 60",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 61",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 62",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 63",
+      "color": null,
+      "muted": false
+    },
+    {
+      "name": "Track 64",
+      "color": null,
+      "muted": false
+    }
+  ],
+  "clips": {
+    "0": {
+      "id": 0,
+      "track": 0,
+      "pattern": 0,
+      "start": 0,
+      "length": 5760,
+      "offset": 0
+    },
+    "1": {
+      "id": 1,
+      "track": 0,
+      "pattern": 0,
+      "start": 5760,
+      "length": 5760,
+      "offset": 0
+    },
+    "2": {
+      "id": 2,
+      "track": 0,
+      "pattern": 0,
+      "start": 11520,
+      "length": 5760,
+      "offset": 0
+    },
+    "3": {
+      "id": 3,
+      "track": 0,
+      "pattern": 0,
+      "start": 17280,
+      "length": 5760,
+      "offset": 0
+    },
+    "4": {
+      "id": 4,
+      "track": 1,
+      "pattern": 1,
+      "start": 0,
+      "length": 5760,
+      "offset": 0
+    },
+    "5": {
+      "id": 5,
+      "track": 1,
+      "pattern": 1,
+      "start": 11520,
+      "length": 2880,
+      "offset": 2880
+    },
+    "6": {
+      "id": 6,
+      "track": 2,
+      "pattern": 2,
+      "start": 5760,
+      "length": 2880,
+      "offset": 0
+    }
+  },
+  "next_ids": {
+    "channel": 4,
+    "pattern": 3,
+    "clip": 7,
+    "note": 19
+  }
+}

@@ -21,6 +21,7 @@
 //! [`ParamSet`]s applied at the swap. Only new or changed instruments/effects get fresh,
 //! already-activated instances.
 
+use crate::sched::Sched;
 use crate::stats::StatsBoard;
 use crate::tempo::TempoMap;
 use crate::{EngineError, EngineResult};
@@ -32,7 +33,6 @@ use ph_node::{ActivateInfo, AssetResolver, Event, NodeDescriptor, ParamId, Proce
 use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, AtomicUsize};
 
 /// Events one channel can receive in one block (excess note-ons are dropped).
 pub(crate) const EVENT_CAP: usize = 1024;
@@ -257,17 +257,6 @@ pub(crate) struct PatternStream {
     pub notes: Vec<Vec<NoteEv>>,
 }
 
-/// Per-block scheduling counters for the worker pool. Reset by the audio thread before
-/// each block; see `pool.rs`.
-pub(crate) struct Sched {
-    pub pending: Vec<AtomicU32>,
-    /// Ready queue: node + 1, 0 = not yet written.
-    pub slots: Vec<AtomicU32>,
-    pub head: AtomicUsize,
-    pub tail: AtomicUsize,
-    pub done: AtomicUsize,
-}
-
 pub(crate) struct Plan {
     pub id: u64,
     /// Id of the plan this one was compiled against (its transfers refer to that plan).
@@ -479,6 +468,25 @@ fn seed(kind: u64, a: u64, b: u64) -> u64 {
 }
 
 /// Strip gains from volume, balance-law pan and mute.
+/// Exponent of the channel volume knob: `gain = v ^ k`, fitted so FL's two documented
+/// anchors hold exactly: 100% = 0 dB, and the 78% default = -5.2 dB
+/// (`docs/formats/fl-behaviour-notes.md` §1; the shape between them is owner check OC-1..3).
+pub(crate) const CHANNEL_VOLUME_EXPONENT: f32 = 2.409;
+
+/// A channel strip: FL's channel volume curve and its default Circular pan law
+/// (constant power, -3 dB per side at centre, 0 dB on the panned side at the extremes;
+/// fl-behaviour-notes §2).
+pub(crate) fn channel_gain(volume: f32, pan: f32, muted: bool) -> [f32; 2] {
+    if muted {
+        return [0.0, 0.0];
+    }
+    let g = volume.clamp(0.0, 1.0).powf(CHANNEL_VOLUME_EXPONENT);
+    let theta = (pan.clamp(-1.0, 1.0) as f64 + 1.0) * std::f64::consts::FRAC_PI_4;
+    [g * theta.cos() as f32, g * theta.sin() as f32]
+}
+
+/// A mixer insert: linear fader gain and a balance pan. FL's fader scale and mixer pan
+/// law are owner checks OC-6..OC-9 (fl-behaviour-notes §3, §4), so this stays as it was.
 fn strip_gain(volume: f32, pan: f32, muted: bool) -> [f32; 2] {
     if muted {
         return [0.0, 0.0];
@@ -698,7 +706,7 @@ pub(crate) fn compile(
                 let identity = instrument_identity(&ch.instrument);
                 let ps = instrument_params(&ch.instrument);
                 let muted = ch.muted || (!solo.is_empty() && !solo.contains(&ch.id));
-                let gain = strip_gain(ch.volume, ch.pan, muted);
+                let gain = channel_gain(ch.volume, ch.pan, muted);
                 let choke = match &ch.instrument {
                     InstrumentSpec::Sampler { params, .. } => params
                         .get("choke_group")
@@ -1023,13 +1031,7 @@ pub(crate) fn compile(
         transfers,
         params,
         roots,
-        sched: Sched {
-            pending: (0..count).map(|_| AtomicU32::new(0)).collect(),
-            slots: (0..count).map(|_| AtomicU32::new(0)).collect(),
-            head: AtomicUsize::new(0),
-            tail: AtomicUsize::new(0),
-            done: AtomicUsize::new(0),
-        },
+        sched: Sched::new(count),
         board: Arc::new(board),
     };
     Ok((Box::new(plan), shadow))

@@ -153,9 +153,7 @@ impl Studio {
 
         let (ui_tx, ui_requests) = channel();
         let host = EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx);
-        let mut registry = Registry::with_builtins();
-        node_params::register(&mut registry);
-        let registry = Arc::new(registry);
+        let registry = Arc::new(studio_registry());
         let session = Session::new(registry.clone(), (*project).clone());
         let session = SessionHandle::spawn(session, host);
 
@@ -292,5 +290,15 @@ impl StudioHandle {
     }
 }
 
+/// The command registry every front end serves: the `ph-commands` built-ins plus the
+/// commands `ph-control` adds (`query.node_params`).
+pub fn studio_registry() -> Registry {
+    let mut registry = Registry::with_builtins();
+    node_params::register(&mut registry);
+    registry
+}
+
+#[cfg(test)]
+mod coverage;
 #[cfg(test)]
 mod tests;

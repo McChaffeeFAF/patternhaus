@@ -30,3 +30,11 @@ tempfile.workspace = true
 [[bench]]
 name = "reference"
 harness = false
+
+# Model-checked atomics for the lock-free pieces: `RUSTFLAGS="--cfg loom" cargo test -p
+# ph-engine --lib --release loom` (see `src/loom_models.rs`).
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

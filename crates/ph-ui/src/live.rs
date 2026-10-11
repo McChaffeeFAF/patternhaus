@@ -7,10 +7,8 @@
 //! the engine either.
 
 use egui::Context;
-use ph_core::{Channel, ChannelId, InstrumentSpec, Project, Tick};
+use ph_core::{ChannelId, InstrumentSpec, Tick};
 use ph_engine::{Engine, EngineStats, PlayMode, TransportStatus};
-use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -52,14 +50,9 @@ pub enum EngineMsg {
         velocity: f32,
         on: bool,
     },
-    /// Play a throw-away channel for the browser: the engine plays `project` (the current
-    /// project plus the audition channel) for `hold`, then goes back to the real snapshot.
-    Audition {
-        project: Arc<Project>,
-        channel: ChannelId,
-        key: u8,
-        hold: Duration,
-    },
+    /// Browser click-to-preview: plays a sample, or a preset's note, on the engine's
+    /// audition voice (outside the project; `Engine::audition`).
+    Audition(Audition),
     Reconfigure(ph_engine::EngineConfig),
     Stop,
 }
@@ -68,28 +61,22 @@ pub enum EngineMsg {
 pub struct EngineLink {
     pub live: Arc<Mutex<Live>>,
     tx: Sender<EngineMsg>,
-    latest: Arc<Mutex<Arc<Project>>>,
 }
 
 impl EngineLink {
-    pub fn spawn(engine: Arc<Engine>, ctx: Context, project: Arc<Project>) -> EngineLink {
+    pub fn spawn(engine: Arc<Engine>, ctx: Context) -> EngineLink {
         let live = Arc::new(Mutex::new(Live::default()));
-        let latest = Arc::new(Mutex::new(project));
         let (tx, rx) = channel();
-        let (l2, latest2) = (live.clone(), latest.clone());
+        let l2 = live.clone();
         std::thread::Builder::new()
             .name("ph-ui-engine-link".into())
-            .spawn(move || run(engine, ctx, rx, l2, latest2))
+            .spawn(move || run(engine, ctx, rx, l2))
             .expect("spawn engine link");
-        EngineLink { live, tx, latest }
+        EngineLink { live, tx }
     }
 
     pub fn snapshot(&self) -> Live {
         self.live.lock().unwrap().clone()
-    }
-
-    pub fn set_latest(&self, project: Arc<Project>) {
-        *self.latest.lock().unwrap() = project;
     }
 
     pub fn preview(&self, channel: ChannelId, key: u8, velocity: f32, on: bool) {
@@ -105,13 +92,8 @@ impl EngineLink {
         let _ = self.tx.send(EngineMsg::Reconfigure(cfg));
     }
 
-    pub fn audition(&self, project: Arc<Project>, channel: ChannelId, key: u8, hold: Duration) {
-        let _ = self.tx.send(EngineMsg::Audition {
-            project,
-            channel,
-            key,
-            hold,
-        });
+    pub fn audition(&self, what: Audition) {
+        let _ = self.tx.send(EngineMsg::Audition(what));
     }
 }
 
@@ -121,47 +103,47 @@ impl Drop for EngineLink {
     }
 }
 
-/// The project with a temporary channel playing `instrument` on the master, for auditioning a
-/// browser entry. The channel takes the next free id and is never committed to the session.
-pub fn audition_project(
-    base: &Project,
-    instrument: InstrumentSpec,
-) -> (Arc<Project>, ChannelId, u8) {
-    let mut p = base.clone();
-    let id = ChannelId(p.next_ids.channel);
-    let key = match &instrument {
-        InstrumentSpec::Sampler { root_key, .. } => *root_key,
-        _ => 60,
-    };
-    let mut channels: BTreeMap<_, _> = (*p.channels).clone();
-    channels.insert(
-        id,
-        Channel {
-            id,
-            name: "audition".into(),
-            color: 0x888888,
-            instrument,
-            volume: 0.9,
-            pan: 0.0,
-            muted: false,
-            insert: ph_core::InsertId(0),
-        },
-    );
-    p.channels = Arc::new(channels);
-    let mut order = (*p.channel_order).clone();
-    order.push(id);
-    p.channel_order = Arc::new(order);
-    (Arc::new(p), id, key)
+/// What the browser previews.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Audition {
+    /// A sample reference (`factory:...`, project-relative or absolute).
+    Sample(String),
+    /// An instrument (a Haus Synth preset) playing one note for `hold`.
+    Instrument {
+        instrument: InstrumentSpec,
+        key: u8,
+        hold: Duration,
+    },
 }
 
-fn run(
-    engine: Arc<Engine>,
-    ctx: Context,
-    rx: Receiver<EngineMsg>,
-    live: Arc<Mutex<Live>>,
-    latest: Arc<Mutex<Arc<Project>>>,
-) {
-    let generation = Arc::new(AtomicU64::new(0));
+/// Preview velocity for the browser.
+const AUDITION_VELOCITY: f32 = 0.9;
+
+fn play_audition(engine: &Arc<Engine>, what: Audition) {
+    match what {
+        Audition::Sample(reference) => {
+            let _ = engine.audition(&reference, AUDITION_VELOCITY);
+        }
+        Audition::Instrument {
+            instrument,
+            key,
+            hold,
+        } => {
+            // rendering the note takes a few milliseconds: keep the link thread responsive
+            let engine = engine.clone();
+            std::thread::spawn(move || {
+                let _ = engine.audition_instrument(
+                    &instrument,
+                    key,
+                    AUDITION_VELOCITY,
+                    hold.as_secs_f64(),
+                );
+            });
+        }
+    }
+}
+
+fn run(engine: Arc<Engine>, ctx: Context, rx: Receiver<EngineMsg>, live: Arc<Mutex<Live>>) {
     let mut last = Instant::now();
     let mut peak: Vec<[f32; 2]> = Vec::new();
     let mut idle_polls = 0u32;
@@ -182,31 +164,7 @@ fn run(
                 Ok(EngineMsg::Reconfigure(cfg)) => {
                     let _ = engine.reconfigure(cfg);
                 }
-                Ok(EngineMsg::Audition {
-                    project,
-                    channel,
-                    key,
-                    hold,
-                }) => {
-                    let my = generation.fetch_add(1, Ordering::SeqCst) + 1;
-                    let (engine, generation, latest) =
-                        (engine.clone(), generation.clone(), latest.clone());
-                    std::thread::spawn(move || {
-                        let _ = engine.set_project(project);
-                        std::thread::sleep(Duration::from_millis(200));
-                        if generation.load(Ordering::SeqCst) != my {
-                            return;
-                        }
-                        engine.preview_note(channel, key, 0.9, true);
-                        std::thread::sleep(hold);
-                        engine.preview_note(channel, key, 0.9, false);
-                        std::thread::sleep(Duration::from_millis(900));
-                        if generation.load(Ordering::SeqCst) == my {
-                            let back = latest.lock().unwrap().clone();
-                            let _ = engine.set_project(back);
-                        }
-                    });
-                }
+                Ok(EngineMsg::Audition(what)) => play_audition(&engine, what),
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
             }
         }
