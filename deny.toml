@@ -9,9 +9,11 @@
 #   code, only on changes to the MPL files themselves (which we would have to publish). We
 #   take symphonia (sample decoding) from crates.io as is, and a patched copy would need its
 #   own review.
-# - OFL-1.1 and the Ubuntu Font Licence: only for the fonts egui bundles
-#   (`epaint_default_fonts`). Both allow bundling the fonts with any software; they only
-#   restrict selling the fonts on their own and reusing the reserved font names.
+# - Fonts: egui's default fonts (`epaint_default_fonts`: Hack, Ubuntu, emoji) are no longer
+#   used. Patternhaus bundles Barlow, Barlow Condensed and Share Tech Mono (SIL OFL 1.1) as
+#   files in `assets/fonts` (not crates); their provenance is in `assets/PROVENANCE.toml` and
+#   their licence texts are in THIRD_PARTY_NOTICES.md. No crate may use OFL or the Ubuntu
+#   Font Licence.
 # - GPL/LGPL/AGPL: denied. The only GPL code in a release is Steinberg's ASIO SDK in the
 #   optional `asio` build (not a crate; see docs/building-asio.md). A crate offered under
 #   "X OR GPL" is fine: we take X.
@@ -62,8 +64,6 @@ exceptions = [
     { crate = "symphonia-codec-vorbis", allow = ["MPL-2.0"] },
     { crate = "symphonia-format-ogg", allow = ["MPL-2.0"] },
     { crate = "symphonia-format-riff", allow = ["MPL-2.0"] },
-    # egui's bundled fonts (Hack, Ubuntu, Noto Emoji, emoji-icon-font).
-    { crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
     # Public-domain dedication (no conditions at all; CC0-like). MIDI file I/O.
     { crate = "midly", allow = ["Unlicense"] },
     # The one-clause BSD licence: BSD-2-Clause without the binary-redistribution clause, so

@@ -3,6 +3,7 @@
 
 use crate::browser_model::{Dragged, Kind};
 use crate::core::AppCore;
+use crate::hint::HintExt;
 use crate::mapping;
 use crate::theme::{Theme, rgb};
 use crate::widgets::{self, param_grid};
@@ -25,6 +26,23 @@ pub struct Waveform {
 #[derive(Default)]
 pub struct InspectorState {
     waves: HashMap<String, Option<Waveform>>,
+}
+
+impl InspectorState {
+    /// The (cached) waveform of a sample reference, for the browser's preview.
+    pub fn wave(
+        &mut self,
+        reference: &str,
+        assets_dir: &Path,
+        project_dir: &Path,
+    ) -> Option<Waveform> {
+        self.waves
+            .entry(reference.to_string())
+            .or_insert_with(|| {
+                load_waveform(&resolve_reference(reference, assets_dir, project_dir))
+            })
+            .clone()
+    }
 }
 
 /// Where a sample reference lives on disk.
@@ -121,7 +139,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
                 InstrumentSpec::MultiSampler { .. } => "Haus Sampler",
                 InstrumentSpec::Plugin { .. } => "Plugin",
             })
-            .color(theme.colors.text_dim),
+            .color(theme.colors.dim),
         );
     });
     ui.separator();
@@ -211,7 +229,7 @@ fn sampler(
             Sense::hover(),
         );
         let p = ui.painter();
-        p.rect_filled(rect, CornerRadius::same(4), theme.colors.bg);
+        p.rect_filled(rect, CornerRadius::same(4), theme.colors.bg0);
         match wave {
             Some(w) => {
                 let mid = rect.center().y;
@@ -254,7 +272,7 @@ fn sampler(
                     egui::Align2::RIGHT_BOTTOM,
                     format!("{:.2} s", w.frames as f64 / w.sample_rate.max(1.0)),
                     egui::FontId::proportional(10.0),
-                    theme.colors.text_dim,
+                    theme.colors.dim,
                 );
             }
             None => {
@@ -263,7 +281,7 @@ fn sampler(
                     egui::Align2::CENTER_CENTER,
                     "(cannot preview this file)",
                     egui::FontId::proportional(12.0),
-                    theme.colors.text_dim,
+                    theme.colors.dim,
                 );
             }
         }
@@ -271,11 +289,17 @@ fn sampler(
     ui.horizontal(|ui| {
         ui.label("Root key");
         let mut rk = root_key as i32;
-        let r = ui.add(
-            egui::DragValue::new(&mut rk)
-                .range(0..=127)
-                .custom_formatter(|v, _| crate::piano_roll::note_name(v as u8)),
-        );
+        let r = ui
+            .add(
+                egui::DragValue::new(&mut rk)
+                    .range(0..=127)
+                    .custom_formatter(|v, _| crate::piano_roll::note_name(v as u8)),
+            )
+            .hint_menu(
+                "Root key",
+                &crate::piano_roll::note_name(rk as u8),
+                "drag or type: the key the sample plays at its recorded pitch",
+            );
         if (r.drag_stopped() || r.lost_focus()) && rk != root_key as i32 {
             let inst = InstrumentSpec::Sampler {
                 sample: sample.map(str::to_string),
@@ -324,16 +348,20 @@ fn synth(
                         core.send(mapping::channel_set_instrument(ch.id, &inst));
                     }
                 }
-            });
-        if !params.is_empty() {
-            ui.label(
-                RichText::new(format!("{} edited", params.len())).color(theme.colors.text_dim),
+            })
+            .response
+            .hint_menu(
+                "Synth preset",
+                preset.unwrap_or("(init)"),
+                "click to load a preset into this channel",
             );
+        if !params.is_empty() {
+            ui.label(RichText::new(format!("{} edited", params.len())).color(theme.colors.dim));
         }
     });
     let Some(d) = desc else { return };
     for section in SYNTH_SECTIONS {
-        CollapsingHeader::new(section)
+        CollapsingHeader::new(crate::theme::caps(section))
             .id_salt(("synth_sec", ch.id, section))
             .default_open(matches!(section, "Oscillators" | "Filters" | "Envelopes"))
             .show(ui, |ui| {
@@ -348,7 +376,13 @@ fn synth(
                 for (id, v) in changes {
                     core.send(mapping::channel_param(ch.id, &id, v));
                 }
-            });
+            })
+            .header_response
+            .hint(
+                section,
+                "",
+                "click to fold or unfold this group of controls",
+            );
     }
     let _ = widgets::Edit::None;
 }

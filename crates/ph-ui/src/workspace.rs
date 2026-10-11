@@ -322,6 +322,18 @@ impl Workspace {
         self.clamp_one(id);
     }
 
+    /// Per-window options: put a window back at its default size and place, un-maximized.
+    pub fn reset_window(&mut self, id: WindowId) {
+        let r = self.default_rect(id);
+        if let Some(w) = self.windows.get_mut(&id) {
+            w.rect = r;
+            w.maximized = false;
+            w.detached = false;
+        }
+        self.focus(id);
+        self.clamp_one(id);
+    }
+
     pub fn set_detached(&mut self, id: WindowId, detached: bool) {
         if let Some(w) = self.windows.get_mut(&id) {
             w.detached = detached;

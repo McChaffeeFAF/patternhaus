@@ -237,7 +237,7 @@ impl Agent {
             ),
             tool(
                 "get_state",
-                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, transport, session (who you are and what you may do), events (args since), warnings, raw (args query: a query.* command id, params).",
+                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
                 json!({ "type": "object", "properties": {
                     "view": { "type": "string" }, "args": { "type": "object" } } }),
                 true,
@@ -639,6 +639,9 @@ impl Agent {
                     "metronome": st.metronome,
                 }))
             }
+            "ui" => Ok(json!({
+                "hint": self.studio.ui_hint(),
+            })),
             "session" => Ok(json!({
                 "you": caller.author.to_string(),
                 "grant": grant_text(&caller.grant),
@@ -677,7 +680,7 @@ impl Agent {
                 }
             }
             other => Err(format!(
-                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, transport, session, events, warnings, raw"
+                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, transport, session, ui, events, warnings, raw"
             )),
         };
         match r {

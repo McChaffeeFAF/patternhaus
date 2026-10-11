@@ -274,3 +274,26 @@ async fn a_waiting_prompt_does_not_stall_other_clients_and_connections_are_liste
     assert_eq!(left.len(), 1, "{left:?}");
     assert_eq!(left[0].client, "newcomer");
 }
+
+#[test]
+fn agents_read_the_ui_hint_through_get_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = studio(dir.path());
+    let agent = Agent::new(s.handle(), Grants::fixed(Grant(vec![Scope::Full])));
+    let read = |a: &Arc<Agent>| {
+        a.call("claude", "get_state", json!({ "view": "ui" }))
+            .to_json()
+    };
+    let none = read(&agent);
+    assert_eq!(none["value"]["hint"], serde_json::Value::Null);
+    s.set_ui_hint(Some(UiHint {
+        name: "Volume".into(),
+        value: "-3.0 dB".into(),
+        gestures: "drag; double-click resets".into(),
+    }));
+    let some = read(&agent);
+    assert_eq!(some["value"]["hint"]["name"], "Volume");
+    assert_eq!(some["value"]["hint"]["value"], "-3.0 dB");
+    s.set_ui_hint(None);
+    assert_eq!(read(&agent)["value"]["hint"], serde_json::Value::Null);
+}

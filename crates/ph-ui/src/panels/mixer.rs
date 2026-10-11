@@ -3,16 +3,19 @@
 //! built from `ph_engine::catalog` descriptors.
 
 use crate::core::{AppCore, EffectEdit, PanelAction, RenameTarget};
+use crate::hint::HintExt;
+use crate::icons::Icon;
 use crate::mapping;
+use crate::theme::caps;
 use crate::theme::rgb;
-use crate::widgets::{self, Edit, fader, knob, param_grid, toggle};
+use crate::widgets::{self, Edit, fader, icon_button, knob, menu_item, param_grid, toggle};
 use crate::workspace::WindowId;
 use egui::{
     Align2, CornerRadius, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
 };
 use ph_core::{EffectSpec, InsertId, MixerInsert, ObjectPath};
 
-pub const STRIP_W: f32 = 84.0;
+pub const STRIP_W: f32 = 88.0;
 pub const FADER_MAX: f64 = 1.5;
 pub const MAX_EFFECTS: usize = 10;
 
@@ -85,114 +88,151 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
 
 fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::Live) {
     let theme = core.theme.clone();
+    let c = &theme.colors;
     let m = core.project.mixer[i].clone();
     let selected = core.sel.insert == i as u32;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(STRIP_W, h), Sense::hover());
-    let p = ui.painter();
+    let p = ui.painter().clone();
+    let round = CornerRadius::same(theme.metrics.radius_lg as u8);
     p.rect_filled(
         rect.shrink(1.0),
-        CornerRadius::same(4),
-        if selected {
-            theme.colors.panel_alt
-        } else {
-            theme.colors.panel
-        },
+        round,
+        if selected { c.bg3 } else { c.bg2 },
+    );
+    p.rect_stroke(
+        rect.shrink(1.0),
+        round,
+        Stroke::new(1.0, if selected { c.accent } else { c.line_soft }),
+        StrokeKind::Inside,
     );
     if selected {
-        p.rect_stroke(
-            rect.shrink(1.0),
-            CornerRadius::same(4),
-            Stroke::new(1.5, theme.colors.accent),
-            StrokeKind::Inside,
-        );
+        crate::paint::glow_rect(&p, rect.shrink(1.0), round.nw, c.glow_soft, 0.7);
     }
+    // colour cap
+    let cap_col = m
+        .color
+        .map_or(c.pattern[i % c.pattern.len()].gamma_multiply(0.8), rgb);
+    p.rect_filled(
+        Rect::from_min_size(
+            rect.min + Vec2::new(5.0, 3.0),
+            Vec2::new(STRIP_W - 10.0, 3.0),
+        ),
+        CornerRadius::same(1),
+        cap_col,
+    );
     if core
         .agent_select
         .contains(&ObjectPath::Insert(InsertId(i as u32)))
     {
-        p.rect_stroke(
-            rect,
-            CornerRadius::same(4),
-            Stroke::new(2.0, theme.colors.agent),
-            StrokeKind::Inside,
-        );
+        p.rect_stroke(rect, round, Stroke::new(2.0, c.agent), StrokeKind::Inside);
     }
     if let Some((who, at)) = core.touches.get(&ObjectPath::Insert(InsertId(i as u32))) {
-        let k = (1.0 - ((core.now - at) / crate::piano_roll::FLASH_SECS) as f32).clamp(0.0, 1.0);
-        if k > 0.0 {
+        let k = crate::motion::decay(core.now, *at, crate::piano_roll::FLASH_SECS);
+        if k > 0.0 && !core.reduce_motion {
             p.rect_stroke(
                 rect,
-                CornerRadius::same(4),
-                Stroke::new(2.0, theme.colors.agent.gamma_multiply(k)),
+                round,
+                Stroke::new(2.0, c.agent.gamma_multiply(k)),
                 StrokeKind::Inside,
             );
             p.text(
-                rect.right_top() + Vec2::new(-4.0, 2.0),
+                rect.right_top() + Vec2::new(-4.0, 8.0),
                 Align2::RIGHT_TOP,
                 who.trim_start_matches("agent:"),
-                FontId::proportional(9.0),
-                theme.colors.agent,
+                FontId::new(9.0, crate::fonts::cond()),
+                c.agent,
             );
+            ui.ctx().request_repaint();
         }
     }
-    // header: number + name
-    let head = Rect::from_min_size(
-        rect.min + Vec2::new(2.0, 2.0),
-        Vec2::new(STRIP_W - 4.0, 34.0),
-    );
-    let hr = ui.interact(head, ui.id().with(("strip", i)), Sense::click());
-    p.rect_filled(
-        head,
-        CornerRadius::same(3),
-        m.color
-            .map_or(theme.colors.widget, rgb)
-            .gamma_multiply(0.55),
-    );
+    // number
     p.text(
-        head.left_top() + Vec2::new(4.0, 2.0),
+        rect.left_top() + Vec2::new(8.0, 10.0),
         Align2::LEFT_TOP,
         if i == 0 {
             "M".to_string()
         } else {
-            format!("{i}")
+            format!("{i:02}")
         },
-        FontId::proportional(9.0),
-        theme.colors.text_dim,
+        FontId::new(11.0, crate::fonts::mono()),
+        if selected { c.accent } else { c.dim },
     );
-    p.text(
-        head.center() + Vec2::new(0.0, 6.0),
-        Align2::CENTER_CENTER,
-        insert_label(i, &m),
-        FontId::proportional(11.0),
-        theme.colors.text,
+    let body_top = rect.top() + 28.0;
+    let foot = 78.0;
+    let body_h = (rect.bottom() - body_top - foot).max(40.0);
+
+    // the name runs vertically up the left edge; click selects, double-click renames
+    let name_rect = Rect::from_min_size(
+        Pos2::new(rect.left() + 4.0, body_top),
+        Vec2::new(18.0, body_h),
     );
-    if hr.clicked() {
+    let nr = ui.interact(name_rect, ui.id().with(("strip", i)), Sense::click());
+    let label = insert_label(i, &m).to_uppercase();
+    let galley = p.layout_no_wrap(
+        label.clone(),
+        FontId::new(12.0, crate::fonts::cond_bold()),
+        if selected { c.text } else { c.dim },
+    );
+    let clip = p.with_clip_rect(name_rect.expand2(Vec2::new(2.0, 0.0)));
+    clip.add(
+        egui::epaint::TextShape::new(
+            Pos2::new(name_rect.left() + 2.0, name_rect.bottom() - 2.0),
+            galley,
+            c.text,
+        )
+        .with_angle(-std::f32::consts::FRAC_PI_2),
+    );
+    let nr = nr.hint(
+        &insert_label(i, &m),
+        "",
+        "click selects, double-click renames, right-click for more",
+    );
+    if nr.clicked() {
         core.sel.insert = i as u32;
         core.sel.effect = None;
     }
-    if hr.double_clicked() {
+    if nr.double_clicked() {
         core.open_rename(RenameTarget::Insert(i as u32));
     }
-    hr.context_menu(|ui| {
-        if ui.button("Rename…").clicked() {
+    nr.context_menu(|ui| {
+        if widgets::menu_item(ui, "Rename…", "").clicked() {
             core.open_rename(RenameTarget::Insert(i as u32));
             ui.close();
         }
+        crate::hint::standard_entries(
+            ui,
+            false,
+            &ph_control::UiHint {
+                name: insert_label(i, &m),
+                value: String::new(),
+                gestures: "mixer insert".into(),
+            },
+        );
     });
 
-    // meter + fader
-    let body_top = head.bottom() + 6.0;
-    let body_h = rect.bottom() - body_top - 62.0;
+    // stereo meter + fader
     let meter_rect = Rect::from_min_size(
-        Pos2::new(rect.left() + 8.0, body_top),
-        Vec2::new(18.0, body_h),
+        Pos2::new(rect.left() + 26.0, body_top),
+        Vec2::new(16.0, body_h),
     );
     let peak = live.peak.get(i).copied().unwrap_or([0.0; 2]);
     let rms = live.rms.get(i).copied().unwrap_or([0.0; 2]);
-    widgets::paint_meter(ui, meter_rect, peak, rms, &theme);
+    widgets::paint_meter(
+        ui,
+        ui.id().with(("meter", i)),
+        meter_rect,
+        peak,
+        rms,
+        &theme,
+    )
+    .hint(
+        &format!("{} meter", insert_label(i, &m)),
+        &format!("{} peak", widgets::fmt_gain_db(peak[0].max(peak[1]) as f64)),
+        "click to clear the clip LED",
+    );
     let fader_rect = Rect::from_min_size(
-        Pos2::new(rect.left() + 32.0, body_top),
-        Vec2::new(40.0, body_h),
+        Pos2::new(rect.left() + 46.0, body_top),
+        Vec2::new(34.0, body_h),
     );
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(fader_rect));
     let default = if i == 0 { 1.0 } else { 0.8 };
@@ -205,22 +245,33 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         default,
         fader_rect.size(),
         &theme,
+        &widgets::Ctl::new(
+            &format!("{} volume", insert_label(i, &m)),
+            &widgets::fmt_gain_db,
+        ),
+        FADER_TICKS,
     );
     if let Some(v) = e.commit() {
         core.send(mapping::mixer_volume(i as u32, v as f32));
     }
     let shown = e.shown(m.volume as f64) as f32;
-    ui.painter().text(
-        Pos2::new(rect.center().x, rect.bottom() - 54.0),
+    // dB readout in a small well
+    let readout = Rect::from_center_size(
+        Pos2::new(rect.center().x, body_top + body_h + 12.0),
+        Vec2::new(STRIP_W - 14.0, 17.0),
+    );
+    crate::paint::well(&p, readout, 3, c.lcd, &theme);
+    p.text(
+        readout.center(),
         Align2::CENTER_CENTER,
         volume_db(shown),
-        FontId::proportional(10.0),
-        theme.colors.text_dim,
+        FontId::new(11.0, crate::fonts::mono()),
+        if shown > 1.0 { c.warn } else { c.accent },
     );
     // pan knob + buttons
     let kr = Rect::from_min_size(
-        Pos2::new(rect.left() + 4.0, rect.bottom() - 44.0),
-        Vec2::splat(24.0),
+        Pos2::new(rect.left() + 6.0, rect.bottom() - 51.0),
+        Vec2::splat(26.0),
     );
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(kr));
     let (_, e) = knob(
@@ -230,42 +281,62 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         -1.0,
         1.0,
         0.0,
-        24.0,
+        26.0,
         &theme,
+        &widgets::Ctl::new(&format!("{} pan", insert_label(i, &m)), &widgets::fmt_pan),
     );
     if let Some(v) = e.commit() {
         core.send(mapping::mixer_pan(i as u32, v as f32));
     }
     let br = Rect::from_min_size(
-        Pos2::new(rect.left() + 32.0, rect.bottom() - 46.0),
-        Vec2::new(48.0, 20.0),
+        Pos2::new(rect.left() + 36.0, rect.bottom() - 48.0),
+        Vec2::new(44.0, 20.0),
     );
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(br));
     child.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
-        if toggle(ui, m.muted, "M", theme.colors.warn, &theme).clicked() {
+        if toggle(ui, m.muted, "M", theme.colors.warn, &theme)
+            .on_hover_text("Mute this insert")
+            .clicked()
+        {
             core.send(mapping::mixer_mute(i as u32, !m.muted));
         }
         if i > 0 {
             let solo = core.solo_inserts.contains(&(i as u32));
-            if toggle(ui, solo, "S", theme.colors.ok, &theme).clicked() {
+            if toggle(ui, solo, "S", theme.colors.ok, &theme)
+                .on_hover_text("Solo this insert")
+                .clicked()
+            {
                 core.send(mapping::mixer_solo(i as u32, !solo));
             }
         }
     });
     let nfx = m.effects.len();
-    ui.painter().text(
-        Pos2::new(rect.center().x, rect.bottom() - 10.0),
+    p.text(
+        Pos2::new(rect.center().x, rect.bottom() - 12.0),
         Align2::CENTER_CENTER,
         if nfx == 0 {
-            String::new()
+            "NO FX".to_string()
         } else {
-            format!("{nfx} fx")
+            format!("{nfx} FX")
         },
-        FontId::proportional(9.0),
-        theme.colors.text_dim,
+        FontId::new(10.0, crate::fonts::cond()),
+        if nfx == 0 { c.faint } else { c.dim },
     );
 }
+
+/// Fader scale: gain values at -inf..+3 dB with labels on the majors.
+const FADER_TICKS: widgets::Ticks<'static> = &[
+    (1.4125, "+3"),
+    (1.0, "0"),
+    (0.7079, ""),
+    (0.5012, "-6"),
+    (0.3548, ""),
+    (0.2512, "-12"),
+    (0.1259, "-18"),
+    (0.0631, "-24"),
+    (0.0316, ""),
+];
 
 fn detail(ui: &mut Ui, core: &mut AppCore) {
     let theme = core.theme.clone();
@@ -280,14 +351,23 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
-                    RichText::new(format!("{}  (insert {ins})", insert_label(ins, &m))).strong(),
+                    RichText::new(format!("{}  (insert {ins})", insert_label(ins, &m)))
+                        .font(FontId::new(15.0, crate::fonts::cond_bold())),
                 );
                 if ins > 0 {
                     let mut route = m.route_to_master;
-                    if ui.checkbox(&mut route, "Route to master").changed() {
+                    if ui
+                        .checkbox(&mut route, caps("Route to master"))
+                        .hint_menu(
+                            "Route to master",
+                            if route { "on" } else { "off" },
+                            "sends this insert to the master; off for a send-only bus",
+                        )
+                        .changed()
+                    {
                         core.send(mapping::route_to_master(ins as u32, route));
                     }
-                    ui.label("Sidechain from");
+                    ui.label(caps("Sidechain from"));
                     let cur = m.sidechain_from.map_or("none".to_string(), |s| {
                         format!(
                             "{} {}",
@@ -298,6 +378,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                                 .map_or("", |x| x.name.as_str())
                         )
                     });
+                    let cur2 = cur.clone();
                     egui::ComboBox::from_id_salt("sidechain")
                         .selected_text(cur)
                         .show_ui(ui, |ui| {
@@ -319,7 +400,13 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                                     core.send(mapping::sidechain(ins as u32, Some(j as u32)));
                                 }
                             }
-                        });
+                        })
+                        .response
+                        .hint_menu(
+                            "Sidechain source",
+                            &cur2,
+                            "the insert whose signal drives sidechain compressors on this one",
+                        );
                 }
             });
             ui.separator();
@@ -343,7 +430,18 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                                 PanelAction::Open,
                             ));
                         }
-                        if toggle(ui, slot.bypass, "Byp", theme.colors.warn, &theme).clicked() {
+                        if widgets::icon_button_coloured(
+                            ui,
+                            &theme,
+                            Icon::Bypass,
+                            slot.bypass,
+                            true,
+                            "Bypass",
+                            "click to bypass this effect",
+                            theme.colors.warn,
+                        )
+                        .clicked()
+                        {
                             core.send(mapping::effect_bypass(ins as u32, idx, !slot.bypass));
                         }
                         let (_, e) = knob(
@@ -353,14 +451,17 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                             0.0,
                             1.0,
                             1.0,
-                            22.0,
+                            24.0,
                             &theme,
+                            &widgets::Ctl::new("Effect mix", &widgets::fmt_percent),
                         );
                         if let Some(v) = e.commit() {
                             core.send(mapping::effect_mix(ins as u32, idx, v as f32));
                         }
-                        ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
-                        if idx > 0 && ui.small_button("^").on_hover_text("Move up").clicked() {
+                        ui.label(widgets::caption(&theme, "Mix"));
+                        if idx > 0
+                            && icon_button(ui, &theme, Icon::Up, false, "Move up", "").clicked()
+                        {
                             core.send(mapping::effect_move(ins as u32, idx, idx - 1));
                             core.effect_edits.push(EffectEdit::Move {
                                 insert: ins as u32,
@@ -370,7 +471,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                             core.sel.effect = Some(idx - 1);
                         }
                         if idx + 1 < m.effects.len()
-                            && ui.small_button("v").on_hover_text("Move down").clicked()
+                            && icon_button(ui, &theme, Icon::Down, false, "Move down", "").clicked()
                         {
                             core.send(mapping::effect_move(ins as u32, idx, idx + 1));
                             core.effect_edits.push(EffectEdit::Move {
@@ -380,7 +481,9 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                             });
                             core.sel.effect = Some(idx + 1);
                         }
-                        if ui.small_button("x").on_hover_text("Remove").clicked() {
+                        if icon_button(ui, &theme, Icon::Close, false, "Remove effect", "")
+                            .clicked()
+                        {
                             core.send(mapping::effect_remove(ins as u32, idx));
                             core.effect_edits.push(EffectEdit::Remove {
                                 insert: ins as u32,
@@ -391,9 +494,9 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                     });
                 }
                 if m.effects.len() < MAX_EFFECTS {
-                    ui.menu_button("+ Add effect", |ui| {
+                    crate::widgets::menu_button(ui, "+ Add effect", |ui| {
                         for name in ph_engine::catalog::builtin_effects() {
-                            if ui.button(*name).clicked() {
+                            if menu_item(ui, name, "").clicked() {
                                 core.send(mapping::effect_add(ins as u32, name));
                                 core.sel.effect = Some(m.effects.len());
                                 ui.close();
@@ -401,9 +504,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         }
                     });
                 } else {
-                    ui.label(
-                        RichText::new("Insert is full (10 effects)").color(theme.colors.text_dim),
-                    );
+                    ui.label(RichText::new("Insert is full (10 effects)").color(theme.colors.dim));
                 }
 
                 // ---- sends
@@ -427,24 +528,30 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                             0.0,
                             2.0,
                             0.5,
-                            22.0,
+                            24.0,
                             &theme,
+                            &widgets::Ctl::new("Send level", &widgets::fmt_gain_db),
                         );
                         if let Some(v) = e.commit() {
                             core.send(mapping::send_level(ins as u32, to, v as f32));
                         }
-                        ui.label(volume_db(e.shown(s.level as f64) as f32));
-                        if ui.small_button("x").clicked() {
+                        ui.label(
+                            RichText::new(volume_db(e.shown(s.level as f64) as f32))
+                                .font(FontId::new(11.5, crate::fonts::mono()))
+                                .color(theme.colors.accent),
+                        );
+                        if icon_button(ui, &theme, Icon::Close, false, "Remove send", "").clicked()
+                        {
                             core.send(mapping::send_remove(ins as u32, to));
                         }
                     });
                 }
-                ui.menu_button("+ Add send", |ui| {
+                crate::widgets::menu_button(ui, "+ Add send", |ui| {
                     for (j, other) in project.mixer.iter().enumerate() {
                         if j != ins
                             && j != 0
                             && !m.sends.iter().any(|s| s.to.0 as usize == j)
-                            && ui.button(format!("{j} {}", other.name)).clicked()
+                            && menu_item(ui, &format!("{j} {}", other.name), "").clicked()
                         {
                             core.send(mapping::send_add(ins as u32, j as u32, 0.5));
                             ui.close();
@@ -455,8 +562,8 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                 ui.add_space(6.0);
                 ui.label(
                     RichText::new("Click an effect to open its own window.")
-                        .size(11.0)
-                        .color(theme.colors.text_dim),
+                        .size(11.5)
+                        .color(theme.colors.dim),
                 );
             }
         });
@@ -476,7 +583,10 @@ pub fn effect_window(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize)
         return;
     };
     ui.horizontal(|ui| {
-        if toggle(ui, slot.bypass, "Bypass", theme.colors.warn, &theme).clicked() {
+        if toggle(ui, slot.bypass, "Bypass", theme.colors.warn, &theme)
+            .on_hover_text("Bypass this effect")
+            .clicked()
+        {
             core.send(mapping::effect_bypass(insert, index, !slot.bypass));
         }
         let (_, e) = knob(
@@ -486,13 +596,14 @@ pub fn effect_window(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize)
             0.0,
             1.0,
             1.0,
-            22.0,
+            26.0,
             &theme,
+            &widgets::Ctl::new("Effect mix", &widgets::fmt_percent),
         );
         if let Some(v) = e.commit() {
             core.send(mapping::effect_mix(insert, index, v as f32));
         }
-        ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
+        ui.label(widgets::caption(&theme, "Mix"));
     });
     ui.separator();
     // the window itself scrolls (see `windows::show_content`)
@@ -505,7 +616,11 @@ fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effe
         ui.label("This effect has no parameter descriptor.");
         return;
     };
-    ui.label(RichText::new(&desc.name).strong());
+    ui.label(
+        RichText::new(&desc.name)
+            .font(FontId::new(15.0, crate::fonts::cond_bold()))
+            .color(theme.colors.text),
+    );
     let overrides = match effect {
         EffectSpec::Builtin { params, .. } => params.clone(),
         _ => Default::default(),

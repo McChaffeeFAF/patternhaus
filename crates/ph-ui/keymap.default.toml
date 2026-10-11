@@ -141,6 +141,43 @@ key = "Ctrl+Q"
 command = "app.roll.quantize"
 context = "piano_roll"
 
+# zoom presets, and keyboard steps that land on them
+[[bind]]
+key = "Ctrl+0"
+command = "app.roll.zoom"
+params = { preset = "fit" }
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+1"
+command = "app.roll.zoom"
+params = { preset = "bar" }
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+2"
+command = "app.roll.zoom"
+params = { preset = "beat" }
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+3"
+command = "app.roll.zoom"
+params = { preset = "detail64" }
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+Equals"
+command = "app.roll.zoom"
+params = { step = 1 }
+context = "piano_roll"
+
+[[bind]]
+key = "Ctrl+Minus"
+command = "app.roll.zoom"
+params = { step = -1 }
+context = "piano_roll"
+
 [[bind]]
 key = "Ctrl+A"
 command = "app.roll.select_all"

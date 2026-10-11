@@ -71,10 +71,61 @@ fn walk(dir: &Path, root: &Path, out: &mut Vec<String>) -> std::io::Result<()> {
 fn hand_authored(assets: &Path) -> std::io::Result<Vec<String>> {
     let mut v = Vec::new();
     walk(assets, assets, &mut v)?;
-    v.retain(|r| !r.starts_with("samples/") && r != "PROVENANCE.toml");
+    v.retain(|r| !r.starts_with("samples/") && !r.starts_with("fonts/") && r != "PROVENANCE.toml");
     v.sort();
     Ok(v)
 }
+
+/// Bundled third-party fonts (UI typefaces, DESIGN section 9): path, licence, upstream source.
+/// All are SIL OFL 1.1, taken unmodified from the official Google Fonts repository at the
+/// commit named in `assets/fonts/README.md`.
+pub const FONTS: &[(&str, &str, &str)] = &[
+    (
+        "fonts/README.md",
+        "CC0-1.0",
+        "hand-authored, Patternhaus contributors",
+    ),
+    (
+        "fonts/Barlow-Regular.ttf",
+        "OFL-1.1",
+        "https://github.com/google/fonts/tree/main/ofl/barlow (Barlow Project Authors)",
+    ),
+    (
+        "fonts/Barlow-Medium.ttf",
+        "OFL-1.1",
+        "https://github.com/google/fonts/tree/main/ofl/barlow (Barlow Project Authors)",
+    ),
+    (
+        "fonts/OFL-barlow.txt",
+        "OFL-1.1",
+        "https://github.com/google/fonts/blob/main/ofl/barlow/OFL.txt",
+    ),
+    (
+        "fonts/BarlowCondensed-Medium.ttf",
+        "OFL-1.1",
+        "https://github.com/google/fonts/tree/main/ofl/barlowcondensed (Barlow Project Authors)",
+    ),
+    (
+        "fonts/BarlowCondensed-SemiBold.ttf",
+        "OFL-1.1",
+        "https://github.com/google/fonts/tree/main/ofl/barlowcondensed (Barlow Project Authors)",
+    ),
+    (
+        "fonts/OFL-barlowcondensed.txt",
+        "OFL-1.1",
+        "https://github.com/google/fonts/blob/main/ofl/barlowcondensed/OFL.txt",
+    ),
+    (
+        "fonts/ShareTechMono-Regular.ttf",
+        "OFL-1.1",
+        "https://github.com/google/fonts/tree/main/ofl/sharetechmono (Carrois Type Design)",
+    ),
+    (
+        "fonts/OFL-sharetechmono.txt",
+        "OFL-1.1",
+        "https://github.com/google/fonts/blob/main/ofl/sharetechmono/OFL.txt",
+    ),
+];
 
 /// The complete `PROVENANCE.toml` text.
 pub fn provenance_toml(recipes: &[Recipe], hand: &[String]) -> String {
@@ -94,6 +145,21 @@ pub fn provenance_toml(recipes: &[Recipe], hand: &[String]) -> String {
     for h in hand {
         s.push_str(&format!(
             "\n[[file]]\npath = \"{h}\"\nlicense = \"CC0-1.0\"\nsource = \"hand-authored, Patternhaus contributors\"\n"
+        ));
+    }
+    s.push_str(
+        "
+# Third-party fonts (not CC0): see assets/fonts/README.md.
+",
+    );
+    for (path, license, source) in FONTS {
+        s.push_str(&format!(
+            "
+[[file]]
+path = \"{path}\"
+license = \"{license}\"
+source = \"{source}\"
+"
         ));
     }
     s

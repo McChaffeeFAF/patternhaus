@@ -1,7 +1,8 @@
 # Patternhaus factory assets
 
 Everything in this folder was generated or written by the Patternhaus project and is
-dedicated to the public domain under **CC0-1.0**. You can use these sounds and presets in
+dedicated to the public domain under **CC0-1.0**, except [`fonts/`](fonts/README.md): the UI
+typefaces, third-party and under the SIL Open Font License 1.1. You can use these sounds and presets in
 any music, commercial or not, without credit. Every file has an entry in
 [`PROVENANCE.toml`](PROVENANCE.toml); CI rejects any file without one.
 

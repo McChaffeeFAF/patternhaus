@@ -18,6 +18,7 @@ cp "$bin_dir/ph-app$exe" "$bin_dir/patternhaus-cli$exe" "$stage/"
 cp -r assets "$stage/assets"
 cp THIRD_PARTY_NOTICES.md LICENSE-MIT LICENSE-APACHE "$stage/"
 cp packaging/README.txt "$stage/README.txt"
+cp -r packaging/icons "$stage/icons"
 if [ "$flavour" = "gpl" ]; then
   cp packaging/GPL-NOTICE.txt "$stage/GPL-NOTICE.txt"
 fi

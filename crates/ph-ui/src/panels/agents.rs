@@ -4,6 +4,7 @@
 
 use crate::core::AppCore;
 use crate::mapping;
+use crate::widgets::btn;
 use crate::widgets::{badge, section_label};
 use egui::{RichText, Ui};
 use ph_commands::{Author, Scope};
@@ -31,7 +32,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     if let Some(d) = &dir {
         for g in d.pending_grants() {
             egui::Frame::group(ui.style())
-                .fill(theme.colors.panel_alt)
+                .fill(theme.colors.bg3)
                 .show(ui, |ui| {
                     ui.label(RichText::new(format!("{} wants to connect", g.client)).strong());
                     ui.label(format!(
@@ -43,13 +44,13 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                             .join(", ")
                     ));
                     ui.horizontal(|ui| {
-                        if ui.button("Allow").clicked() {
+                        if btn(ui, "Allow").clicked() {
                             d.resolve_grant(g.id, Some(g.requested.clone()));
                         }
-                        if ui.button("Read only").clicked() {
+                        if btn(ui, "Read only").clicked() {
                             d.resolve_grant(g.id, Some(vec![Scope::Read]));
                         }
-                        if ui.button("Deny").clicked() {
+                        if btn(ui, "Deny").clicked() {
                             d.resolve_grant(g.id, None);
                         }
                     });
@@ -62,7 +63,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         Some(d) => {
             let clients = live_first(d.clients());
             if !clients.iter().any(|c| c.live) {
-                ui.label(RichText::new("No agent is connected.").color(theme.colors.text_dim));
+                ui.label(RichText::new("No agent is connected.").color(theme.colors.dim));
             }
             let mut shown_remembered = false;
             for c in clients {
@@ -72,7 +73,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     ui.label(
                         RichText::new("Remembered, not connected")
                             .size(11.0)
-                            .color(theme.colors.text_dim),
+                            .color(theme.colors.dim),
                     );
                 }
                 ui.horizontal(|ui| {
@@ -81,16 +82,17 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     } else {
                         theme.colors.agent.gamma_multiply(0.35)
                     };
-                    badge(ui, &c.name, fill);
+                    badge(ui, &c.name, fill, &theme);
                     for s in &c.scopes {
                         badge(
                             ui,
                             scope_name(*s),
                             if c.live {
-                                theme.colors.widget_hover
+                                theme.colors.bg4
                             } else {
-                                theme.colors.widget_hover.gamma_multiply(0.5)
+                                theme.colors.bg4.gamma_multiply(0.5)
                             },
+                            &theme,
                         );
                     }
                     if c.live {
@@ -99,13 +101,13 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                                 "connected {} s, {} command(s), idle {} s",
                                 c.connected_for, c.commands, c.idle_for
                             ))
-                            .color(theme.colors.text_dim),
+                            .color(theme.colors.dim),
                         );
                     } else {
                         ui.label(
                             RichText::new("disconnected")
                                 .italics()
-                                .color(theme.colors.text_dim.gamma_multiply(0.7)),
+                                .color(theme.colors.dim.gamma_multiply(0.7)),
                         );
                     }
                 });
@@ -114,7 +116,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         None => {
             ui.label(
                 RichText::new("The local agent endpoint is not running in this build.")
-                    .color(theme.colors.text_dim),
+                    .color(theme.colors.dim),
             );
         }
     }
@@ -126,7 +128,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     authors.sort();
     authors.dedup();
     if authors.is_empty() {
-        ui.label(RichText::new("No edits yet.").color(theme.colors.text_dim));
+        ui.label(RichText::new("No edits yet.").color(theme.colors.dim));
     }
     for a in authors {
         let mine: Vec<_> = history.iter().filter(|e| e.author == a).collect();
@@ -139,9 +141,10 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 } else {
                     theme.colors.agent
                 },
+                &theme,
             );
             ui.label(format!("{} change(s)", mine.len()));
-            if a != Author::Human && ui.small_button("Undo all").clicked() {
+            if a != Author::Human && btn(ui, "Undo all").clicked() {
                 core.send(mapping::undo_author(&a.to_string(), "stop"));
             }
         });
@@ -157,7 +160,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                         .unwrap_or_default())
                 ))
                 .size(11.0)
-                .color(theme.colors.text_dim),
+                .color(theme.colors.dim),
             );
         }
     }

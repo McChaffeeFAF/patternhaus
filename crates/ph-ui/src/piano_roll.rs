@@ -7,9 +7,7 @@
 
 use crate::mapping::{self, NewNote};
 use crate::theme::{Theme, lerp, rgb};
-use egui::{
-    Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2,
-};
+use egui::{Align2, CornerRadius, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2};
 use ph_commands::Request;
 use ph_core::{ChannelId, Note, NoteId, PatternId, Project, STEP, Tick};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -19,19 +17,236 @@ pub const KEYBOARD_W: f32 = 64.0;
 pub const RULER_H: f32 = 20.0;
 pub const VEL_LANE_H: f32 = 64.0;
 
-/// Snap choices: label and grid in ticks (`0` = per-bar, resolved from the time signature).
+/// Snap choices: musical names and the grid in ticks (`0` = one bar, resolved from the time
+/// signature; `1` = off). 960 ticks are a quarter note. Beat and 1/4 are the same grid; Beat is
+/// the name FL users look for, 1/4 the musical one.
 pub const SNAPS: &[(&str, Tick)] = &[
     ("Off", 1),
     ("Bar", 0),
     ("1/2 bar", 1920),
     ("Beat", 960),
-    ("1/2 beat", 480),
-    ("Step", 240),
-    ("1/2 step", 120),
-    ("1/4 step", 60),
-    ("Triplet beat", 640),
-    ("Triplet step", 160),
+    ("1/4", 960),
+    ("1/8", 480),
+    ("1/16", 240),
+    ("1/32", 120),
+    ("1/64", 60),
+    ("1/4T", 640),
+    ("1/8T", 320),
+    ("1/16T", 160),
+    ("1/32T", 80),
+    ("1/64T", 40),
 ];
+
+/// The name of a snap grid (the first table entry with these ticks), for old settings too:
+/// the retired names (Step, Triplet step...) are the same tick values, so they read as 1/16,
+/// 1/16T and so on. Anything else is shown as a tick count.
+pub fn snap_name(ticks: Tick) -> String {
+    SNAPS
+        .iter()
+        .find(|(_, t)| *t == ticks)
+        .map_or_else(|| format!("{ticks} ticks"), |(n, _)| (*n).to_string())
+}
+
+/// The snap chooser used by the toolbar and the editors: shows the current name and lists
+/// every option.
+pub fn snap_combo(
+    ui: &mut egui::Ui,
+    salt: &str,
+    snap: &mut Tick,
+    theme: &crate::theme::Theme,
+) -> egui::Response {
+    let _ = theme;
+    egui::ComboBox::from_id_salt(salt)
+        .selected_text(crate::theme::caps(&snap_name(*snap)))
+        .width(78.0)
+        .show_ui(ui, |ui| {
+            let current = snap_name(*snap);
+            for (name, ticks) in SNAPS {
+                if ui
+                    .selectable_label(*name == current, crate::theme::caps(name))
+                    .clicked()
+                {
+                    *snap = *ticks;
+                }
+            }
+        })
+        .response
+}
+
+/// Zoom presets: the whole pattern, one bar, one beat, and a 1/64 detail where a 1/64 cell is
+/// wide enough to grab and to read.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ZoomPreset {
+    Fit,
+    Bar,
+    Beat,
+    Detail64,
+}
+
+impl ZoomPreset {
+    /// Zoomed out to in: the order the keyboard steps walk.
+    pub const ORDER: [ZoomPreset; 4] = [
+        ZoomPreset::Fit,
+        ZoomPreset::Bar,
+        ZoomPreset::Beat,
+        ZoomPreset::Detail64,
+    ];
+    /// (preset, label, gesture) for the toolbar menu.
+    pub const MENU: &'static [(ZoomPreset, &'static str, &'static str)] = &[
+        (ZoomPreset::Fit, "Fit pattern", "Ctrl+0"),
+        (ZoomPreset::Bar, "1 bar", "Ctrl+1"),
+        (ZoomPreset::Beat, "1 beat", "Ctrl+2"),
+        (ZoomPreset::Detail64, "1/64 detail", "Ctrl+3"),
+    ];
+
+    /// Pixels per tick for a grid `grid_w` wide.
+    pub fn px_per_tick(self, grid_w: f32, pattern_len: Tick, ticks_per_bar: Tick) -> f64 {
+        let w = (grid_w as f64 - 24.0).max(60.0);
+        match self {
+            ZoomPreset::Fit => (w / pattern_len.max(ticks_per_bar).max(1) as f64).clamp(0.01, 0.5),
+            ZoomPreset::Bar => w / ticks_per_bar.max(1) as f64,
+            ZoomPreset::Beat => w / 960.0,
+            // a 1/64 cell is 64 px wide (and always finer than one beat across the grid)
+            ZoomPreset::Detail64 => (64.0f64 / 60.0).max(w / 960.0 * 1.15).min(ZOOM_MAX),
+        }
+    }
+}
+
+/// The narrowest a note is drawn, in pixels (so a 1/64 note stays visible when zoomed out).
+pub const MIN_NOTE_PX: f32 = 3.0;
+/// The narrowest target a click can grab, in pixels.
+pub const MIN_HIT_PX: f32 = 8.0;
+/// A note must be this wide, drawn, to have a resize edge.
+pub const RESIZE_MIN_PX: f32 = 14.0;
+/// Horizontal zoom limits, pixels per tick.
+pub const ZOOM_MIN: f64 = 0.005;
+pub const ZOOM_MAX: f64 = 2.0;
+
+/// A grid tier fades in once its lines are this far apart, and is solid at twice that.
+pub const TIER_MIN_PX: f32 = 6.0;
+pub const TIER_FULL_PX: f32 = 12.0;
+
+/// How much of a tier shows when its lines are `px` apart: nothing under 6 px, solid from 12.
+pub fn tier_alpha(px: f32) -> f32 {
+    ((px - TIER_MIN_PX) / (TIER_FULL_PX - TIER_MIN_PX)).clamp(0.0, 1.0)
+}
+
+/// One level of the time grid.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct GridTier {
+    /// Spacing in ticks: the bar, a beat, 1/16, 1/32, 1/64.
+    pub ticks: Tick,
+    /// 0 (not drawn) to 1 (solid), from how far apart its lines are.
+    pub alpha: f32,
+}
+
+/// The five tiers of the grid at a zoom. The bar tier is always drawn; the others fade in with
+/// the zoom.
+pub fn grid_tiers(px_per_tick: f64, ticks_per_bar: Tick) -> [GridTier; 5] {
+    let spans = [ticks_per_bar.max(1), 960, 240, 120, 60];
+    let mut out = [GridTier {
+        ticks: 0,
+        alpha: 0.0,
+    }; 5];
+    for (i, ticks) in spans.iter().enumerate() {
+        let px = (*ticks as f64 * px_per_tick) as f32;
+        out[i] = GridTier {
+            ticks: *ticks,
+            alpha: if i == 0 { 1.0 } else { tier_alpha(px) },
+        };
+    }
+    out
+}
+
+/// How many tiers are visible at a zoom (alpha above a hair).
+pub fn visible_tiers(px_per_tick: f64, ticks_per_bar: Tick) -> usize {
+    grid_tiers(px_per_tick, ticks_per_bar)
+        .iter()
+        .filter(|t| t.alpha > 0.02)
+        .count()
+}
+
+/// Draws the time grid into `area`: alternate beats shaded, then the tiers from the finest to
+/// the bar, each line one step dimmer than the tier above and faded in by zoom. `x0` is the
+/// tick at the left edge. Shared by the piano roll and the playlist.
+pub fn paint_time_grid(
+    p: &egui::Painter,
+    area: Rect,
+    x0: f64,
+    px_per_tick: f64,
+    ticks_per_bar: Tick,
+    theme: &Theme,
+) {
+    let c = &theme.colors;
+    let tiers = grid_tiers(px_per_tick, ticks_per_bar);
+    let bar = tiers[0].ticks;
+    let t0 = x0.max(0.0);
+    let t1 = x0 + area.width() as f64 / px_per_tick;
+    let x_of = |t: Tick| area.left() + ((t as f64 - x0) * px_per_tick) as f32;
+    // alternate beats are shaded while a beat is wide enough to read as a column
+    if tiers[1].alpha > 0.5 {
+        let first = (t0 / 960.0).floor() as u64;
+        let last = (t1 / 960.0).ceil() as u64;
+        let mut mesh = egui::Mesh::default();
+        let shade = c.bg0.gamma_multiply(0.22 * tiers[1].alpha);
+        for beat in first..=last {
+            if beat % 2 == 1 {
+                let r = Rect::from_min_max(
+                    Pos2::new(x_of(beat * 960).max(area.left()), area.top()),
+                    Pos2::new(x_of((beat + 1) * 960).min(area.right()), area.bottom()),
+                );
+                if r.width() > 0.0 {
+                    mesh.add_colored_rect(r, shade);
+                }
+            }
+        }
+        p.add(Shape::mesh(mesh));
+    }
+    // line strength per tier, brightest first: each tier one step dimmer
+    const STRENGTH: [f32; 5] = [1.0, 0.8, 0.6, 0.46, 0.36];
+    // the bar tier thins out (every 2nd, 4th... bar) when bars are closer than the fade limit
+    let mut bar_step = 1u64;
+    while ((bar * bar_step) as f64 * px_per_tick) < TIER_MIN_PX as f64 && bar_step < 1 << 20 {
+        bar_step *= 2;
+    }
+    for level in (0..5).rev() {
+        let tier = tiers[level];
+        if tier.alpha <= 0.02 {
+            continue;
+        }
+        let step = if level == 0 {
+            tier.ticks * bar_step
+        } else {
+            tier.ticks
+        };
+        let colour = c.grid_bar.gamma_multiply(STRENGTH[level] * tier.alpha);
+        let first = (t0 / step as f64).floor() as u64;
+        let last = (t1 / step as f64).ceil() as u64;
+        let mut mesh = egui::Mesh::default();
+        for i in first..=last {
+            let t = i * step;
+            // a coarser tier owns the lines it shares with this one
+            if level > 0
+                && (0..level).any(|l| t.is_multiple_of(tiers[l].ticks) && tiers[l].alpha > 0.02)
+            {
+                continue;
+            }
+            let x = x_of(t);
+            if x < area.left() - 1.0 || x > area.right() + 1.0 {
+                continue;
+            }
+            let w = if level == 0 { 1.5 } else { 1.0 };
+            mesh.add_colored_rect(
+                Rect::from_min_max(
+                    Pos2::new(x - w * 0.5, area.top()),
+                    Pos2::new(x + w * 0.5, area.bottom()),
+                ),
+                colour,
+            );
+        }
+        p.add(Shape::mesh(mesh));
+    }
+}
 
 /// Nearest grid line. A grid of 0 or 1 tick means "off".
 pub fn snap_tick(t: f64, grid: Tick) -> Tick {
@@ -105,6 +320,16 @@ impl View {
     pub fn key_at(&self, y: f32) -> i32 {
         (self.y0 - y as f64 / self.key_h as f64).floor() as i32
     }
+    /// The rectangle a click or box can grab: the drawn rectangle, widened to
+    /// [`MIN_HIT_PX`] around its centre for very short notes.
+    pub fn hit_rect(&self, key: u8, start: Tick, len: Tick) -> Rect {
+        let r = self.note_rect(key, start, len);
+        if r.width() < MIN_HIT_PX {
+            Rect::from_center_size(r.center(), Vec2::new(MIN_HIT_PX, r.height()))
+        } else {
+            r
+        }
+    }
     pub fn note_rect(&self, key: u8, start: Tick, len: Tick) -> Rect {
         let x = self.x_of(start as f64);
         Rect::from_min_size(
@@ -115,7 +340,7 @@ impl View {
     /// Zoom horizontally keeping the tick under `anchor_x` fixed.
     pub fn zoom_x(&mut self, factor: f64, anchor_x: f32) {
         let t = self.tick_at(anchor_x);
-        self.px_per_tick = (self.px_per_tick * factor).clamp(0.005, 2.0);
+        self.px_per_tick = (self.px_per_tick * factor).clamp(ZOOM_MIN, ZOOM_MAX);
         self.x0 = (t - anchor_x as f64 / self.px_per_tick).max(0.0);
     }
     pub fn zoom_y(&mut self, factor: f32, anchor_y: f32) {
@@ -333,6 +558,10 @@ pub struct PianoRollState {
     needs_fit: bool,
     /// Where the note grid was drawn last frame (screen coordinates), for tests.
     pub last_grid: Rect,
+    /// A zoom preset to apply on the next frame (the toolbar and the keyboard ask for one).
+    pub zoom_request: Option<ZoomPreset>,
+    /// The preset applied last (for the zoom menu's check mark).
+    pub last_zoom: Option<ZoomPreset>,
 }
 
 impl Default for PianoRollState {
@@ -355,6 +584,8 @@ impl Default for PianoRollState {
             lane_h: VEL_LANE_H,
             needs_fit: true,
             last_grid: Rect::NOTHING,
+            zoom_request: None,
+            last_zoom: None,
         }
     }
 }
@@ -420,6 +651,61 @@ impl PianoRollState {
         self.needs_fit = false;
     }
 
+    /// Applies a zoom preset for a grid `grid_w` wide, keeping the middle of the view in place
+    /// (Fit starts from the beginning).
+    pub fn apply_zoom(&mut self, preset: ZoomPreset, grid_w: f32) {
+        let mid = self.view.tick_at(grid_w * 0.5);
+        let ppt = preset.px_per_tick(grid_w, self.pattern_len, self.ticks_per_bar);
+        self.view.px_per_tick = ppt.clamp(ZOOM_MIN, ZOOM_MAX);
+        self.view.x0 = if preset == ZoomPreset::Fit {
+            0.0
+        } else {
+            (mid - (grid_w as f64 * 0.5) / self.view.px_per_tick).max(0.0)
+        };
+        self.last_zoom = Some(preset);
+    }
+
+    /// The preset one keyboard step in (`dir` > 0) or out (`dir` < 0) from the current zoom:
+    /// the steps land exactly on the presets.
+    pub fn zoom_step_target(&self, dir: i32) -> Option<ZoomPreset> {
+        let w = if self.last_grid.width() > 1.0 {
+            self.last_grid.width()
+        } else {
+            800.0
+        };
+        let here = self.view.px_per_tick;
+        let mut presets: Vec<(f64, ZoomPreset)> = ZoomPreset::ORDER
+            .iter()
+            .map(|p| {
+                (
+                    p.px_per_tick(w, self.pattern_len, self.ticks_per_bar)
+                        .clamp(ZOOM_MIN, ZOOM_MAX),
+                    *p,
+                )
+            })
+            .collect();
+        presets.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if dir > 0 {
+            presets
+                .iter()
+                .find(|(x, _)| *x > here * 1.01)
+                .map(|(_, p)| *p)
+        } else {
+            presets
+                .iter()
+                .rev()
+                .find(|(x, _)| *x < here / 1.01)
+                .map(|(_, p)| *p)
+        }
+    }
+
+    /// Queues one keyboard zoom step (see [`Self::zoom_step_target`]).
+    pub fn zoom_step(&mut self, dir: i32) {
+        if let Some(p) = self.zoom_step_target(dir) {
+            self.zoom_request = Some(p);
+        }
+    }
+
     /// The effective grid in ticks.
     pub fn grid(&self) -> Tick {
         if self.snap == 0 {
@@ -433,24 +719,34 @@ impl PianoRollState {
         !matches!(self.drag, Drag::None)
     }
 
-    /// Note under a grid-relative point, topmost (latest in time) first.
+    /// Note under a grid-relative point. Very short notes have an [`MIN_HIT_PX`] wide target;
+    /// where targets overlap the note whose centre is nearest wins.
     pub fn note_at(&self, pos: Vec2) -> Option<(NoteId, Zone)> {
         let t = self.view.tick_at(pos.x);
-        let range = self.cache.visible_range(t - 1.0, t + 1.0);
-        for n in self.cache.notes[range].iter().rev() {
-            let r = self.view.note_rect(n.key, n.start, n.length);
-            let p = Pos2::new(pos.x, pos.y);
+        let pad = (MIN_HIT_PX as f64 / self.view.px_per_tick) * 0.5 + 1.0;
+        let range = self.cache.visible_range(t - pad, t + pad);
+        let p = Pos2::new(pos.x, pos.y);
+        let mut best: Option<(f32, &Note)> = None;
+        for n in &self.cache.notes[range] {
+            let r = self.view.hit_rect(n.key, n.start, n.length);
             if r.contains(p) {
-                let edge = (r.width() * 0.3).clamp(2.0, 7.0);
-                let zone = if pos.x > r.right() - edge {
-                    Zone::ResizeRight
-                } else {
-                    Zone::Body
-                };
-                return Some((n.id, zone));
+                let d = (r.center().x - pos.x).abs();
+                if best.is_none_or(|(bd, _)| d <= bd) {
+                    best = Some((d, n));
+                }
             }
         }
-        None
+        let (_, n) = best?;
+        let r = self.view.note_rect(n.key, n.start, n.length);
+        // only a note wide enough to have an edge can be resized; zoom in for the others
+        let zone = if r.width() >= RESIZE_MIN_PX
+            && pos.x > r.right() - (r.width() * 0.3).clamp(2.0, 7.0)
+        {
+            Zone::ResizeRight
+        } else {
+            Zone::Body
+        };
+        Some((n.id, zone))
     }
 
     /// Notes whose rectangle intersects the box (grid-relative corners).
@@ -1017,7 +1313,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     let avail = ui.available_size();
     let (resp, painter) = ui.allocate_painter(avail, Sense::click_and_drag());
     let whole = resp.rect;
-    painter.rect_filled(whole, CornerRadius::ZERO, col.bg);
+    painter.rect_filled(whole, CornerRadius::ZERO, col.bg0);
 
     let grid_rect = Rect::from_min_max(
         Pos2::new(whole.left() + KEYBOARD_W, whole.top() + RULER_H),
@@ -1041,6 +1337,9 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     );
     if st.needs_fit {
         st.fit(grid_rect.size());
+    }
+    if let Some(preset) = st.zoom_request.take() {
+        st.apply_zoom(preset, grid_rect.width());
     }
     st.view.clamp_y(grid_rect.height());
 
@@ -1157,36 +1456,18 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             );
         }
     }
-    // vertical lines: choose a subdivision that is at least 10 px wide
+    // time grid: five tiers (bar, beat, 1/16, 1/32, 1/64), each fading in with zoom
     let bar = st.ticks_per_bar.max(1);
-    let mut sub = st.grid().max(1);
-    while (sub as f64 * view.px_per_tick) < 10.0 && sub < bar * 64 {
-        sub *= 2;
-    }
     let t0 = view.x0;
     let t1 = view.tick_at(grid_rect.width());
-    let mut shapes: Vec<Shape> = Vec::new();
-    let first = (t0 / sub as f64).floor() as i64;
-    let last = (t1 / sub as f64).ceil() as i64;
-    for i in first.max(0)..=last {
-        let t = i as Tick * sub;
-        let x = origin.x + view.x_of(t as f64);
-        let c = if t.is_multiple_of(bar) {
-            col.grid_bar
-        } else if t.is_multiple_of(960) {
-            col.grid_major
-        } else {
-            col.grid_minor
-        };
-        shapes.push(Shape::line_segment(
-            [
-                Pos2::new(x, grid_rect.top()),
-                Pos2::new(x, grid_rect.bottom()),
-            ],
-            Stroke::new(1.0, c),
-        ));
-    }
-    gp.extend(shapes);
+    paint_time_grid(
+        &gp,
+        grid_rect,
+        view.x0,
+        view.px_per_tick,
+        st.ticks_per_bar,
+        cx.theme,
+    );
     // pattern end
     let end_x = origin.x + view.x_of(st.pattern_len as f64);
     gp.line_segment(
@@ -1253,7 +1534,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             continue;
         }
         r.max.y -= 1.0;
-        r.max.x = r.max.x.max(r.min.x + 1.5);
+        r.max.x = r.max.x.max(r.min.x + MIN_NOTE_PX);
         let base = lerp(ch_color.gamma_multiply(0.55), ch_color, n.velocity);
         // a muted note is drawn washed out, with a dashed-looking outline
         let base = if n.muted {
@@ -1289,8 +1570,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         }
         if let Some(f) = flash_map.get(&n.id) {
             let k = (1.0 - ((cx.now - f.at) / FLASH_SECS) as f32).clamp(0.0, 1.0);
+            // pulses once as it appears: the ring starts wide and settles
+            let pulse = if crate::motion::reduce(ui.ctx()) {
+                0.0
+            } else {
+                crate::motion::decay(cx.now, f.at, 0.45)
+            };
             shapes.push(Shape::rect_stroke(
-                r.expand(2.0),
+                r.expand(2.0 + 5.0 * pulse),
                 CornerRadius::same(3),
                 Stroke::new(2.0, col.agent.gamma_multiply(k)),
                 StrokeKind::Outside,
@@ -1308,23 +1595,23 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             p,
             Align2::LEFT_CENTER,
             s,
-            FontId::proportional(10.0),
-            Color32::from_black_alpha(190),
+            FontId::new(10.0, crate::fonts::mono()),
+            col.accent_ink,
         );
     }
     for (p, who, k) in badges {
         let label = who.trim_start_matches("agent:");
         let g = gp.layout_no_wrap(
-            label.to_string(),
-            FontId::proportional(10.0),
-            Color32::BLACK,
+            label.to_uppercase(),
+            FontId::new(10.0, crate::fonts::cond()),
+            col.accent_ink,
         );
         let r = Rect::from_min_size(
             p - Vec2::new(0.0, g.size().y + 2.0),
             g.size() + Vec2::new(6.0, 2.0),
         );
         gp.rect_filled(r, CornerRadius::same(3), col.agent.gamma_multiply(k));
-        gp.galley(r.min + Vec2::new(3.0, 1.0), g, Color32::BLACK);
+        gp.galley(r.min + Vec2::new(3.0, 1.0), g, col.accent_ink);
     }
 
     // in-flight new note and box
@@ -1375,7 +1662,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                         .note_rect(n.key, n.start, n.length)
                         .translate(origin.to_vec2());
                     let c = if *to == Some(true) {
-                        col.text_dim
+                        col.dim
                     } else {
                         col.accent
                     };
@@ -1399,12 +1686,13 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     // playhead
     if let Some(ph) = cx.playhead {
         let x = origin.x + view.x_of(ph as f64);
-        gp.line_segment(
-            [
-                Pos2::new(x, grid_rect.top()),
-                Pos2::new(x, grid_rect.bottom()),
-            ],
-            Stroke::new(1.5, col.playhead),
+        crate::paint::playhead(
+            &gp,
+            x,
+            grid_rect.top(),
+            grid_rect.bottom(),
+            cx.theme,
+            crate::motion::reduce(ui.ctx()),
         );
     }
 
@@ -1423,7 +1711,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             if black {
                 col.key_black.gamma_multiply(1.0)
             } else {
-                col.panel_alt
+                col.bg3
             },
         );
         if black {
@@ -1431,7 +1719,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                 Rect::from_min_size(r.min, Vec2::new(KEYBOARD_W * 0.62, r.height()))
                     .shrink2(Vec2::new(0.0, 0.5)),
                 CornerRadius::ZERO,
-                col.bg,
+                col.bg0,
             );
         }
         if key % 12 == 0 || view.key_h >= 14.0 {
@@ -1439,19 +1727,15 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                 Pos2::new(key_rect.right() - 4.0, r.center().y),
                 Align2::RIGHT_CENTER,
                 note_name(key),
-                FontId::proportional(10.0),
-                if key % 12 == 0 {
-                    col.text
-                } else {
-                    col.text_dim
-                },
+                FontId::new(10.0, crate::fonts::mono()),
+                if key % 12 == 0 { col.text } else { col.dim },
             );
         }
     }
 
     // ---- ruler ---------------------------------------------------------------------------
     let rp = painter.with_clip_rect(ruler_rect);
-    rp.rect_filled(ruler_rect, CornerRadius::ZERO, col.panel_alt);
+    rp.rect_filled(ruler_rect, CornerRadius::ZERO, col.bg3);
     let mut bar_step = 1;
     while (bar as f64 * bar_step as f64 * view.px_per_tick) < 40.0 {
         bar_step *= 2;
@@ -1471,8 +1755,8 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             Pos2::new(x + 3.0, ruler_rect.top() + 2.0),
             Align2::LEFT_TOP,
             format!("{}", b + 1),
-            FontId::proportional(10.0),
-            col.text_dim,
+            FontId::new(10.0, crate::fonts::mono()),
+            col.dim,
         );
         b += bar_step;
     }
@@ -1489,7 +1773,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
 
     // ---- velocity lane -------------------------------------------------------------------
     let lp = painter.with_clip_rect(lane_rect);
-    lp.rect_filled(lane_rect, CornerRadius::ZERO, col.panel);
+    lp.rect_filled(lane_rect, CornerRadius::ZERO, col.bg2);
     let vel_override: Option<(&Vec<NoteId>, f32)> = match &st.drag {
         Drag::Velocity { ids, value } => Some((ids, *value)),
         _ => None,
@@ -1525,7 +1809,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         Align2::LEFT_TOP,
         "Velocity",
         FontId::proportional(10.0),
-        col.text_dim,
+        col.dim,
     );
     out
 }

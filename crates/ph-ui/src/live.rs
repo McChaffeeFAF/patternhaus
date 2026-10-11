@@ -21,6 +21,8 @@ pub struct Live {
     /// Per insert `[left, right]` with a short peak hold and decay, linear.
     pub peak: Vec<[f32; 2]>,
     pub rms: Vec<[f32; 2]>,
+    /// The master's recent peak levels (newest last), for the top bar's scope.
+    pub scope: Vec<f32>,
     /// Incremented on every poll, so tests and the UI can tell it is alive.
     pub polls: u64,
 }
@@ -38,6 +40,7 @@ impl Default for Live {
             stats: EngineStats::default(),
             peak: Vec::new(),
             rms: Vec::new(),
+            scope: Vec::new(),
             polls: 0,
         }
     }
@@ -116,6 +119,9 @@ pub enum Audition {
     },
 }
 
+/// Samples in the scope trace.
+pub const SCOPE_LEN: usize = 96;
+
 /// Preview velocity for the browser.
 const AUDITION_VELOCITY: f32 = 0.9;
 
@@ -147,6 +153,8 @@ fn run(engine: Arc<Engine>, ctx: Context, rx: Receiver<EngineMsg>, live: Arc<Mut
     let mut last = Instant::now();
     let mut peak: Vec<[f32; 2]> = Vec::new();
     let mut idle_polls = 0u32;
+    let mut scope: std::collections::VecDeque<f32> = std::collections::VecDeque::new();
+    let mut scope_at = Instant::now();
     let mut next_poll = Instant::now();
     loop {
         // `thread::sleep` is high resolution on Windows; channel timeouts are not (15 ms ticks).
@@ -188,12 +196,25 @@ fn run(engine: Arc<Engine>, ctx: Context, rx: Receiver<EngineMsg>, live: Arc<Mut
             }
         }
         let playing = status.playing;
+        // a trace of the master level, 30 samples a second; it runs out when the sound stops
+        if scope_at.elapsed() >= Duration::from_millis(33) {
+            scope_at = Instant::now();
+            if playing || active {
+                if scope.len() >= SCOPE_LEN {
+                    scope.pop_front();
+                }
+                scope.push_back(peak.first().map_or(0.0, |p| p[0].max(p[1])));
+            } else if !scope.is_empty() {
+                scope.pop_front();
+            }
+        }
         {
             let mut l = live.lock().unwrap();
             l.status = status;
             l.stats = stats;
             l.peak.clone_from(&peak);
             l.rms = meters.rms;
+            l.scope = scope.iter().copied().collect();
             l.polls += 1;
         }
         // poll fast (faster than any display) while something moves, slowly when idle

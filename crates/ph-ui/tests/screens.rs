@@ -6,6 +6,7 @@ mod common;
 use common::*;
 use egui::Key;
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use ph_core::InsertId;
 use ph_ui::core::PanelId;
 use ph_ui::workspace::WindowId;
@@ -18,9 +19,15 @@ type H = Harness<'static, PhApp>;
 /// A harness that renders on the GPU when an adapter exists (a CI box without Vulkan still runs
 /// the logic, it just cannot take pictures).
 fn harness_ppp(app: PhApp, w: f32, h: f32, ppp: f32) -> H {
+    harness_dt(app, w, h, ppp, 0.25)
+}
+
+/// As [`harness_ppp`] with the time each step advances (a clock-driven screen needs it small).
+fn harness_dt(app: PhApp, w: f32, h: f32, ppp: f32, dt: f32) -> H {
     let build = |app: PhApp, gpu: bool| {
         let b = Harness::builder()
             .with_size(egui::vec2(w, h))
+            .with_step_dt(dt)
             .with_pixels_per_point(ppp);
         let b = if gpu { b.wgpu() } else { b };
         b.build_ui_state(|ui, app: &mut PhApp| app.draw(ui), app)
@@ -81,8 +88,13 @@ fn shots_dir() -> Option<PathBuf> {
 }
 
 fn shot(h: &mut H, name: &str) {
+    shot_after(h, name, 6);
+}
+
+/// As [`shot`], with `steps` frames first (a screen that animates by the clock needs few).
+fn shot_after(h: &mut H, name: &str, steps: usize) {
     // let replies and animations land, then render offscreen
-    for _ in 0..6 {
+    for _ in 0..steps {
         h.step();
         std::thread::sleep(Duration::from_millis(25));
     }
@@ -122,8 +134,8 @@ fn only(h: &mut H, keep: &[WindowId]) {
     h.step();
 }
 
-#[test]
-fn screenshots_of_the_beat() {
+/// The whole tour in one theme: `prefix` names the files (`neon-overview.png`, ...).
+fn tour(theme: &str, prefix: &str) {
     let (fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let _keep = fx.dir;
@@ -135,33 +147,63 @@ fn screenshots_of_the_beat() {
     app.core.sel.effect = Some(1);
     app.core.fix_selection();
     let mut h = harness(app, 1600.0, 1000.0);
+    h.state_mut().set_theme(theme);
+    let name = |what: &str| format!("{prefix}-{what}");
 
     // the default layout: browser docked, playlist as the background, the rack floating
-    shot(&mut h, "01-overview-dark");
+    shot(&mut h, &name("overview"));
     focus(&mut h, PanelId::PianoRoll);
     // an agent edits the kick while we look: its notes flash with an author badge
     for k in 0..3 {
         demo_agent::step(&h.state().core.studio.session, k);
     }
-    shot(&mut h, "02-piano-roll-agent-flash");
+    shot(&mut h, &name("piano-roll-agent-flash"));
     h.state_mut().core.sel.channel = Some(ids.bass);
     h.state_mut().core.sel.pattern = Some(ids.bassline);
     h.state_mut().core.fix_selection();
-    shot(&mut h, "02b-piano-roll-bass");
+    shot(&mut h, &name("piano-roll-bass"));
+
+    // the same roll zoomed to 1/64: a run of 1/64 notes, the finest grid tier solid
+    {
+        let notes: Vec<ph_ui::mapping::NewNote> = (0..8u64)
+            .map(|i| ph_ui::mapping::NewNote {
+                key: 48 + (i % 4) as u8 * 3,
+                start: 960 * 3 + i * 60,
+                length: 60,
+                velocity: 0.55 + 0.06 * i as f32,
+                muted: false,
+            })
+            .collect();
+        let app = h.state_mut();
+        app.core
+            .send(ph_ui::mapping::note_add(ids.bassline, ids.bass, &notes));
+        settle(app);
+        app.core.roll.snap = 60;
+        app.core.roll.zoom_request = Some(ph_ui::piano_roll::ZoomPreset::Detail64);
+        h.step();
+        let app = h.state_mut();
+        app.core.roll.view.x0 = 960.0 * 3.0 - 90.0;
+        app.core.roll.view.y0 = 58.0;
+    }
+    h.state_mut().ws.maximize_toggle(WindowId::PianoRoll);
+    shot(&mut h, &name("piano-roll-1-64"));
+    h.state_mut().ws.maximize_toggle(WindowId::PianoRoll);
+    h.state_mut().core.roll.snap = 240;
+    h.state_mut().core.roll.view.px_per_tick = 0.12;
     only(&mut h, &[WindowId::Instrument(ids.bass)]);
-    shot(&mut h, "03-instrument-synth");
+    shot(&mut h, &name("instrument-synth"));
     only(&mut h, &[WindowId::Instrument(ids.kick)]);
-    shot(&mut h, "04-instrument-sampler-waveform");
+    shot(&mut h, &name("instrument-sampler-waveform"));
     focus(&mut h, PanelId::History);
-    shot(&mut h, "05-history");
+    shot(&mut h, &name("history"));
     focus(&mut h, PanelId::Agents);
-    shot(&mut h, "06-agents");
+    shot(&mut h, &name("agents"));
     only(&mut h, &[]);
     focus(&mut h, PanelId::Playlist);
-    shot(&mut h, "07-playlist");
+    shot(&mut h, &name("playlist"));
     // the mixer keeps strips and routing; an effect slot opens its own window with the knobs
     only(&mut h, &[WindowId::Mixer, WindowId::Effect(InsertId(4), 1)]);
-    shot(&mut h, "08-mixer-effects");
+    shot(&mut h, &name("mixer-effects"));
 
     // a busy workspace: overlapping windows, two instrument windows open side by side
     only(
@@ -183,7 +225,34 @@ fn screenshots_of_the_beat() {
         ws.drag_move(WindowId::Effect(InsertId(4), 0), 900.0, 330.0);
         ws.focus(WindowId::Instrument(ids.bass));
     }
-    shot(&mut h, "12-busy-workspace");
+    shot(&mut h, &name("busy-workspace"));
+
+    // the right-click menu every control shares
+    only(&mut h, &[WindowId::ChannelRack]);
+    {
+        let knob = h.get_by_label("Kick volume").rect().center();
+        h.event(egui::Event::PointerMoved(knob));
+        h.step();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: knob,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.step();
+        }
+    }
+    shot(&mut h, &name("context-menu"));
+    // Escape closes it again
+    h.key_press(egui::Key::Escape);
+    h.step();
+    h.step();
+
+    // the About box
+    h.state_mut().core.dialog = Some(ph_ui::core::Dialog::About);
+    shot(&mut h, &name("about"));
+    h.state_mut().core.dialog = None;
 
     // conflict dialog on top of the history: the human edits the agent's newest note, then
     // asks to undo the agent
@@ -210,13 +279,31 @@ fn screenshots_of_the_beat() {
         app.core.conflict.is_some(),
         "the conflict dialog should be open"
     );
-    shot(&mut h, "09-conflict-dialog");
+    shot(&mut h, &name("conflict-dialog"));
+}
 
-    // light theme
-    h.state_mut().core.conflict = None;
-    h.state_mut().set_theme("light");
-    focus(&mut h, PanelId::PianoRoll);
-    shot(&mut h, "10-light-theme");
+#[test]
+fn screenshots_neon_slate() {
+    tour("neon-slate", "neon");
+}
+
+#[test]
+fn screenshots_red_line() {
+    tour("red-line", "red");
+}
+
+/// The loading screen, mid-way, in both themes.
+#[test]
+fn screenshots_of_the_splash() {
+    for (theme, prefix) in [("neon-slate", "neon"), ("red-line", "red")] {
+        let (fx, _) = fixture(false);
+        let _keep = fx.dir;
+        let mut app = fx.app;
+        app.show_splash();
+        let mut h = harness_dt(app, 1200.0, 760.0, 1.0, 0.04);
+        h.state_mut().set_theme(theme);
+        shot_after(&mut h, &format!("{prefix}-splash"), 3);
+    }
 }
 
 #[test]
@@ -226,7 +313,7 @@ fn renders_sharply_at_double_dpi() {
     let mut app = fx.app;
     pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
     let mut h = harness_ppp(app, 1000.0, 640.0, 2.0);
-    shot(&mut h, "11-hidpi-2x");
+    shot(&mut h, "neon-hidpi-2x");
 }
 
 fn wait(h: &mut H, f: &dyn Fn(&PhApp) -> bool) -> bool {

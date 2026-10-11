@@ -2,9 +2,11 @@
 //! transaction, and the conflict dialog (DESIGN §3).
 
 use crate::core::{AppCore, ConflictChoice};
+use crate::hint::HintExt;
 use crate::mapping;
+use crate::widgets::btn;
 use crate::widgets::{badge, section_label};
-use egui::{Color32, RichText, Ui};
+use egui::{RichText, Ui};
 use ph_commands::{EntryKind, HistoryEntry};
 use std::collections::BTreeSet;
 use std::time::SystemTime;
@@ -70,16 +72,15 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     let authors = core.authors();
 
     ui.horizontal_wrapped(|ui| {
-        if ui.button("Undo mine").on_hover_text("Reverts your own last change (Ctrl+Z)").clicked() {
+        if btn(ui, "Undo mine").tip("Reverts your own last change (Ctrl+Z)").clicked() {
             core.send(mapping::undo_mine());
         }
-        if ui.button("Redo mine").on_hover_text("Ctrl+Y").clicked() {
+        if btn(ui, "Redo mine").tip("Ctrl+Y").clicked() {
             core.send(mapping::redo_mine());
         }
         for a in &authors {
-            if ui
-                .button(format!("Undo all by {a}"))
-                .on_hover_text("Reverts that author's work, newest first. Stops and asks if you changed the same things since.")
+            if btn(ui, &format!("Undo all by {a}"))
+                .tip("Reverts that author's work, newest first. Stops and asks if you changed the same things since.")
                 .clicked()
             {
                 core.send(mapping::undo_author(a, "stop"));
@@ -90,7 +91,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     if history.is_empty() {
         ui.label(
             RichText::new("Nothing yet. Edit something and it appears here.")
-                .color(theme.colors.text_dim),
+                .color(theme.colors.dim),
         );
     }
     // the window itself scrolls (see `windows::show_content`)
@@ -102,13 +103,13 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 ui.label(
                     RichText::new(format!("{:>4}", e.txn))
                         .monospace()
-                        .color(theme.colors.text_dim),
+                        .color(theme.colors.dim),
                 );
                 let fill = match &e.author {
                     ph_commands::Author::Human => theme.colors.accent,
                     ph_commands::Author::Agent(_) => theme.colors.agent,
                 };
-                badge(ui, &e.author.to_string(), fill);
+                badge(ui, &e.author.to_string(), fill, &theme);
                 let text = e.summary.clone().unwrap_or_else(|| {
                     e.commands
                         .first()
@@ -127,24 +128,20 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 };
                 let mut rt = RichText::new(label);
                 if reverted {
-                    rt = rt.strikethrough().color(theme.colors.text_dim);
+                    rt = rt.strikethrough().color(theme.colors.dim);
                 }
                 ui.label(rt);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if is_live_do
-                        && ui
-                            .small_button("Undo")
-                            .on_hover_text("Revert only this transaction")
+                        && btn(ui, "Undo")
+                            .tip("Revert only this transaction")
                             .clicked()
                     {
                         core.send(mapping::undo_txn(e.txn, "stop"));
                     }
                     if matches!(e.kind, EntryKind::Undo { .. })
                         && live_undos.contains(&e.txn)
-                        && ui
-                            .small_button("Redo")
-                            .on_hover_text("Undo this undo")
-                            .clicked()
+                        && btn(ui, "Redo").tip("Undo this undo").clicked()
                     {
                         core.send(mapping::undo_txn(e.txn, "stop"));
                     }
@@ -156,7 +153,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                         RichText::new(when)
                             .monospace()
                             .size(10.0)
-                            .color(theme.colors.text_dim),
+                            .color(theme.colors.dim),
                     );
                 });
             });
@@ -196,17 +193,16 @@ pub fn conflict_dialog(ctx: &egui::Context, core: &mut AppCore) {
             });
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Skip these objects").on_hover_text("Undo everything else, leave the conflicting objects as they are").clicked() {
+                if btn(ui, "Skip these objects").tip("Undo everything else, leave the conflicting objects as they are").clicked() {
                     choice = Some(ConflictChoice::Skip);
                 }
-                if ui
-                    .button(RichText::new("Force").color(Color32::from_rgb(255, 180, 84)))
-                    .on_hover_text("Overwrite their changes too")
+                if crate::widgets::btn_tinted(ui, "Force", core.theme.colors.warn)
+                    .tip("Overwrite their changes too")
                     .clicked()
                 {
                     choice = Some(ConflictChoice::Force);
                 }
-                if ui.button("Cancel").clicked() {
+                if btn(ui, "Cancel").clicked() {
                     choice = Some(ConflictChoice::Cancel);
                 }
             });
