@@ -64,7 +64,25 @@ pub fn definitions() -> FontDefinitions {
     d
 }
 
-/// Installs the fonts (once, at start-up).
+const FLAG: &str = "ph_fonts_installed";
+
+/// Installs the fonts. egui applies them at the start of the next frame.
 pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(definitions());
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(FLAG), true));
+}
+
+/// True when the fonts are already installed on this context. Otherwise installs them and
+/// returns false: the caller skips the frame (the fonts only exist from the next one, and
+/// laying text out in a family egui does not know yet would panic).
+pub fn ensure(ctx: &egui::Context) -> bool {
+    if ctx
+        .data(|d| d.get_temp::<bool>(egui::Id::new(FLAG)))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    install(ctx);
+    ctx.request_repaint();
+    false
 }

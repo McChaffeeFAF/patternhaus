@@ -4,17 +4,23 @@
 //! [`PhApp::draw`] draws one whole frame into a `Ui`, so the real window (`eframe`) and the
 //! offscreen tests share the same code.
 
+use crate::brand::wordmark;
 use crate::core::{
     AfterPrompt, AppCore, AppPaths, Dialog, EffectEdit, Hooks, PanelAction, PanelId, RenameTarget,
     ToastKind,
 };
+use crate::hint;
 use crate::keymap::{Chord, Context};
 use crate::mapping;
+use crate::motion;
 use crate::panels;
 use crate::settings::{self, Layout};
+use crate::theme::{TRACK_MENU, caps, caps_sized};
+use crate::toolbar;
+use crate::widgets::{btn, menu_item};
 use crate::windows;
 use crate::workspace::{Rect as WRect, WindowId, Workspace, match_effects};
-use egui::{Align2, Color32, Id, RichText, Ui};
+use egui::{Align2, Id, RichText, Ui};
 use ph_control::Studio;
 use ph_core::InsertId;
 use ph_engine::EngineConfig;
@@ -59,10 +65,14 @@ impl PhApp {
                     .and_then(|c| settings::load_layout(&settings::layout_path(c)))
             });
         let fresh_layout = layout.is_none();
-        let ws = match layout {
-            Some(l) => l.workspace,
-            None => Workspace::new(WRect::new(0.0, 0.0, 1400.0, 800.0)),
+        let (ws, toolbar) = match layout {
+            Some(l) => (l.workspace, l.toolbar),
+            None => (
+                Workspace::new(WRect::new(0.0, 0.0, 1400.0, 800.0)),
+                Default::default(),
+            ),
         };
+        let prefs = settings::load_prefs(paths.config_dir.as_deref());
         let mut core = AppCore::new(
             studio,
             ctx.clone(),
@@ -72,6 +82,10 @@ impl PhApp {
             theme,
             keymap,
         )?;
+        core.toolbar = toolbar;
+        core.toolbar.normalize();
+        core.reduce_motion = prefs.reduce_motion;
+        motion::set_reduce(ctx, prefs.reduce_motion);
         core.audio_notice = audio_notice.clone();
         if let Some(n) = audio_notice {
             core.toast(ToastKind::Warn, n);
@@ -295,6 +309,7 @@ impl PhApp {
     fn layout(&self) -> Layout {
         Layout {
             workspace: self.ws.clone(),
+            toolbar: self.core.toolbar.clone(),
         }
     }
 
@@ -335,6 +350,9 @@ impl PhApp {
 
     pub fn draw(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        if !crate::fonts::ensure(&ctx) {
+            return;
+        }
         if !self.theme_applied {
             self.core.theme.apply(&ctx);
             self.theme_applied = true;
@@ -365,15 +383,37 @@ impl PhApp {
         self.handle_keys(&ctx);
 
         let theme = self.core.theme.clone();
-        egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
-        egui::Panel::top("transport")
-            .frame(
-                egui::Frame::new()
-                    .fill(theme.colors.bg2)
-                    .inner_margin(egui::Margin::symmetric(8, 6)),
-            )
+        hint::begin_frame(&ctx);
+        motion::set_reduce(&ctx, self.core.reduce_motion);
+        let chrome = |fill| {
+            egui::Frame::new()
+                .fill(fill)
+                .inner_margin(egui::Margin::symmetric(8, 3))
+        };
+        let line = egui::Stroke::new(1.0, theme.colors.line);
+        let r = egui::Panel::top("menu")
+            .frame(chrome(theme.colors.bg0))
+            .show(ui, |ui| self.menu(ui));
+        ui.painter().hline(
+            r.response.rect.x_range(),
+            r.response.rect.bottom(),
+            egui::Stroke::new(1.0, theme.colors.line_soft),
+        );
+        let r = egui::Panel::top("transport")
+            .frame(chrome(theme.colors.bg1).inner_margin(egui::Margin::symmetric(8, 5)))
             .show(ui, |ui| panels::transport::show(ui, &mut self.core));
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        ui.painter()
+            .hline(r.response.rect.x_range(), r.response.rect.bottom(), line);
+        let r = egui::Panel::top("toolbar")
+            .frame(chrome(theme.colors.bg1))
+            .show(ui, |ui| toolbar::show(ui, &mut self.core));
+        ui.painter()
+            .hline(r.response.rect.x_range(), r.response.rect.bottom(), line);
+        let r = egui::Panel::bottom("status")
+            .frame(chrome(theme.colors.bg0))
+            .show(ui, |ui| self.hint_bar(ui));
+        ui.painter()
+            .hline(r.response.rect.x_range(), r.response.rect.top(), line);
         if self.ws.browser.visible {
             let r = egui::Panel::left("browser")
                 .resizable(true)
@@ -381,7 +421,7 @@ impl PhApp {
                 .size_range(140.0..=640.0)
                 .frame(
                     egui::Frame::new()
-                        .fill(theme.colors.bg2)
+                        .fill(theme.colors.bg1)
                         .inner_margin(egui::Margin::same(6)),
                 )
                 .show(ui, |ui| panels::browser::show(ui, &mut self.core));
@@ -397,12 +437,12 @@ impl PhApp {
         self.dialogs(&ctx);
         panels::history::conflict_dialog(&ctx, &mut self.core);
         self.toasts(&ctx);
+        if let Some(h) = hint::take_help_request(&ctx) {
+            self.core.toast(ToastKind::Info, hint::line(&h));
+        }
+        self.core.publish_hint(hint::current(&ctx));
 
-        let title = format!(
-            "{}{} - Patternhaus",
-            self.core.project.settings.title,
-            if self.core.dirty { " *" } else { "" }
-        );
+        let title = window_title(&self.core.project.settings.title, self.core.dirty);
         if title != self.last_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.last_title = title;
@@ -495,131 +535,233 @@ impl PhApp {
     // ---- menus -----------------------------------------------------------------------------
 
     fn menu(&mut self, ui: &mut Ui) {
-        egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui.button("New project…").clicked() {
-                    self.core
-                        .app_action("app.new_project", &serde_json::Value::Null);
-                    ui.close();
-                }
-                if ui.button("Open project…").clicked() {
-                    self.core
-                        .app_action("app.open_project", &serde_json::Value::Null);
-                    ui.close();
-                }
-                if ui.button("Save").clicked() {
-                    self.core.send(mapping::file_save());
-                    ui.close();
-                }
-                if ui.button("Save as…").clicked() {
-                    self.core
-                        .app_action("app.save_as", &serde_json::Value::Null);
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Export audio…").clicked() {
-                    self.core.app_action("app.export", &serde_json::Value::Null);
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Quit").clicked() {
-                    // goes through the same close request as the window's own close button
-                    self.core.ask_or_do(AfterPrompt::Quit);
-                    ui.close();
-                }
-            });
-            ui.menu_button("Edit", |ui| {
-                if ui.button("Undo (mine)").clicked() {
-                    self.core.send(mapping::undo_mine());
-                    ui.close();
-                }
-                if ui.button("Redo (mine)").clicked() {
-                    self.core.send(mapping::redo_mine());
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button("Clone pattern").clicked() {
-                    self.core
-                        .app_action("app.clone_pattern", &serde_json::Value::Null);
-                    ui.close();
-                }
-            });
-            ui.menu_button("View", |ui| {
-                for p in PanelId::ALL {
-                    if p == PanelId::Inspector {
-                        continue; // instrument windows open from the channel rack
+        let theme = self.core.theme.clone();
+        let m = |t: &str| caps_sized(t, 12.5, TRACK_MENU);
+        ui.horizontal(|ui| {
+            wordmark(ui, &theme);
+            ui.add_space(10.0);
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button(m("File"), |ui| {
+                    if menu_item(ui, "New project…", "").clicked() {
+                        self.core
+                            .app_action("app.new_project", &serde_json::Value::Null);
+                        ui.close();
                     }
-                    let open = self.panel_visible(p);
-                    if ui.checkbox(&mut { open }, p.title()).clicked() {
-                        if open {
-                            self.close_panel(p);
-                        } else {
-                            self.open_panel(p);
+                    if menu_item(ui, "Open project…", "").clicked() {
+                        self.core
+                            .app_action("app.open_project", &serde_json::Value::Null);
+                        ui.close();
+                    }
+                    if menu_item(ui, "Save", "Ctrl+S").clicked() {
+                        self.core.send(mapping::file_save());
+                        ui.close();
+                    }
+                    if menu_item(ui, "Save as…", "").clicked() {
+                        self.core
+                            .app_action("app.save_as", &serde_json::Value::Null);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if menu_item(ui, "Export audio…", "Ctrl+R").clicked() {
+                        self.core.app_action("app.export", &serde_json::Value::Null);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if menu_item(ui, "Quit", "").clicked() {
+                        // goes through the same close request as the window's own close button
+                        self.core.ask_or_do(AfterPrompt::Quit);
+                        ui.close();
+                    }
+                });
+                ui.menu_button(m("Edit"), |ui| {
+                    if menu_item(ui, "Undo (mine)", "Ctrl+Z").clicked() {
+                        self.core.send(mapping::undo_mine());
+                        ui.close();
+                    }
+                    if menu_item(ui, "Redo (mine)", "Ctrl+Y").clicked() {
+                        self.core.send(mapping::redo_mine());
+                        ui.close();
+                    }
+                    ui.separator();
+                    if menu_item(ui, "Clone pattern", "Ctrl+L").clicked() {
+                        self.core
+                            .app_action("app.clone_pattern", &serde_json::Value::Null);
+                        ui.close();
+                    }
+                });
+                ui.menu_button(m("View"), |ui| {
+                    for p in PanelId::ALL {
+                        if p == PanelId::Inspector {
+                            continue; // instrument windows open from the channel rack
+                        }
+                        let open = self.panel_visible(p);
+                        if ui.checkbox(&mut { open }, caps(p.title())).clicked() {
+                            if open {
+                                self.close_panel(p);
+                            } else {
+                                self.open_panel(p);
+                            }
                         }
                     }
-                }
-                ui.separator();
-                ui.menu_button("Theme", |ui| {
-                    if ui.button("Dark").clicked() {
-                        self.set_theme("dark");
+                    ui.separator();
+                    ui.menu_button(m("Theme"), |ui| self.theme_menu(ui));
+                    ui.menu_button(m("Layout"), |ui| {
+                        if menu_item(ui, "Save for me", "").clicked() {
+                            self.save_layout(false);
+                            ui.close();
+                        }
+                        if menu_item(ui, "Save with this project", "").clicked() {
+                            self.save_layout(true);
+                            ui.close();
+                        }
+                        if menu_item(ui, "Reset to default", "").clicked() {
+                            self.reset_layout();
+                            ui.close();
+                        }
+                    });
+                    if menu_item(ui, "Customise toolbar…", "").clicked() {
+                        self.core.dialog = Some(Dialog::Toolbar);
                         ui.close();
                     }
-                    if ui.button("Light").clicked() {
-                        self.set_theme("light");
+                    let mut reduce = self.core.reduce_motion;
+                    if ui
+                        .checkbox(&mut reduce, caps("Reduce motion"))
+                        .on_hover_text("Turns flashes, glow fades, easing and slides into jumps")
+                        .changed()
+                    {
+                        self.set_reduce_motion(reduce);
+                    }
+                    ui.separator();
+                    if menu_item(ui, "Keyboard shortcuts…", "").clicked() {
+                        self.core.dialog = Some(Dialog::Keymap { capturing: None });
                         ui.close();
                     }
                 });
-                ui.menu_button("Layout", |ui| {
-                    if ui.button("Save for me").clicked() {
-                        self.save_layout(false);
-                        ui.close();
-                    }
-                    if ui.button("Save with this project").clicked() {
-                        self.save_layout(true);
-                        ui.close();
-                    }
-                    if ui.button("Reset to default").clicked() {
-                        self.reset_layout();
+                ui.menu_button(m("Help"), |ui| {
+                    if menu_item(ui, "About Patternhaus…", "").clicked() {
+                        self.core.dialog = Some(Dialog::About);
                         ui.close();
                     }
                 });
-                if ui.button("Keyboard shortcuts…").clicked() {
-                    self.core.dialog = Some(Dialog::Keymap { capturing: None });
-                    ui.close();
-                }
             });
-            ui.menu_button("Help", |ui| {
-                if ui.button("About Patternhaus…").clicked() {
-                    self.core.dialog = Some(Dialog::About);
-                    ui.close();
-                }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                panels::transport::health(ui, &mut self.core);
             });
         });
     }
 
-    fn status_bar(&mut self, ui: &mut Ui) {
-        let theme = self.core.theme.clone();
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(&self.core.project.settings.title).strong());
-            ui.label(
-                RichText::new(format!(
-                    "{} channels · {} patterns · {} clips",
-                    self.core.project.channels.len(),
-                    self.core.project.patterns.len(),
-                    self.core.project.clips.len()
-                ))
-                .color(theme.colors.dim),
+    /// The Theme submenu: the built-ins and the user's files, switched live.
+    fn theme_menu(&mut self, ui: &mut Ui) {
+        let (themes, errors) = crate::theme::available(self.core.paths.config_dir.as_deref());
+        let current = self.core.theme.id.clone();
+        for (id, name) in themes {
+            let r = ui.radio(current == id, caps(&name));
+            r.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::RadioButton,
+                    true,
+                    current == id,
+                    &name,
+                )
+            });
+            if r.clicked() {
+                self.set_theme(&id);
+                ui.close();
+            }
+        }
+        if !errors.is_empty() {
+            ui.separator();
+            for e in errors {
+                ui.label(
+                    RichText::new(e)
+                        .color(self.core.theme.colors.warn)
+                        .size(11.0),
+                );
+            }
+        }
+        ui.separator();
+        if menu_item(ui, "Where do themes go?", "").clicked() {
+            self.core.toast(
+                ToastKind::Info,
+                match &self.core.paths.config_dir {
+                    Some(c) => format!("Put theme files in {}", c.join("themes").display()),
+                    None => "No config folder is set".to_string(),
+                },
             );
-            let n = self.core.dispatch.in_flight();
-            if n > 0 {
-                ui.label(RichText::new(format!("{n} pending")).color(theme.colors.dim));
+            ui.close();
+        }
+    }
+
+    pub fn set_reduce_motion(&mut self, reduce: bool) {
+        self.core.reduce_motion = reduce;
+        motion::set_reduce(&self.core.ctx, reduce);
+        if let Some(c) = self.core.paths.config_dir.clone() {
+            let mut prefs = settings::load_prefs(Some(&c));
+            prefs.reduce_motion = reduce;
+            let _ = settings::save_prefs(&c, &prefs);
+        }
+    }
+
+    /// The bar at the bottom: the hint for whatever the pointer is over (its name, value and
+    /// gestures), and the project's counters on the right.
+    fn hint_bar(&mut self, ui: &mut Ui) {
+        let theme = self.core.theme.clone();
+        let c = &theme.colors;
+        ui.horizontal(|ui| {
+            match hint::current(ui.ctx()) {
+                Some(h) => {
+                    ui.label(
+                        RichText::new(&h.name)
+                            .font(egui::FontId::new(12.5, crate::fonts::body_medium()))
+                            .color(c.text),
+                    );
+                    if !h.value.is_empty() {
+                        ui.label(
+                            RichText::new(&h.value)
+                                .font(egui::FontId::new(12.0, crate::fonts::mono()))
+                                .color(c.accent),
+                        );
+                    }
+                    if !h.gestures.is_empty() {
+                        ui.label(RichText::new(&h.gestures).size(12.0).color(c.dim));
+                    }
+                }
+                None => {
+                    ui.label(
+                        RichText::new("Hover a control for its name, value and gestures.")
+                            .size(12.0)
+                            .color(c.faint),
+                    );
+                }
             }
-            if self.core.dirty {
-                ui.label(RichText::new("unsaved changes").color(theme.colors.warn));
-            }
-            if let Some(n) = &self.core.audio_notice {
-                ui.label(RichText::new(n).color(theme.colors.warn));
-            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mono = |t: String, col| {
+                    RichText::new(t)
+                        .font(egui::FontId::new(11.5, crate::fonts::mono()))
+                        .color(col)
+                };
+                if self.core.dirty {
+                    ui.label(mono("UNSAVED".to_string(), c.warn));
+                }
+                let n = self.core.dispatch.in_flight();
+                if n > 0 {
+                    ui.label(mono(format!("{n} PENDING"), c.dim));
+                }
+                ui.label(mono(
+                    format!(
+                        "{} CH  {} PAT  {} CLIPS",
+                        self.core.project.channels.len(),
+                        self.core.project.patterns.len(),
+                        self.core.project.clips.len()
+                    ),
+                    c.dim,
+                ));
+                ui.label(
+                    RichText::new(&self.core.project.settings.title)
+                        .font(egui::FontId::new(12.0, crate::fonts::body_medium()))
+                        .color(c.text),
+                );
+            });
         });
     }
 
@@ -645,17 +787,17 @@ impl PhApp {
                         self.core.project.settings.title
                     ));
                     ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
+                        if btn(ui, "Save").clicked() {
                             // do it once the save has gone through
                             self.core.after_save = Some(then.clone());
                             self.core.send(mapping::file_save());
                             close = true;
                         }
-                        if ui.button("Don't save").clicked() {
+                        if btn(ui, "Don't save").clicked() {
                             self.core.ready.push(then.clone());
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if btn(ui, "Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -669,10 +811,10 @@ impl PhApp {
                         RichText::new(
                             "Opening replaces the current project and clears the history.",
                         )
-                        .color(Color32::GRAY),
+                        .color(self.core.theme.colors.dim),
                     );
                     ui.horizontal(|ui| {
-                        if ui.button("Open").clicked() {
+                        if btn(ui, "Open").clicked() {
                             if self.core.dirty {
                                 // ask first; this dialog is replaced by the question
                                 follow_up = Some(Dialog::Unsaved {
@@ -683,7 +825,7 @@ impl PhApp {
                             }
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if btn(ui, "Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -699,13 +841,13 @@ impl PhApp {
                     ui.add(egui::TextEdit::singleline(&mut path).desired_width(420.0));
                     ui.checkbox(&mut overwrite, "Replace a project already saved there");
                     ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
+                        if btn(ui, "Save").clicked() {
                             let mut r = mapping::file_save_as(&path);
                             r.params["overwrite"] = overwrite.into();
                             self.core.send(r);
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if btn(ui, "Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -722,14 +864,14 @@ impl PhApp {
                     ui.checkbox(&mut overwrite, "Replace the file if it exists");
                     ui.label(
                         RichText::new("Renders offline at 48 kHz / 24 bit with reverb tails.")
-                            .color(Color32::GRAY),
+                            .color(self.core.theme.colors.dim),
                     );
                     ui.horizontal(|ui| {
-                        if ui.button("Export").clicked() {
+                        if btn(ui, "Export").clicked() {
                             self.core.send(mapping::export_audio(&path, overwrite));
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if btn(ui, "Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -742,7 +884,7 @@ impl PhApp {
                     r.request_focus();
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() || enter {
+                        if btn(ui, "OK").clicked() || enter {
                             let req = match target {
                                 RenameTarget::Channel(c) => mapping::channel_rename(c, &text),
                                 RenameTarget::Pattern(p) => mapping::pattern_rename(p, &text),
@@ -752,7 +894,7 @@ impl PhApp {
                             self.core.send(req);
                             close = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if btn(ui, "Cancel").clicked() {
                             close = true;
                         }
                     });
@@ -762,6 +904,13 @@ impl PhApp {
             Dialog::About => {
                 if crate::about::show(ctx) {
                     new_state = Some(Dialog::About);
+                } else {
+                    close = true;
+                }
+            }
+            Dialog::Toolbar => {
+                if toolbar::dialog(ctx, &mut self.core) {
+                    new_state = Some(Dialog::Toolbar);
                 } else {
                     close = true;
                 }
@@ -789,7 +938,7 @@ impl PhApp {
                                         Context::Playlist => "playlist",
                                         Context::ChannelRack => "rack",
                                         Context::Mixer => "mixer",
-                                    }).color(Color32::GRAY));
+                                    }).color(self.core.theme.colors.dim));
                                     let params = if b.params.is_null() { String::new() } else { format!(" {}", b.params) };
                                     ui.label(format!("{}{}", b.command, params));
                                     let label = if capturing == Some(i) { "press a key…".to_string() } else { b.chord.to_string() };
@@ -801,7 +950,7 @@ impl PhApp {
                             });
                         });
                         ui.horizontal(|ui| {
-                            if ui.button("Save").clicked() {
+                            if btn(ui, "Save").clicked() {
                                 match self.core.paths.config_dir.clone() {
                                     Some(c) => match settings::save_keymap(&c, &self.core.keymap) {
                                         Ok(()) => self.core.toast(ToastKind::Info, "Keymap saved"),
@@ -810,7 +959,7 @@ impl PhApp {
                                     None => self.core.toast(ToastKind::Warn, "No config folder"),
                                 }
                             }
-                            if ui.button("Reset to defaults").clicked() {
+                            if btn(ui, "Reset to defaults").clicked() {
                                 self.core.keymap = crate::keymap::Keymap::defaults();
                                 capturing = None;
                             }
@@ -829,31 +978,75 @@ impl PhApp {
         }
     }
 
+    /// Toasts slide in from the right over 200 ms (a jump with reduced motion) and stack up
+    /// from the bottom corner.
     fn toasts(&mut self, ctx: &egui::Context) {
         let theme = self.core.theme.clone();
         if self.core.toasts.is_empty() {
             return;
         }
-        egui::Area::new(Id::new("toasts"))
-            .anchor(Align2::RIGHT_BOTTOM, [-12.0, -34.0])
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                for t in self.core.toasts.iter().rev() {
-                    let c = match t.kind {
-                        ToastKind::Info => theme.colors.accent,
-                        ToastKind::Warn => theme.colors.warn,
-                        ToastKind::Error => theme.colors.error,
-                    };
-                    egui::Frame::popup(ui.style())
-                        .stroke(egui::Stroke::new(1.5, c))
+        let now = self.core.now;
+        let reduce = self.core.reduce_motion;
+        let mut y = 34.0;
+        let mut sliding = false;
+        for t in self.core.toasts.iter().rev() {
+            let c = match t.kind {
+                ToastKind::Info => theme.colors.accent,
+                ToastKind::Warn => theme.colors.warn,
+                ToastKind::Error => theme.colors.error,
+            };
+            let key = Id::new(("toast", &t.text, (t.at * 1000.0) as i64));
+            let k = if reduce {
+                1.0
+            } else {
+                ((now - t.at) / 0.2).clamp(0.0, 1.0) as f32
+            };
+            let eased = 1.0 - (1.0 - k) * (1.0 - k);
+            sliding |= k < 1.0;
+            let known: Option<f32> = ctx.data(|d| d.get_temp(key));
+            let out = egui::Area::new(key)
+                .anchor(Align2::RIGHT_BOTTOM, [-12.0 + (1.0 - eased) * 70.0, -y])
+                .order(egui::Order::Foreground)
+                .show(ctx, |ui| {
+                    ui.set_opacity(if known.is_some() { eased } else { 0.0 });
+                    egui::Frame::new()
+                        .fill(theme.colors.bg3)
+                        .stroke(egui::Stroke::new(1.0, theme.colors.line))
+                        .corner_radius(theme.metrics.radius_md as u8)
+                        .inner_margin(egui::Margin::symmetric(10, 6))
                         .show(ui, |ui| {
                             ui.set_max_width(380.0);
-                            ui.label(&t.text);
-                        });
-                }
-            });
-        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+                            ui.horizontal(|ui| {
+                                let (bar, _) = ui.allocate_exact_size(
+                                    egui::vec2(3.0, 16.0),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter()
+                                    .rect_filled(bar, egui::CornerRadius::same(1), c);
+                                ui.label(&t.text);
+                            });
+                        })
+                });
+            let h = out.response.rect.height();
+            ctx.data_mut(|d| d.insert_temp(key, h));
+            y += h + 6.0;
+        }
+        // repaint quickly only while something slides, otherwise let the clock expire toasts
+        ctx.request_repaint_after(std::time::Duration::from_millis(if sliding {
+            16
+        } else {
+            500
+        }));
     }
+}
+
+/// The OS window title: the project name, a dot while there are unsaved changes, then the
+/// product.
+pub fn window_title(project: &str, dirty: bool) -> String {
+    format!(
+        "{project}{} \u{2014} Patternhaus",
+        if dirty { " \u{2022}" } else { "" }
+    )
 }
 
 /// What identifies an effect inside its insert: its kind.

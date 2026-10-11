@@ -5,10 +5,14 @@
 //! live in the model; the only thing remembered between frames is where a drag started.
 
 use crate::core::{AppCore, PanelId, ScrollInfo};
+use crate::hint::HintExt;
+use crate::icons::Icon;
+use crate::paint;
 use crate::panels;
+use crate::theme::{TRACK_LABEL, caps_sized};
 use crate::workspace::{Edges, Rect as WRect, TITLE_H, WindowId, Workspace};
 use egui::{
-    Align, Align2, CornerRadius, CursorIcon, FontId, Id, Layout, Order, Pos2, Rect, Sense, Stroke,
+    Align, CornerRadius, CursorIcon, FontId, Id, Layout, Order, Pos2, Rect, Sense, Stroke,
     StrokeKind, Ui, UiBuilder, Vec2,
 };
 use ph_core::InstrumentSpec;
@@ -19,6 +23,8 @@ const MARGIN: f32 = 4.0;
 const BAND_IN: f32 = 3.0;
 const CORNER: f32 = 12.0;
 const BUTTON: f32 = 20.0;
+/// Title-bar buttons: options, detach, maximize, close.
+const BUTTONS: usize = 4;
 
 /// The name shown for an effect: its descriptor's name ("EQ"), else its raw id.
 pub fn effect_name(effect: &ph_core::EffectSpec) -> String {
@@ -136,6 +142,7 @@ struct Events {
     close: bool,
     maximize: bool,
     detach: bool,
+    reset: bool,
     move_to: Option<(f32, f32)>,
     resize: Option<(Edges, WRect)>,
 }
@@ -169,8 +176,8 @@ pub fn show_workspace(ui: &mut Ui, ws: &mut Workspace, core: &mut AppCore) -> Re
         }
         let eff = ws.effective_rect(id).unwrap();
         // keep the title readable when a window in front covers its usual place
-        let title_w = title_of(core, id).chars().count() as f32 * 7.0;
-        let title_x = ws.title_start(id, title_w, BUTTON * 3.0 + 8.0);
+        let title_w = title_of(core, id).chars().count() as f32 * 8.5;
+        let title_x = ws.title_start(id, title_w, BUTTON * BUTTONS as f32 + 10.0);
         let (ev, layer) = show_window(
             &ctx,
             work,
@@ -198,6 +205,9 @@ pub fn show_workspace(ui: &mut Ui, ws: &mut Workspace, core: &mut AppCore) -> Re
         }
         if ev.detach {
             ws.set_detached(id, true);
+        }
+        if ev.reset {
+            ws.reset_window(id);
         }
         if let Some((x, y)) = ev.move_to {
             ws.drag_move(id, x, y);
@@ -252,13 +262,19 @@ fn show_window(
             ui.allocate_rect(win.expand(MARGIN), Sense::hover());
             let clip = ui.clip_rect();
             let p = ui.painter().clone();
+            // body, border, title bar. A focused window has an accent edge and a soft outer
+            // glow that fades in over 120 ms; background windows have neither.
+            let c = &theme.colors;
+            let focus = crate::motion::ease_bool(ctx, area_id.with("focus"), is_front, 0.12);
             let round = if maximized {
                 CornerRadius::ZERO
             } else {
-                CornerRadius::same(6)
+                CornerRadius::same(theme.metrics.radius_lg as u8)
             };
-            // body, border, title bar
-            p.rect_filled(win, round, theme.colors.bg2);
+            if focus > 0.01 && !maximized {
+                paint::glow_rect(&p, win, round.nw, c.accent, focus);
+            }
+            p.rect_filled(win, round, c.bg2);
             let title_rect = Rect::from_min_size(win.min, Vec2::new(win.width(), TITLE_H));
             p.rect_filled(
                 title_rect,
@@ -268,12 +284,17 @@ fn show_window(
                     sw: 0,
                     se: 0,
                 },
-                theme.colors.bg3,
+                paint::over(c.bg1, c.bg3, focus),
             );
-            if is_front {
+            if focus > 0.01 {
                 p.line_segment(
                     [title_rect.left_bottom(), title_rect.right_bottom()],
-                    Stroke::new(2.0, theme.colors.accent),
+                    Stroke::new(2.0, c.accent.gamma_multiply(focus)),
+                );
+            } else {
+                p.line_segment(
+                    [title_rect.left_bottom(), title_rect.right_bottom()],
+                    Stroke::new(1.0, c.line_soft),
                 );
             }
 
@@ -303,19 +324,12 @@ fn show_window(
             p.rect_stroke(
                 win,
                 round,
-                Stroke::new(
-                    1.0,
-                    if is_front {
-                        theme.colors.accent_dim
-                    } else {
-                        theme.colors.line
-                    },
-                ),
+                Stroke::new(1.0, paint::over(c.line, c.accent_dim, focus)),
                 StrokeKind::Inside,
             );
 
             // title: drag to move, double-click to maximize
-            let buttons_w = BUTTON * 3.0 + 8.0;
+            let buttons_w = BUTTON * BUTTONS as f32 + 10.0;
             let drag_rect = Rect::from_min_max(
                 title_rect.min,
                 Pos2::new(title_rect.max.x - buttons_w, title_rect.max.y),
@@ -347,23 +361,47 @@ fn show_window(
             if tr.double_clicked() {
                 ev.maximize = true;
             }
-            p.with_clip_rect(drag_rect.intersect(clip)).text(
-                Pos2::new(title_rect.left() + title_x, title_rect.center().y),
-                Align2::LEFT_CENTER,
+            let tr = tr.hint(
                 &title,
-                FontId::proportional(12.5),
-                if is_front {
-                    theme.colors.text
-                } else {
-                    theme.colors.dim
-                },
+                "",
+                "drag to move, double-click to maximize, right-click for options",
             );
+            // the fixed windows are named in capitals; object windows carry their (typed) name
+            let rich = if id.is_object() {
+                egui::RichText::new(&title).font(FontId::new(
+                    theme.metrics.font_title,
+                    crate::fonts::body_medium(),
+                ))
+            } else {
+                caps_sized(&title, theme.metrics.font_title, TRACK_LABEL).font(FontId::new(
+                    theme.metrics.font_title,
+                    crate::fonts::cond_bold(),
+                ))
+            };
+            let galley = egui::WidgetText::from(rich).into_galley(
+                ui,
+                Some(egui::TextWrapMode::Extend),
+                f32::INFINITY,
+                egui::TextStyle::Button,
+            );
+            let tp = Pos2::new(
+                title_rect.left() + title_x,
+                title_rect.center().y - galley.size().y / 2.0,
+            );
+            p.with_clip_rect(drag_rect.intersect(clip)).galley(
+                tp,
+                galley,
+                if is_front { c.text } else { c.dim },
+            );
+            tr.context_menu(|ui| {
+                window_options(ui, core, id, maximized, &mut ev, &title);
+            });
 
-            // buttons, right to left: close, maximize, detach
+            // buttons, right to left: close, maximize, detach, options
             let btn = |ui: &mut Ui, slot: f32, what: &str| {
                 let r = Rect::from_min_size(
                     Pos2::new(
-                        title_rect.right() - 4.0 - BUTTON * (slot + 1.0),
+                        title_rect.right() - 5.0 - BUTTON * (slot + 1.0),
                         title_rect.top() + (TITLE_H - BUTTON) / 2.0,
                     ),
                     Vec2::splat(BUTTON),
@@ -372,50 +410,51 @@ fn show_window(
                 if resp.hovered() {
                     ui.painter().rect_filled(
                         r,
-                        CornerRadius::same(4),
+                        CornerRadius::same(theme.metrics.radius_md as u8),
                         if what == "close" {
-                            theme.colors.error.gamma_multiply(0.7)
+                            c.clip.gamma_multiply(0.45)
                         } else {
-                            theme.colors.bg4
+                            c.bg4
                         },
                     );
                 }
-                (resp, r.shrink(6.0))
+                (resp, r.shrink(2.0))
             };
-            let stroke = Stroke::new(1.3, theme.colors.dim);
-            let (c, g) = btn(ui, 0.0, "close");
-            p.line_segment([g.left_top(), g.right_bottom()], stroke);
-            p.line_segment([g.left_bottom(), g.right_top()], stroke);
-            ev.close |= c.on_hover_text("Close").clicked();
+            let ink = |r: &egui::Response| if r.hovered() { c.text } else { c.dim };
+            let (cl, g) = btn(ui, 0.0, "close");
+            Icon::Close.paint(&p, g, ink(&cl));
+            ev.close |= cl
+                .hint(
+                    "Close",
+                    "",
+                    "closes the window; its contents stay in the project",
+                )
+                .clicked();
             let (m, g) = btn(ui, 1.0, "maximize");
-            if maximized {
-                p.rect_stroke(
-                    g.shrink2(Vec2::new(0.0, 1.5)),
-                    CornerRadius::same(1),
-                    stroke,
-                    StrokeKind::Inside,
-                );
-                p.line_segment([g.left_top() + Vec2::new(2.5, 0.0), g.right_top()], stroke);
+            (if maximized {
+                Icon::Restore
             } else {
-                p.rect_stroke(g, CornerRadius::same(1), stroke, StrokeKind::Inside);
-            }
+                Icon::Maximize
+            })
+            .paint(&p, g, ink(&m));
             ev.maximize |= m
-                .on_hover_text(if maximized { "Restore" } else { "Maximize" })
+                .hint(
+                    if maximized { "Restore" } else { "Maximize" },
+                    "",
+                    "fills the workspace; double-click the title does the same",
+                )
                 .clicked();
             let (d, g) = btn(ui, 2.0, "detach");
-            p.rect_stroke(
-                Rect::from_min_size(g.min + Vec2::new(0.0, 3.0), g.size() - Vec2::splat(3.0)),
-                CornerRadius::same(1),
-                stroke,
-                StrokeKind::Inside,
-            );
-            p.line_segment([g.center() + Vec2::new(0.0, -1.0), g.right_top()], stroke);
-            p.line_segment(
-                [g.right_top(), g.right_top() + Vec2::new(-3.5, 0.0)],
-                stroke,
-            );
-            p.line_segment([g.right_top(), g.right_top() + Vec2::new(0.0, 3.5)], stroke);
-            ev.detach |= d.on_hover_text("Open in its own window").clicked();
+            Icon::Detach.paint(&p, g, ink(&d));
+            ev.detach |= d
+                .hint("Detach", "", "opens the window in its own OS window")
+                .clicked();
+            let (o, g) = btn(ui, 3.0, "options");
+            Icon::Options.paint(&p, g, ink(&o));
+            let o = o.hint("Window options", "", "move, size and per-window settings");
+            egui::Popup::menu(&o).show(|ui| {
+                window_options(ui, core, id, maximized, &mut ev, &title);
+            });
 
             // resize bands on the edges and corners (not while maximized)
             if !maximized {
@@ -551,5 +590,133 @@ fn resize_handles(ui: &mut Ui, area_id: Id, win: Rect, model_rect: WRect, ev: &m
             }
             ev.resize = Some((edges, want));
         }
+    }
+}
+
+/// What each window is for (the Help entry of its options menu).
+pub fn window_help(id: WindowId) -> &'static str {
+    match id {
+        WindowId::Playlist => {
+            "Playlist: arrange patterns on tracks. Click an empty spot to place the selected pattern, drag to move, drag an edge to resize."
+        }
+        WindowId::ChannelRack => {
+            "Channel rack: one row per channel. Click the pads to toggle steps, drag across to paint, right-click a row for more."
+        }
+        WindowId::PianoRoll => {
+            "Piano roll: edit the selected channel's notes. Left-click draws, right-click deletes, Ctrl+wheel zooms time, Alt+wheel zooms keys."
+        }
+        WindowId::Mixer => {
+            "Mixer: faders, pan, mute and solo for every insert; select one to edit its effects and sends."
+        }
+        WindowId::History => {
+            "History: every change, by author. Undo mine, or undo everything an agent did."
+        }
+        WindowId::Agents => {
+            "Agents: who is connected over MCP, what each may do, and what they changed."
+        }
+        WindowId::Instrument(_) => "Instrument: the sound source of one channel.",
+        WindowId::Effect(..) => "Effect: the parameters of one effect on a mixer insert.",
+    }
+}
+
+/// The options menu of a title bar (the `...` button, or right-click on the title): the same
+/// entries for every window, then the ones that window has of its own.
+fn window_options(
+    ui: &mut Ui,
+    core: &mut AppCore,
+    id: WindowId,
+    maximized: bool,
+    ev: &mut Events,
+    title: &str,
+) {
+    use crate::widgets::menu_item;
+    if menu_item(ui, if maximized { "Restore" } else { "Maximize" }, "").clicked() {
+        ev.maximize = true;
+        ui.close();
+    }
+    if menu_item(ui, "Detach to own window", "").clicked() {
+        ev.detach = true;
+        ui.close();
+    }
+    if menu_item(ui, "Reset size and position", "").clicked() {
+        ev.reset = true;
+        ui.close();
+    }
+    match id {
+        WindowId::PianoRoll => {
+            ui.separator();
+            let mut ghosts = core.roll.ghosts;
+            if ui
+                .checkbox(&mut ghosts, crate::theme::caps("Ghost notes"))
+                .changed()
+            {
+                core.roll.ghosts = ghosts;
+            }
+            ui.menu_button(crate::theme::caps("Snap"), |ui| {
+                for (name, ticks) in crate::piano_roll::SNAPS {
+                    if ui
+                        .selectable_label(core.roll.snap == *ticks, crate::theme::caps(name))
+                        .clicked()
+                    {
+                        core.roll.snap = *ticks;
+                        ui.close();
+                    }
+                }
+            });
+            ui.menu_button(crate::theme::caps("Zoom"), |ui| {
+                for (preset, label, gesture) in crate::piano_roll::ZoomPreset::MENU {
+                    if menu_item(ui, label, gesture).clicked() {
+                        core.roll.zoom_request = Some(*preset);
+                        ui.close();
+                    }
+                }
+            });
+        }
+        WindowId::ChannelRack => {
+            ui.separator();
+            let mut v = core.rack.velocity_view;
+            if ui
+                .checkbox(&mut v, crate::theme::caps("Velocity view"))
+                .changed()
+            {
+                core.rack.velocity_view = v;
+            }
+        }
+        WindowId::Playlist => {
+            ui.separator();
+            ui.menu_button(crate::theme::caps("Snap"), |ui| {
+                for (name, ticks) in crate::piano_roll::SNAPS {
+                    let t = if *ticks == 0 {
+                        core.playlist.bar
+                    } else {
+                        *ticks
+                    };
+                    if ui
+                        .selectable_label(core.playlist.snap == t, crate::theme::caps(name))
+                        .clicked()
+                    {
+                        core.playlist.snap = t;
+                        ui.close();
+                    }
+                }
+            });
+        }
+        _ => {}
+    }
+    ui.separator();
+    if menu_item(ui, "Help", "").clicked() {
+        crate::hint::request_help(
+            ui.ctx(),
+            ph_control::UiHint {
+                name: title.to_string(),
+                value: String::new(),
+                gestures: window_help(id).to_string(),
+            },
+        );
+        ui.close();
+    }
+    if menu_item(ui, "Close", "").clicked() {
+        ev.close = true;
+        ui.close();
     }
 }

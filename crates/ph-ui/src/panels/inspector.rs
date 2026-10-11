@@ -27,6 +27,23 @@ pub struct InspectorState {
     waves: HashMap<String, Option<Waveform>>,
 }
 
+impl InspectorState {
+    /// The (cached) waveform of a sample reference, for the browser's preview.
+    pub fn wave(
+        &mut self,
+        reference: &str,
+        assets_dir: &Path,
+        project_dir: &Path,
+    ) -> Option<Waveform> {
+        self.waves
+            .entry(reference.to_string())
+            .or_insert_with(|| {
+                load_waveform(&resolve_reference(reference, assets_dir, project_dir))
+            })
+            .clone()
+    }
+}
+
 /// Where a sample reference lives on disk.
 pub fn resolve_reference(reference: &str, assets_dir: &Path, project_dir: &Path) -> PathBuf {
     if let Some(rest) = reference.strip_prefix("factory:") {

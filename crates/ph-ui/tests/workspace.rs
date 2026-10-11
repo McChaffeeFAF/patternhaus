@@ -458,7 +458,7 @@ fn effect_windows_follow_their_effect_when_the_ui_or_an_agent_reorders() {
     // the UI's own "move down" button remaps directly, with the same result
     h.state_mut().ws.show(WindowId::Mixer);
     frames(&mut h, 3);
-    let downs: Vec<_> = h.query_all_by_label("v").collect();
+    let downs: Vec<_> = h.query_all_by_label("Move down").collect();
     assert!(!downs.is_empty(), "the mixer shows the move-down buttons");
     downs[0].click();
     settle_frames(&mut h, 8);

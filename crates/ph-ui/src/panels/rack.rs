@@ -2,22 +2,19 @@
 
 use crate::browser_model::Dragged;
 use crate::core::{AppCore, PanelAction, PanelId, RenameTarget};
+use crate::hint::HintExt;
 use crate::mapping;
 use crate::steps::{self, Step, StepLayout};
+use crate::theme::caps;
 use crate::theme::{lerp, rgb};
-use crate::widgets::{self, Edit, knob, toggle};
+use crate::widgets::{self, knob, toggle};
+use crate::widgets::{btn, menu_item};
 use crate::workspace::WindowId;
-use egui::{
-    Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2,
-};
+use egui::{Align2, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use ph_core::{ChannelId, InstrumentSpec, PatternId, STEP};
 use std::collections::BTreeSet;
 
 pub const ROW_H: f32 = 30.0;
-const PALETTE: [u32; 12] = [
-    0xe5484d, 0xf76b15, 0xffc53d, 0x46a758, 0x12a594, 0x3e63dd, 0x8e4ec6, 0xd6409f, 0x5f9ea0,
-    0x9acd32, 0xdaa520, 0x8b8d98,
-];
 
 #[derive(Clone, Debug)]
 struct Paint {
@@ -55,7 +52,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     let Some(pattern) = core.sel.pattern else {
         ui.horizontal(|ui| {
             ui.label("No pattern yet.");
-            if ui.button("New pattern").clicked() {
+            if btn(ui, "New pattern").clicked() {
                 core.send(mapping::pattern_add());
             }
         });
@@ -66,8 +63,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
 
     // ---- toolbar
     ui.horizontal(|ui| {
-        ui.menu_button("+ Channel", |ui| {
-            if ui.button("Sampler (empty)").clicked() {
+        ui.menu_button(caps("+ Channel"), |ui| {
+            if menu_item(ui, "Sampler (empty)", "").clicked() {
                 core.add_channel(
                     "Sampler",
                     &InstrumentSpec::Sampler {
@@ -78,11 +75,11 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 );
                 ui.close();
             }
-            ui.menu_button("Haus Synth", |ui| {
+            ui.menu_button(caps("Haus Synth"), |ui| {
                 for cat in &core.browser.presets.clone() {
                     ui.menu_button(&cat.name, |ui| {
                         for p in &cat.children {
-                            if ui.button(&p.name).clicked() {
+                            if menu_item(ui, &p.name, "").clicked() {
                                 core.add_channel_from(&p.name, &p.kind);
                                 ui.close();
                             }
@@ -91,8 +88,14 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 }
             });
         });
-        ui.label("Steps");
-        let r = ui.add(egui::DragValue::new(&mut pat_steps).range(1..=256));
+        ui.label(widgets::caption(&theme, "Steps"));
+        let r = ui
+            .add(egui::DragValue::new(&mut pat_steps).range(1..=256))
+            .hint(
+                "Steps",
+                &format!("{pat_steps}"),
+                "drag or type: pattern length in steps",
+            );
         if (r.drag_stopped() || r.lost_focus()) && pat_steps != n_steps {
             core.send(mapping::pattern_length_steps(pattern, pat_steps));
         }
@@ -103,7 +106,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             theme.colors.accent,
             &theme,
         )
-        .on_hover_text("Drag a lit step up or down to set its velocity")
+        .tip("Drag a lit step up or down to set its velocity")
         .clicked()
         {
             core.rack.velocity_view = !core.rack.velocity_view;
@@ -139,6 +142,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         })
         .flatten();
 
+    // how far through the current step the playhead is (for the hit flash)
+    let play_frac = (live.status.position % STEP) as f32 / STEP as f32;
     let panel_rect = ui.available_rect_before_wrap();
     let mut geometry = Vec::new();
     let mut removed: Option<ChannelId> = None;
@@ -291,6 +296,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     0.78,
                     26.0,
                     &theme,
+                    &widgets::Ctl::new(&format!("{} volume", ch.name), &widgets::fmt_percent),
                 );
                 if let Some(v) = e.commit() {
                     core.send(mapping::channel_volume(ch.id, v as f32));
@@ -307,6 +313,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     0.0,
                     26.0,
                     &theme,
+                    &widgets::Ctl::new(&format!("{} pan", ch.name), &widgets::fmt_pan),
                 );
                 if let Some(v) = e.commit() {
                     core.send(mapping::channel_pan(ch.id, v as f32));
@@ -318,7 +325,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(irect));
                 let mut ins = ch.insert.0;
                 let r = child.add(egui::DragValue::new(&mut ins).range(0..=32));
-                r.clone().on_hover_text("Mixer insert (0 = master)");
+                let r = r.tip("Mixer insert (0 = master)");
                 if (r.drag_stopped() || r.lost_focus()) && ins != ch.insert.0 {
                     core.send(mapping::channel_insert(ch.id, ins));
                 }
@@ -334,7 +341,9 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     ..layout
                 };
                 geometry.push((ch.id, steps_rect, lay));
-                step_row(ui, core, ch, pattern, n_steps, steps_rect, lay, play_step);
+                step_row(
+                    ui, core, ch, pattern, n_steps, steps_rect, lay, play_step, play_frac,
+                );
             }
         });
 
@@ -376,14 +385,14 @@ fn channel_menu(
 ) {
     resp.context_menu(|ui| {
         core.sel.channel = Some(ch.id);
-        if ui.button("Rename…").clicked() {
+        if menu_item(ui, "Rename…", "").clicked() {
             core.open_rename(RenameTarget::Channel(ch.id));
             ui.close();
         }
-        ui.menu_button("Colour", |ui| {
+        ui.menu_button(caps("Colour"), |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(150.0);
-                for c in PALETTE {
+                for c in core.theme.swatches() {
                     let (r, p) = ui.allocate_painter(Vec2::splat(22.0), Sense::click());
                     p.rect_filled(r.rect.shrink(1.0), CornerRadius::same(4), rgb(c));
                     if r.clicked() {
@@ -393,11 +402,11 @@ fn channel_menu(
                 }
             });
         });
-        if ui.button("Clone").clicked() {
+        if menu_item(ui, "Clone", "").clicked() {
             core.send(mapping::channel_clone(ch.id));
             ui.close();
         }
-        ui.menu_button("Route to insert", |ui| {
+        ui.menu_button(caps("Route to insert"), |ui| {
             ui.set_max_height(300.0);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for i in 0..=32u32 {
@@ -416,24 +425,30 @@ fn channel_menu(
                 }
             });
         });
-        if ui.button("Open in piano roll").clicked() {
+        if menu_item(ui, "Open in piano roll", "").clicked() {
             core.panel_requests
                 .push((PanelId::PianoRoll, PanelAction::Open));
             ui.close();
         }
-        if ui.button("Instrument settings").clicked() {
+        if menu_item(ui, "Instrument settings", "").clicked() {
             core.window_requests
                 .push((WindowId::Instrument(ch.id), PanelAction::Open));
             ui.close();
         }
         ui.separator();
-        if ui
-            .button(egui::RichText::new("Delete").color(Color32::from_rgb(255, 107, 107)))
-            .clicked()
-        {
+        if crate::widgets::menu_item_tinted(ui, "Delete", core.theme.colors.clip).clicked() {
             *removed = Some(ch.id);
             ui.close();
         }
+        crate::hint::standard_entries(
+            ui,
+            false,
+            &ph_control::UiHint {
+                name: ch.name.clone(),
+                value: String::new(),
+                gestures: "click opens its window, double-click the piano roll".into(),
+            },
+        );
     });
 }
 
@@ -447,6 +462,7 @@ fn step_row(
     rect: Rect,
     lay: StepLayout,
     play_step: Option<u32>,
+    play_frac: f32,
 ) {
     let theme = core.theme.clone();
     let row = steps::row(&core.project, pattern, ch.id, n_steps);
@@ -455,7 +471,7 @@ fn step_row(
         ui.id().with(("steps", ch.id)),
         Sense::click_and_drag(),
     );
-    let colour = rgb(ch.color);
+    let _colour = rgb(ch.color);
 
     // input
     let (pos, primary_pressed, secondary_pressed, released, down) = ui.input(|i| {
@@ -551,6 +567,34 @@ fn step_row(
     // draw
     let pt = core.rack.paint.as_ref().filter(|p| p.channel == ch.id);
     let vel = core.rack.vel.as_ref().filter(|v| v.channel == ch.id);
+    let c = &theme.colors;
+    let reduce = core.reduce_motion;
+    // pads an agent edited in the last 2 s tint with the agent colour
+    let agent_steps: Vec<(u32, f32)> = core
+        .flashes
+        .iter()
+        .filter(|f| core.now - f.at < crate::piano_roll::FLASH_SECS)
+        .filter_map(|f| {
+            let note = core
+                .project
+                .pattern(pattern)
+                .ok()?
+                .notes
+                .get(&ch.id)?
+                .get(&f.note)?;
+            let k = if reduce {
+                0.7
+            } else {
+                crate::motion::decay(core.now, f.at, crate::piano_roll::FLASH_SECS)
+            };
+            Some((steps::step_of_tick(note.start), k))
+        })
+        .collect();
+    if !agent_steps.is_empty() && !reduce {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(33));
+    }
+    let n = row.len() as u32;
     let painter = ui.painter();
     for (i, s) in row.iter().enumerate() {
         let i = i as u32;
@@ -559,11 +603,11 @@ fn step_row(
             Pos2::new(x, rect.top()),
             Vec2::new(lay.w - 2.0, rect.height()),
         );
-        let group_dark = (i / 4).is_multiple_of(2);
-        let base = if group_dark {
-            theme.colors.key_white
+        // alternate shading per group of four
+        let base = if (i / 4).is_multiple_of(2) {
+            c.pad
         } else {
-            theme.colors.row_alt
+            c.pad_group
         };
         let mut on = s.is_on();
         if let Some(p) = pt
@@ -571,18 +615,34 @@ fn step_row(
         {
             on = p.value;
         }
-        painter.rect_filled(r, CornerRadius::same(3), base);
+        crate::paint::well(painter, r, 3, base, &theme);
+        let inner = r.shrink(1.5);
+        let mut flash = 0.0f32;
+        if on
+            && !reduce
+            && let Some(cur) = play_step
+        {
+            // a hit flashes accent-hot with glow, fading over about two steps
+            if cur == i {
+                flash = 1.0 - 0.5 * play_frac;
+            } else if (cur + n - 1) % n == i {
+                flash = 0.5 * (1.0 - play_frac);
+            }
+        }
         if core.rack.velocity_view {
             if let Step::On { velocity, .. } = s {
                 let v = match vel {
                     Some(d) if d.step == i => d.value,
                     _ => *velocity,
                 };
-                let h = r.height() * v;
+                let h = inner.height() * v;
                 painter.rect_filled(
-                    Rect::from_min_max(Pos2::new(r.left(), r.bottom() - h), r.right_bottom()),
-                    CornerRadius::same(3),
-                    lerp(colour.gamma_multiply(0.5), colour, v),
+                    Rect::from_min_max(
+                        Pos2::new(inner.left(), inner.bottom() - h),
+                        inner.right_bottom(),
+                    ),
+                    CornerRadius::same(2),
+                    lerp(base, c.accent, 0.35 + 0.65 * v),
                 );
             }
         } else if on {
@@ -591,25 +651,38 @@ fn step_row(
             } else {
                 0.78
             };
-            painter.rect_filled(
-                r,
-                CornerRadius::same(3),
-                lerp(colour.gamma_multiply(0.55), colour, v),
-            );
+            // velocity sets the accent's opacity
+            let mut fill = lerp(base, c.accent, 0.30 + 0.70 * v);
+            if let Some((_, k)) = agent_steps.iter().find(|(st, _)| *st == i) {
+                fill = lerp(fill, c.agent, 0.85 * k);
+            }
+            if flash > 0.0 {
+                crate::paint::glow_rect(painter, inner, 2, c.accent_hot, flash);
+                fill = lerp(fill, c.accent_hot, flash);
+            }
+            painter.rect_filled(inner, CornerRadius::same(2), fill);
         } else if matches!(s, Step::Other) {
-            painter.circle_filled(r.center(), 2.5, theme.colors.dim);
+            painter.circle_filled(r.center(), 2.5, c.dim);
         }
+        if let Some((_, k)) = agent_steps.iter().find(|(st, _)| *st == i)
+            && !on
+        {
+            painter.rect_filled(
+                inner,
+                CornerRadius::same(2),
+                c.agent.gamma_multiply(0.5 * k),
+            );
+        }
+        // the playhead column is outlined
         if play_step == Some(i) {
             painter.rect_stroke(
-                r,
+                r.expand(0.5),
                 CornerRadius::same(3),
-                Stroke::new(1.5, theme.colors.playhead),
+                Stroke::new(1.5, c.playhead),
                 StrokeKind::Inside,
             );
         }
     }
-    let _ = widgets::section_label;
-    let _ = Edit::None;
 }
 
 fn default_key(ch: &ph_core::Channel) -> u8 {

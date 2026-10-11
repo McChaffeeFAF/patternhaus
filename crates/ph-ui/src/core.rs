@@ -148,6 +148,8 @@ pub enum Dialog {
     },
     /// Help > About: version, licence (GPLv3 notice in the ASIO build), notices.
     About,
+    /// View > Customise toolbar: show, hide and reorder the toolbar's items.
+    Toolbar,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -284,6 +286,15 @@ pub struct AppCore {
     pub ready: Vec<AfterPrompt>,
     /// The whole project was replaced (file.open, new): effect windows cannot follow.
     pub project_replaced: bool,
+    /// Skip decorative animation (flashes, glow fades, easing, slides); a user preference.
+    pub reduce_motion: bool,
+    /// Resident memory of this process, refreshed about once a second.
+    pub ram_bytes: Option<u64>,
+    ram_at: f64,
+    /// The hint last published to the control interface.
+    hint_published: Option<ph_control::UiHint>,
+    /// Which toolbar items show, and in what order (saved with the layout).
+    pub toolbar: crate::toolbar::ToolbarConfig,
 }
 
 /// A window's scroll area, as last drawn.
@@ -385,6 +396,11 @@ impl AppCore {
             project_replaced: false,
             after_save: None,
             ready: Vec::new(),
+            reduce_motion: false,
+            ram_bytes: None,
+            ram_at: f64::NEG_INFINITY,
+            hint_published: None,
+            toolbar: Default::default(),
         };
         core.fix_selection();
         Ok(core)
@@ -403,6 +419,15 @@ impl AppCore {
 
     pub fn send_batch(&mut self, reqs: Vec<Request>) {
         self.dispatch.send_batch(reqs);
+    }
+
+    /// Publishes the hint under the pointer to the control interface (once per change), so an
+    /// agent can read what the UI is showing with `get_state { view: "ui" }`.
+    pub fn publish_hint(&mut self, hint: Option<ph_control::UiHint>) {
+        if self.hint_published != hint {
+            self.studio.set_ui_hint(hint.clone());
+            self.hint_published = hint;
+        }
     }
 
     pub fn toast(&mut self, kind: ToastKind, text: impl Into<String>) {
@@ -432,6 +457,10 @@ impl AppCore {
     /// Drains snapshots, command replies and `ui.*` requests. Call once per frame.
     pub fn update(&mut self, now: f64) {
         self.now = now;
+        if now - self.ram_at >= 1.0 {
+            self.ram_at = now;
+            self.ram_bytes = memory_stats::memory_stats().map(|m| m.physical_mem as u64);
+        }
         while let Ok(change) = self.changes.try_recv() {
             self.on_change(change);
         }
@@ -833,6 +862,20 @@ impl AppCore {
                     _ => Tool::Draw,
                 };
                 self.roll.tool = t;
+            }
+            "app.roll.zoom" => {
+                use crate::piano_roll::ZoomPreset;
+                if let Some(step) = params["step"].as_i64() {
+                    self.roll.zoom_step(step.signum() as i32);
+                } else {
+                    self.roll.zoom_request = match params["preset"].as_str() {
+                        Some("fit") => Some(ZoomPreset::Fit),
+                        Some("bar") => Some(ZoomPreset::Bar),
+                        Some("beat") => Some(ZoomPreset::Beat),
+                        Some("detail64") => Some(ZoomPreset::Detail64),
+                        _ => None,
+                    };
+                }
             }
             "app.roll.duplicate" => self.roll_action(PrAction::Duplicate),
             "app.roll.quantize" => self.roll_action(PrAction::Quantize),

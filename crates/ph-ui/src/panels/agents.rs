@@ -4,6 +4,7 @@
 
 use crate::core::AppCore;
 use crate::mapping;
+use crate::widgets::btn;
 use crate::widgets::{badge, section_label};
 use egui::{RichText, Ui};
 use ph_commands::{Author, Scope};
@@ -43,13 +44,13 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                             .join(", ")
                     ));
                     ui.horizontal(|ui| {
-                        if ui.button("Allow").clicked() {
+                        if btn(ui, "Allow").clicked() {
                             d.resolve_grant(g.id, Some(g.requested.clone()));
                         }
-                        if ui.button("Read only").clicked() {
+                        if btn(ui, "Read only").clicked() {
                             d.resolve_grant(g.id, Some(vec![Scope::Read]));
                         }
-                        if ui.button("Deny").clicked() {
+                        if btn(ui, "Deny").clicked() {
                             d.resolve_grant(g.id, None);
                         }
                     });
@@ -81,7 +82,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     } else {
                         theme.colors.agent.gamma_multiply(0.35)
                     };
-                    badge(ui, &c.name, fill);
+                    badge(ui, &c.name, fill, &theme);
                     for s in &c.scopes {
                         badge(
                             ui,
@@ -91,6 +92,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                             } else {
                                 theme.colors.bg4.gamma_multiply(0.5)
                             },
+                            &theme,
                         );
                     }
                     if c.live {
@@ -139,9 +141,10 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 } else {
                     theme.colors.agent
                 },
+                &theme,
             );
             ui.label(format!("{} change(s)", mine.len()));
-            if a != Author::Human && ui.small_button("Undo all").clicked() {
+            if a != Author::Human && btn(ui, "Undo all").clicked() {
                 core.send(mapping::undo_author(&a.to_string(), "stop"));
             }
         });

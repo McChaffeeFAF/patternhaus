@@ -514,6 +514,19 @@ pub fn available(config: Option<&Path>) -> (Vec<(String, String)>, Vec<String>) 
     (out, errors)
 }
 
+impl Theme {
+    /// The swatches the channel colour menu offers: the five pattern colours first, then a
+    /// neutral set (0xRRGGBB, the form projects store).
+    pub fn swatches(&self) -> Vec<u32> {
+        let pack = |c: Color32| ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | c.b() as u32;
+        let mut v: Vec<u32> = self.colors.pattern.iter().map(|c| pack(*c)).collect();
+        v.extend([
+            0xe5484d, 0xf76b15, 0xffc53d, 0x46a758, 0x12a594, 0x3e63dd, 0x8e4ec6,
+        ]);
+        v
+    }
+}
+
 /// Tracking presets (fractions of the font size): menus +6%, labels +12%, captions +20%.
 pub const TRACK_MENU: f32 = 0.06;
 pub const TRACK_LABEL: f32 = 0.12;

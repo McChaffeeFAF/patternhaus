@@ -11,6 +11,9 @@ use std::path::{Path, PathBuf};
 #[derive(Serialize, Deserialize)]
 pub struct Layout {
     pub workspace: Workspace,
+    /// Toolbar items and their order; layouts saved before the toolbar existed lack it.
+    #[serde(default)]
+    pub toolbar: crate::toolbar::ToolbarConfig,
 }
 
 pub fn keymap_path(config: &Path) -> PathBuf {
@@ -160,10 +163,14 @@ mod tests {
         let mut workspace = Workspace::new(Rect::new(0.0, 0.0, 1200.0, 800.0));
         workspace.show(WindowId::Mixer);
         workspace.drag_move(WindowId::Mixer, 200.0, 300.0);
-        let layout = Layout { workspace };
+        let layout = Layout {
+            workspace,
+            toolbar: Default::default(),
+        };
         save_layout(&path, &layout).unwrap();
         let back = load_layout(&path).unwrap();
         assert_eq!(back.workspace, layout.workspace);
+        assert_eq!(back.toolbar, layout.toolbar);
         assert!(load_layout(&dir.path().join("missing.ron")).is_none());
         // a layout from the old docked shell is ignored, not fatal
         std::fs::write(&path, "(dock: (surfaces: []), detached: [])").unwrap();

@@ -5,20 +5,26 @@
 
 pub mod about;
 pub mod app;
+pub mod brand;
 pub mod browser_model;
 pub mod core;
 pub mod demo_agent;
 pub mod dispatch;
 pub mod fonts;
+pub mod hint;
+pub mod icons;
 pub mod keymap;
 pub mod live;
 pub mod mapping;
+pub mod motion;
+pub mod paint;
 pub mod panels;
 pub mod piano_roll;
 pub mod playlist;
 pub mod settings;
 pub mod steps;
 pub mod theme;
+pub mod toolbar;
 pub mod typing;
 pub mod widgets;
 pub mod windows;

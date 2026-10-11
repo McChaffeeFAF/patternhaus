@@ -24,6 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 ron.workspace = true
+memory-stats = "1"
 
 [dev-dependencies]
 egui_kittest.workspace = true

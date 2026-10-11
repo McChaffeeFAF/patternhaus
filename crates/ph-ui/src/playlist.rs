@@ -3,7 +3,7 @@
 use crate::mapping;
 use crate::piano_roll::{Btn, Mods, snap_floor, snap_tick};
 use crate::theme::{Theme, lerp, rgb};
-use egui::{Align2, CornerRadius, FontId, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Vec2};
+use egui::{Align2, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use ph_commands::Request;
 use ph_core::{Clip, ClipId, ObjectPath, PatternId, Project, Tick};
 use std::collections::{BTreeSet, HashMap};
@@ -422,9 +422,23 @@ impl PlaylistState {
         }
     }
 
+    /// Applies a zoom preset to a grid `grid_w` wide over a song of `song_len` ticks.
+    pub fn zoom_to(&mut self, preset: crate::piano_roll::ZoomPreset, grid_w: f32, song_len: Tick) {
+        let mid = self.tick_at(grid_w * 0.5);
+        let ppt = preset
+            .px_per_tick(grid_w, song_len, self.bar)
+            .clamp(0.003, crate::piano_roll::ZOOM_MAX);
+        self.px_per_tick = ppt;
+        self.x0 = if preset == crate::piano_roll::ZoomPreset::Fit {
+            0.0
+        } else {
+            (mid - (grid_w as f64 * 0.5) / ppt).max(0.0)
+        };
+    }
+
     pub fn zoom_x(&mut self, factor: f64, anchor_x: f32) {
         let t = self.tick_at(anchor_x);
-        self.px_per_tick = (self.px_per_tick * factor).clamp(0.003, 0.6);
+        self.px_per_tick = (self.px_per_tick * factor).clamp(0.003, crate::piano_roll::ZOOM_MAX);
         self.x0 = (t - anchor_x as f64 / self.px_per_tick).max(0.0);
     }
 }
@@ -588,11 +602,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             Align2::CENTER_CENTER,
             "M",
             FontId::proportional(10.0),
-            if tr.muted {
-                egui::Color32::BLACK
-            } else {
-                col.dim
-            },
+            if tr.muted { col.accent_ink } else { col.dim },
         );
         if mresp.clicked() {
             res.mute_track = Some((t as u32, !tr.muted));
@@ -626,7 +636,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             },
         );
         if muted {
-            gp.rect_filled(r, CornerRadius::ZERO, egui::Color32::from_black_alpha(60));
+            gp.rect_filled(r, CornerRadius::ZERO, col.bg0.gamma_multiply(0.5));
         }
         gp.line_segment(
             [r.left_bottom(), r.right_bottom()],
@@ -636,30 +646,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
     let bar = st.bar.max(1);
     let t0 = st.x0;
     let t1 = st.tick_at(grid.width());
-    let mut sub = bar;
-    while (sub as f64 * st.px_per_tick) < 14.0 {
-        sub *= 2;
-    }
-    let mut shapes = Vec::new();
-    let beat_lines = (960.0 * st.px_per_tick) > 9.0;
-    let step = if beat_lines { 960 } else { sub };
-    let first = (t0 / step as f64).floor().max(0.0) as u64;
-    let mut n = first;
-    while (n * step) as f64 <= t1 {
-        let t = n * step;
-        let x = grid.left() + st.x_of(t as f64);
-        let c = if t.is_multiple_of(bar) {
-            col.grid_bar
-        } else {
-            col.grid_minor
-        };
-        shapes.push(Shape::line_segment(
-            [Pos2::new(x, grid.top()), Pos2::new(x, grid.bottom())],
-            Stroke::new(1.0, c),
-        ));
-        n += 1;
-    }
-    gp.extend(shapes);
+    crate::piano_roll::paint_time_grid(&gp, grid, st.x0, st.px_per_tick, bar, cx.theme);
 
     // loop region
     let loop_now = match &st.drag {
@@ -716,8 +703,8 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             r.left_top() + Vec2::new(4.0, 1.0),
             Align2::LEFT_TOP,
             name,
-            FontId::proportional(10.0),
-            egui::Color32::BLACK,
+            FontId::new(11.0, crate::fonts::body_medium()),
+            col.accent_ink,
         );
         if sel {
             gp.rect_stroke(
@@ -748,8 +735,8 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
                     r.right_top() + Vec2::new(-3.0, 1.0),
                     Align2::RIGHT_TOP,
                     who.trim_start_matches("agent:"),
-                    FontId::proportional(9.0),
-                    egui::Color32::BLACK.gamma_multiply(k.max(0.4)),
+                    FontId::new(9.0, crate::fonts::cond()),
+                    col.accent_ink.gamma_multiply(k.max(0.4)),
                 );
             }
         }
@@ -833,7 +820,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             Pos2::new(x + 3.0, ruler.top() + 2.0),
             Align2::LEFT_TOP,
             format!("{}", b + 1),
-            FontId::proportional(10.0),
+            FontId::new(10.0, crate::fonts::mono()),
             col.dim,
         );
         b += bar_step;

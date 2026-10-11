@@ -1,9 +1,11 @@
 //! Piano roll panel: toolbar around the `piano_roll` widget.
 
 use crate::core::AppCore;
+use crate::hint::HintExt;
+use crate::icons::Icon;
 use crate::live::pattern_position;
-use crate::piano_roll::{self, DrawCtx, PrAction, SNAPS, Tool};
-use crate::widgets::toggle;
+use crate::piano_roll::{self, DrawCtx, PrAction};
+use crate::widgets::{btn, icon_button};
 use egui::Ui;
 
 pub fn show(ui: &mut Ui, core: &mut AppCore) {
@@ -17,6 +19,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     };
 
     ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 5.0;
         let ch_name = project
             .channels
             .get(&channel)
@@ -25,68 +28,33 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             .patterns
             .get(&pattern)
             .map_or("?", |p| p.name.as_str());
-        ui.label(egui::RichText::new(format!("{ch_name}  ·  {pat_name}")).strong());
-        ui.separator();
-        for (tool, label, tip) in [
+        ui.label(
+            egui::RichText::new(format!("{ch_name}  \u{b7}  {pat_name}"))
+                .font(egui::FontId::new(13.0, crate::fonts::body_medium()))
+                .color(theme.colors.text),
+        );
+        ui.add_space(6.0);
+        for (icon, a, name, gestures) in [
             (
-                Tool::Draw,
-                "Draw",
-                "Left-click draws, right-click deletes (Alt+P)",
+                Icon::Quantize,
+                PrAction::Quantize,
+                "Quantize",
+                "snap selected notes to the grid (Ctrl+Q)",
             ),
             (
-                Tool::Select,
-                "Select",
-                "Box select (Alt+E, or Ctrl+drag); Alt+drag in empty space lassos",
-            ),
-            (Tool::Delete, "Delete", "Drag over notes to delete (Alt+D)"),
-            (
-                Tool::Slice,
-                "Slice",
-                "Click a note to split it at the snapped position (Alt = no snap)",
-            ),
-            (
-                Tool::Mute,
-                "Mute",
-                "Click or drag over notes to mute or unmute them",
+                Icon::Clone,
+                PrAction::Duplicate,
+                "Duplicate",
+                "copy the selection after itself (Ctrl+B)",
             ),
         ] {
-            if toggle(
-                ui,
-                core.roll.tool == tool,
-                label,
-                theme.colors.accent,
-                &theme,
-            )
-            .on_hover_text(tip)
-            .clicked()
-            {
-                core.roll.tool = tool;
+            if icon_button(ui, &theme, icon, false, name, gestures).clicked() {
+                let outs = core.roll.action(a);
+                core.apply_roll(outs);
             }
         }
-        ui.separator();
-        ui.label("Snap");
-        let cur = SNAPS
-            .iter()
-            .find(|(_, t)| *t == core.roll.snap)
-            .map_or("custom", |(n, _)| *n);
-        egui::ComboBox::from_id_salt("roll_snap")
-            .selected_text(cur)
-            .width(96.0)
-            .show_ui(ui, |ui| {
-                for (name, ticks) in SNAPS {
-                    ui.selectable_value(&mut core.roll.snap, *ticks, *name);
-                }
-            });
-        if toggle(ui, core.roll.ghosts, "Ghosts", theme.colors.accent, &theme)
-            .on_hover_text("Show notes of the other channels")
-            .clicked()
-        {
-            core.roll.ghosts = !core.roll.ghosts;
-        }
-        ui.separator();
+        ui.add_space(4.0);
         for (label, a, tip) in [
-            ("Quantize", PrAction::Quantize, "Ctrl+Q"),
-            ("Duplicate", PrAction::Duplicate, "Ctrl+B"),
             (
                 "-1",
                 PrAction::TransposeDown,
@@ -96,13 +64,14 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             ("-12", PrAction::OctaveDown, "Octave down (Shift+Down)"),
             ("+12", PrAction::OctaveUp, "Octave up (Shift+Up)"),
         ] {
-            if ui.small_button(label).on_hover_text(tip).clicked() {
+            if btn(ui, label).tip(tip).clicked() {
                 let outs = core.roll.action(a);
                 core.apply_roll(outs);
             }
         }
         ui.label(
             egui::RichText::new(format!("{} selected", core.roll.selection.len()))
+                .font(egui::FontId::new(11.5, crate::fonts::mono()))
                 .color(theme.colors.dim),
         );
     });
