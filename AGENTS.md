@@ -81,8 +81,11 @@ the audio thread. Tests run the engine under `assert_no_alloc`.
    solo, replacing the whole project) are registered the same way, with a params struct,
    scope and flags, but the session runs them: add the id to `SESSION_COMMANDS` in
    `session_cmd.rs` and a handler in `session_cmd::run`. They cannot be batched.
-6. Tests: the schema test is automatic. Add at least one behaviour test (golden test once
-   T7 lands), and add the command to `docs/parity/fl-studio.md` if it maps to an FL feature.
+6. Tests: the schema test is automatic. Add at least one behaviour test that calls the
+   command by its id, asserting exact results. `ph-control`'s `coverage.rs` fails CI for any
+   served command without one. If it changes the sound, extend a golden project
+   (`cargo xtask golden --update`, and say why in the PR). Add the command to
+   `docs/parity/fl-studio.md` if it maps to an FL feature.
 
 ## How to add a processor (instrument or effect)
 
@@ -105,12 +108,19 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo xtask check
+cargo deny check          # licence policy (deny.toml), advisories, bans
 ```
+
+When dependencies change, also run `cargo xtask notices` (it regenerates
+`THIRD_PARTY_NOTICES.md`; CI checks it is current). The engine's lock-free code has Miri
+(`cargo +nightly miri test -p ph-engine --lib rt_miri`) and loom
+(`RUSTFLAGS="--cfg loom" cargo test -p ph-engine --lib --release loom_models`) checks. Run them
+when you touch `rt.rs`, `sched.rs`, `pool.rs` or `audition.rs`.
 
 CI runs the same commands on Windows, Linux and macOS. Expectations:
 - Unit tests in every crate.
 - Property tests for anything history- or merge-related.
-- Golden renders for anything audible (T7 harness).
+- Golden renders for anything audible (`tests/projects/`, `cargo xtask golden`).
 - Fuzzing for every importer.
 - A DSP change must not move a golden render unless the change is intended. If it is,
   regenerate the render and explain why in the PR.
