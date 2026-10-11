@@ -270,7 +270,9 @@ async fn m1_acceptance_agent_builds_a_beat_through_mcp_only() {
     assert!(peak < 1.0, "sample peak {peak} clips");
     let tp = loud.true_peak_dbtp.expect("a true peak");
     assert!(tp < 0.0, "true peak {tp} dBTP");
-    println!("acceptance export: {lufs:.2} LUFS integrated, true peak {tp:.2} dBTP, sample peak {peak:.3}");
+    println!(
+        "acceptance export: {lufs:.2} LUFS integrated, true peak {tp:.2} dBTP, sample peak {peak:.3}"
+    );
     assert!(
         rendered["seconds"].as_f64().unwrap() >= 16.0,
         "8 bars at 120 BPM: {rendered}"
