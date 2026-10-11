@@ -61,6 +61,19 @@ impl Controller {
 
     /// Compiles `project` and posts it for the audio thread's next block.
     pub fn submit(&mut self, project: &Project, assets: &dyn AssetResolver) -> EngineResult<()> {
+        self.submit_with(project, assets, false)
+    }
+
+    /// Compiles `project` and posts it. `fresh` compiles against an empty shadow, so no
+    /// processor or voice is carried over: used when a *different* project replaces this one,
+    /// where equal-looking specs (the same relative sample path in another project folder) must
+    /// not be mistaken for unchanged instruments.
+    pub fn submit_with(
+        &mut self,
+        project: &Project,
+        assets: &dyn AssetResolver,
+        fresh: bool,
+    ) -> EngineResult<()> {
         match self.mailbox.take() {
             Some(unclaimed) => {
                 drop(unclaimed);
@@ -72,9 +85,10 @@ impl Controller {
                 }
             }
         }
+        let empty = Shadow::empty();
         let (plan, shadow) = compile(
             project,
-            &self.installed,
+            if fresh { &empty } else { &self.installed },
             self.settings,
             &self.opts,
             assets,

@@ -142,7 +142,8 @@ impl Studio {
         for root in &config.library_roots {
             resolver = resolver.allow_root(root);
         }
-        let assets: Arc<dyn ph_node::AssetResolver> = Arc::new(resolver);
+        let resolver = Arc::new(resolver);
+        let assets: Arc<dyn ph_node::AssetResolver> = resolver.clone();
         let pump_stop = Arc::new(AtomicBool::new(false));
         let engine = match config.audio {
             AudioMode::Device => {
@@ -163,7 +164,8 @@ impl Studio {
         let latest = Arc::new(Mutex::new(project.clone()));
 
         let (ui_tx, ui_requests) = channel();
-        let host = EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx);
+        let host =
+            EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx).with_resolver(resolver);
         let registry = Arc::new(studio_registry());
         let session = Session::new(registry.clone(), (*project).clone());
         let session = SessionHandle::spawn(session, host);
@@ -176,7 +178,14 @@ impl Studio {
             .spawn(move || {
                 for change in changes {
                     *bridge_latest.lock().unwrap() = change.project.clone();
-                    if let Err(e) = bridge_engine.set_project(change.project) {
+                    // txn 0 marks a whole-project replacement (file.open, project reset): rebuild
+                    // every node so nothing from the previous project's folder is reused.
+                    let applied = if change.txn == 0 {
+                        bridge_engine.replace_project(change.project)
+                    } else {
+                        bridge_engine.set_project(change.project)
+                    };
+                    if let Err(e) = applied {
                         // Plan errors (e.g. a routing loop) keep the previous plan running.
                         eprintln!("engine rejected project txn {}: {e}", change.txn);
                     }

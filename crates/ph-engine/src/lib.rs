@@ -409,6 +409,17 @@ impl Engine {
         Ok(())
     }
 
+    /// Like [`Engine::set_project`], but for a *different* project replacing this one (file
+    /// open): nothing is carried over from the running plan, so every instrument and effect is
+    /// rebuilt and every sample re-resolved. Sounding voices stop at the swap.
+    pub fn replace_project(&self, project: Arc<Project>) -> EngineResult<()> {
+        let mut g = self.lock();
+        let inner = &mut *g;
+        inner.ctl.submit_with(&project, &*inner.assets, true)?;
+        inner.project = project;
+        Ok(())
+    }
+
     pub fn transport(&self, cmd: TransportCommand) -> TransportStatus {
         let mut g = self.lock();
         let m = &mut g.mirror;

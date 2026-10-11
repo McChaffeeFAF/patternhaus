@@ -41,6 +41,14 @@ pub trait Host {
 
     /// Ask the UI to show something (`ui.*` commands). Headless hosts may ignore it.
     fn ui(&mut self, request: UiRequest) -> CmdResult<()>;
+
+    /// A different project was opened from `dir`: from now on the project folder is `dir`, so
+    /// saves, imports, exports and project-relative samples all go there, never to the folder
+    /// the session started in. Called by `file.open` *before* the session switches projects.
+    /// Additive default: hosts without a filesystem ignore it.
+    fn set_project_dir(&mut self, dir: &std::path::Path) {
+        let _ = dir;
+    }
 }
 
 /// What [`Host::import_file`] brings into the project folder.

@@ -478,3 +478,72 @@ fn sample_import_by_an_agent_is_confined_to_the_allowed_roots() {
         .unwrap();
     assert_eq!(out.result["notes"], 1);
 }
+
+/// Opening a project from another folder must move the session to that folder: saving
+/// afterwards writes the opened project, never over the project the app started with, and the
+/// opened project's own samples resolve from its folder.
+#[test]
+fn opening_another_project_folder_moves_saves_and_samples_there() {
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    // project B on disk, with a project-relative sample in its own samples/
+    std::fs::create_dir_all(b.path().join("samples")).unwrap();
+    let tone: Vec<f32> = (0..4800).map(|i| (i as f32 * 0.05).sin() * 0.5).collect();
+    ph_formats::encode::write_wav(
+        &b.path().join("samples/tone.wav"),
+        &[tone.clone(), tone],
+        48_000,
+        ph_formats::encode::WavFormat::Pcm16,
+    )
+    .unwrap();
+    let mut pb = Project::empty("B");
+    let mut ed = ph_core::Edit::new(&pb);
+    ed.add_channel(
+        "Tone",
+        ph_core::InstrumentSpec::Sampler {
+            sample: Some("samples/tone.wav".into()),
+            root_key: 60,
+            params: Default::default(),
+        },
+    )
+    .unwrap();
+    pb = ed.finish().0;
+    ph_formats::save_project(&pb, b.path()).unwrap();
+
+    // the app starts in A, saves A
+    let s = studio(a.path());
+    let h = Caller::human();
+    s.run(&h, "project.rename", json!({ "title": "A" }))
+        .unwrap();
+    s.run(&h, "file.save", json!({})).unwrap();
+    let a_before = std::fs::read(a.path().join("project.json")).unwrap();
+
+    // open B (absolute path, as a drop or File > Open gives it), edit, save
+    let req = ph_commands::Request {
+        confirm: true,
+        ..ph_commands::Request::new("file.open", json!({ "path": b.path().to_string_lossy() }))
+    };
+    s.session.execute(&h, req).unwrap();
+    s.run(&h, "project.set_tempo", json!({ "bpm": 99 }))
+        .unwrap();
+    s.run(&h, "file.save", json!({})).unwrap();
+
+    assert_eq!(
+        std::fs::read(a.path().join("project.json")).unwrap(),
+        a_before,
+        "saving the opened project must not overwrite the project the app started with"
+    );
+    let saved_b = ph_formats::load_project(b.path()).unwrap();
+    assert_eq!(
+        saved_b.settings.bpm, 99.0,
+        "the save went to the opened project's folder"
+    );
+
+    // B's project-relative sample loads (no engine warning about it)
+    wait_for(|| s.project().settings.bpm == 99.0);
+    let w = ph_engine::project_warnings(&s.project(), &*s.handle().assets);
+    assert!(
+        w.is_empty(),
+        "opened project's samples resolve from its own folder: {w:?}"
+    );
+}

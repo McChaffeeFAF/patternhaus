@@ -17,6 +17,8 @@ pub struct EngineHost {
     exports_dir: Option<PathBuf>,
     ui: Sender<UiRequest>,
     recording: bool,
+    /// The sample resolver the engine uses; moved along with the project folder on open.
+    resolver: Option<Arc<ph_engine::assets::FileResolver>>,
 }
 
 impl EngineHost {
@@ -34,7 +36,14 @@ impl EngineHost {
             exports_dir: config.exports_dir.clone(),
             ui,
             recording: false,
+            resolver: None,
         }
+    }
+
+    /// Lets [`Host::set_project_dir`] move the engine's project-relative sample lookup too.
+    pub fn with_resolver(mut self, resolver: Arc<ph_engine::assets::FileResolver>) -> Self {
+        self.resolver = Some(resolver);
+        self
     }
 
     fn state(&self, s: TransportStatus) -> TransportState {
@@ -273,5 +282,12 @@ impl Host for EngineHost {
         // A closed receiver just means no UI is attached (headless).
         let _ = self.ui.send(request);
         Ok(())
+    }
+
+    fn set_project_dir(&mut self, dir: &Path) {
+        self.project_dir = dir.to_path_buf();
+        if let Some(r) = &self.resolver {
+            r.set_project_dir(dir);
+        }
     }
 }

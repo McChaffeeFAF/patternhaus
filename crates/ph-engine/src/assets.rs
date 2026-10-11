@@ -14,16 +14,18 @@
 use ph_node::{AssetResolver, SampleData};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Prefix of factory sample references.
 pub const FACTORY_PREFIX: &str = "factory:";
 
 #[derive(Default)]
 pub struct FileResolver {
-    project_dir: Option<PathBuf>,
+    /// Changes when another project is opened ([`FileResolver::set_project_dir`]).
+    project_dir: RwLock<Option<PathBuf>>,
     assets_dir: Option<PathBuf>,
-    allowed_roots: Vec<PathBuf>,
+    /// Grows when a library folder is added at runtime ([`FileResolver::add_root`]).
+    allowed_roots: RwLock<Vec<PathBuf>>,
     cache: Mutex<HashMap<PathBuf, Arc<SampleData>>>,
 }
 
@@ -34,9 +36,22 @@ impl FileResolver {
     }
 
     /// Folder that project-relative references resolve against.
-    pub fn with_project_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.project_dir = Some(dir.into());
+    pub fn with_project_dir(self, dir: impl Into<PathBuf>) -> Self {
+        self.set_project_dir(dir);
         self
+    }
+
+    /// Moves project-relative resolution to another folder (a different project was opened).
+    pub fn set_project_dir(&self, dir: impl Into<PathBuf>) {
+        *self.project_dir.write().unwrap_or_else(|e| e.into_inner()) = Some(dir.into());
+    }
+
+    /// The folder project-relative references resolve against.
+    pub fn project_dir(&self) -> Option<PathBuf> {
+        self.project_dir
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// The factory content folder (the repository's `assets/`); `factory:` references
@@ -47,9 +62,21 @@ impl FileResolver {
     }
 
     /// Allows absolute references inside a library folder.
-    pub fn allow_root(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.allowed_roots.push(dir.into());
+    pub fn allow_root(self, dir: impl Into<PathBuf>) -> Self {
+        self.add_root(dir);
         self
+    }
+
+    /// Allows another library folder while running (no duplicates).
+    pub fn add_root(&self, dir: impl Into<PathBuf>) {
+        let dir = dir.into();
+        let mut roots = self
+            .allowed_roots
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        if !roots.contains(&dir) {
+            roots.push(dir);
+        }
     }
 
     /// Maps a reference to the file it names, applying the access rules. The file must
@@ -73,17 +100,20 @@ impl FileResolver {
         }
         let path = Path::new(reference);
         if path.is_absolute() {
-            let mut roots = self.allowed_roots.clone();
-            roots.extend(self.project_dir.clone());
+            let mut roots = self
+                .allowed_roots
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            roots.extend(self.project_dir());
             return inside(path, &roots);
         }
         let project = self
-            .project_dir
-            .as_ref()
+            .project_dir()
             .ok_or("project-relative sample but the project has no folder")?;
         let rel =
             relative(reference).ok_or_else(|| format!("invalid sample path `{reference}`"))?;
-        inside(&project.join(rel), std::slice::from_ref(project))
+        inside(&project.join(rel), std::slice::from_ref(&project))
     }
 
     /// Number of decoded samples held in the cache.

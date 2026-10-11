@@ -132,6 +132,9 @@ pub(crate) fn open_project(
     let project = ph_formats::load_project(&dir).map_err(|e| CmdError::Host(e.to_string()))?;
     let (channels, patterns) = (project.channels.len(), project.patterns.len());
     let title = project.settings.title.clone();
+    // Move the project folder first: a save after this must write the opened project, never
+    // the folder the session started in.
+    host.set_project_dir(&dir);
     s.reset(project);
     Ok(SessionOut {
         result: json!({ "path": dir, "channels": channels, "patterns": patterns }),
