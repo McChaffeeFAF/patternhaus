@@ -297,3 +297,184 @@ fn agents_read_the_ui_hint_through_get_state() {
     s.set_ui_hint(None);
     assert_eq!(read(&agent)["value"]["hint"], serde_json::Value::Null);
 }
+
+fn wav(freq: f32) -> Vec<u8> {
+    use ph_formats::encode::{DITHER_SEED, WavFormat, encode_wav};
+    let tone: Vec<f32> = (0..2000)
+        .map(|i| (i as f32 * freq * 0.01).sin() * 0.5)
+        .collect();
+    encode_wav(&[tone], 44_100, WavFormat::Pcm16, DITHER_SEED).unwrap()
+}
+
+#[test]
+fn sample_import_copies_renames_dedupes_and_is_one_undo_step() {
+    let proj = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let s = studio(proj.path());
+    let human = Caller::human();
+    let a = outside.path().join("kick.wav");
+    let b = outside.path().join("sub");
+    std::fs::create_dir(&b).unwrap();
+    let b = b.join("kick.wav"); // same name, different bytes
+    std::fs::write(&a, wav(1.0)).unwrap();
+    std::fs::write(&b, wav(2.0)).unwrap();
+    let paths = |ps: &[&std::path::Path]| json!({ "paths": ps.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>() });
+    let out = s
+        .run(&human, "sample.import", paths(&[&a, &b, &a]))
+        .unwrap();
+    assert_eq!(
+        out.result["references"],
+        json!([
+            "samples/kick.wav",
+            "samples/kick (2).wav",
+            "samples/kick.wav"
+        ]),
+        "clash gets (2); identical bytes reuse the file"
+    );
+    assert_eq!(out.result["channels"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        std::fs::read_dir(proj.path().join("samples"))
+            .unwrap()
+            .count(),
+        2
+    );
+    wait_for(|| s.project().channels.len() == 3);
+    let names: Vec<_> = s
+        .project()
+        .channel_order
+        .iter()
+        .map(|c| s.project().channels[c].name.clone())
+        .collect();
+    assert_eq!(names, ["kick", "kick", "kick"]);
+    // one undo step removes all three; the copied files stay
+    s.run(&human, "history.undo", json!({})).unwrap();
+    wait_for(|| s.project().channels.is_empty());
+    assert!(proj.path().join("samples/kick.wav").exists());
+
+    // replace one channel's sample
+    let ch = s.run(&human, "sample.import", paths(&[&a])).unwrap().result["channels"][0].clone();
+    let out = s
+        .run(
+            &human,
+            "sample.import",
+            json!({ "paths": [b.to_string_lossy()], "channel": ch }),
+        )
+        .unwrap();
+    assert_eq!(out.result["references"], json!(["samples/kick (2).wav"]));
+    wait_for(|| {
+        matches!(
+            s.project().channels.values().next().map(|c| &c.instrument),
+            Some(ph_core::InstrumentSpec::Sampler { sample: Some(r), .. }) if r == "samples/kick (2).wav"
+        )
+    });
+    // a channel needs exactly one path
+    assert!(
+        s.run(
+            &human,
+            "sample.import",
+            json!({ "paths": [a.to_string_lossy(), b.to_string_lossy()], "channel": ch })
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn sample_import_skips_and_names_undecodable_files() {
+    let proj = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let s = studio(proj.path());
+    let good = outside.path().join("good.wav");
+    let bad = outside.path().join("bad.wav");
+    std::fs::write(&good, wav(1.0)).unwrap();
+    std::fs::write(&bad, b"not audio at all").unwrap();
+    let human = Caller::human();
+    let out = s
+        .run(
+            &human,
+            "sample.import",
+            json!({ "paths": [bad.to_string_lossy(), good.to_string_lossy()] }),
+        )
+        .unwrap();
+    assert_eq!(out.result["channels"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        out.result["skipped"][0]["path"],
+        bad.to_string_lossy().as_ref()
+    );
+    assert!(!proj.path().join("samples/bad.wav").exists(), "not copied");
+    // all bad: an error that names the file
+    let err = s
+        .run(
+            &human,
+            "sample.import",
+            json!({ "paths": [bad.to_string_lossy()] }),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("bad.wav"), "{err}");
+}
+
+#[test]
+fn sample_import_by_an_agent_is_confined_to_the_allowed_roots() {
+    let proj = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let s = studio(proj.path());
+    let agent = Caller::agent("claude", Grant(vec![Scope::Full]));
+    let far = outside.path().join("far.wav");
+    std::fs::write(&far, wav(1.0)).unwrap();
+    assert!(
+        s.run(
+            &agent,
+            "sample.import",
+            json!({ "paths": [far.to_string_lossy()] })
+        )
+        .is_err()
+    );
+    assert!(!proj.path().join("samples/far.wav").exists());
+    // inside the project folder is fine
+    std::fs::write(proj.path().join("near.wav"), wav(3.0)).unwrap();
+    let out = s
+        .run(&agent, "sample.import", json!({ "paths": ["near.wav"] }))
+        .unwrap();
+    assert_eq!(out.result["references"], json!(["samples/near.wav"]));
+    // and a human may open/import MIDI from anywhere, an agent may not
+    let mid = outside.path().join("x.mid");
+    let bytes = {
+        let human = Caller::human();
+        let pat = s.run(&human, "pattern.add", json!({})).unwrap().result["pattern"].clone();
+        let ch = s
+            .run(
+                &human,
+                "channel.add",
+                json!({"name":"k","instrument":{"kind":"synth","preset":null}}),
+            )
+            .unwrap()
+            .result["channel"]
+            .clone();
+        s.run(&human, "note.add", json!({"pattern":pat,"channel":ch,"notes":[{"key":60,"start":0,"length":240,"velocity":1.0}]})).unwrap();
+        wait_for(|| s.project().patterns.values().any(|p| !p.notes.is_empty()));
+        s.run(
+            &human,
+            "file.export_midi",
+            json!({"path":"m.mid","pattern":pat}),
+        )
+        .unwrap();
+        std::fs::read(proj.path().join("m.mid")).unwrap()
+    };
+    std::fs::write(&mid, bytes).unwrap();
+    assert!(
+        s.run(
+            &agent,
+            "file.import_midi",
+            json!({ "path": mid.to_string_lossy() })
+        )
+        .is_err()
+    );
+    let out = s
+        .run(
+            &Caller::human(),
+            "file.import_midi",
+            json!({ "path": mid.to_string_lossy() }),
+        )
+        .unwrap();
+    assert_eq!(out.result["notes"], 1);
+}

@@ -24,6 +24,16 @@ fn check_overwrite(path: &Path, overwrite: bool) -> CmdResult<()> {
     Ok(())
 }
 
+/// Where a read may come from. The human may open and import from any absolute path (dropping
+/// a file onto the window is the intent); agents and relative paths keep the confinement of
+/// [`Host::resolve_path`].
+fn read_path(host: &dyn Host, author: &Author, path: &str) -> CmdResult<std::path::PathBuf> {
+    if *author == Author::Human && Path::new(path).is_absolute() {
+        return Ok(path.into());
+    }
+    host.resolve_path(path, FileAccess::Read)
+}
+
 pub fn register(r: &mut Registry) {
     r.register(typed(
         "file.save",
@@ -114,10 +124,11 @@ pub struct Open {
 pub(crate) fn open_project(
     s: &mut Session,
     host: &mut dyn Host,
+    author: &Author,
     params: Value,
 ) -> CmdResult<SessionOut> {
     let p: Open = parse("file.open", params)?;
-    let dir = host.resolve_path(&p.path, FileAccess::Read)?;
+    let dir = read_path(host, author, &p.path)?;
     let project = ph_formats::load_project(&dir).map_err(|e| CmdError::Host(e.to_string()))?;
     let (channels, patterns) = (project.channels.len(), project.patterns.len());
     let title = project.settings.title.clone();
@@ -209,7 +220,7 @@ struct ImportMidi {
 }
 
 fn import_midi(ctx: &mut CommandCtx<'_>, p: ImportMidi) -> CmdResult<CommandOutput> {
-    let path = ctx.host.resolve_path(&p.path, FileAccess::Read)?;
+    let path = read_path(ctx.host, ctx.author, &p.path)?;
     let bytes =
         std::fs::read(&path).map_err(|e| CmdError::Host(format!("{}: {e}", path.display())))?;
     let name = p.pattern_name.unwrap_or_else(|| {

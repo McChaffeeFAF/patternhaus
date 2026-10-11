@@ -22,8 +22,33 @@ pub trait Host {
     /// project folder.
     fn resolve_path(&self, path: &str, access: FileAccess) -> CmdResult<PathBuf>;
 
+    /// Copies `source` into the project (DESIGN §10) and returns the project-relative
+    /// reference to use in the model (e.g. `samples/kick.wav`).
+    ///
+    /// The human may import from any path (the drop is the intent); an agent only from
+    /// inside the allowed roots, checked like [`Host::resolve_path`]. The file is validated
+    /// first, and a file already there with identical bytes is reused. Additive default:
+    /// hosts without a filesystem refuse.
+    fn import_file(
+        &mut self,
+        source: &std::path::Path,
+        into: ImportKind,
+        author: &Author,
+    ) -> CmdResult<String> {
+        let _ = (source, into, author);
+        Err(CmdError::Host("this host cannot import files".into()))
+    }
+
     /// Ask the UI to show something (`ui.*` commands). Headless hosts may ignore it.
     fn ui(&mut self, request: UiRequest) -> CmdResult<()>;
+}
+
+/// What [`Host::import_file`] brings into the project folder.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportKind {
+    /// An audio file, validated by decoding and copied into `samples/`.
+    Sample,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

@@ -1517,3 +1517,16 @@ fn schemas_name_every_required_field() {
             .contains("ticks")
     );
 }
+
+#[test]
+fn sample_import_needs_a_host_that_can_import() {
+    let mut r = Rig::new();
+    // the default Host::import_file refuses, so nothing is created
+    let e = r.err("sample.import", json!({ "paths": ["a.wav"] }));
+    assert!(matches!(e, CmdError::Host(m) if m.contains("cannot import")));
+    assert!(r.p().channels.is_empty());
+    assert!(matches!(
+        r.err("sample.import", json!({ "paths": [] })),
+        CmdError::Model(_)
+    ));
+}

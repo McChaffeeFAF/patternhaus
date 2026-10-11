@@ -97,7 +97,7 @@ pub(crate) fn run(
         "history.list" => history::list(s, params),
         "channel.solo" => builtin::solo_channel(s, params),
         "mixer.solo" => builtin::solo_insert(s, params),
-        "file.open" => builtin::open_project(s, host, params),
+        "file.open" => builtin::open_project(s, host, &caller.author, params),
         other => Err(CmdError::Other(format!("{other} is not a session command"))),
     }?;
     Ok(Executed {
