@@ -66,6 +66,12 @@ fn callback_never_allocates_while_plans_swap_every_block() {
     engine.transport(TransportCommand::Play);
     let stop = AtomicBool::new(false);
     let swaps = AtomicUsize::new(0);
+    // Blocks pulled so far. The swapper posts one plan per pulled block, so how often it
+    // seeks or previews is tied to blocks, not to how fast this machine's swap thread spins.
+    // Unpaced, a slow CI runner seeked several times per block and every seek silences all
+    // voices, so the output was "mostly silent" for reasons that had nothing to do with
+    // real-time safety.
+    let pulled = AtomicUsize::new(0);
     let blocks = 4000;
     let mut l = vec![0.0f32; 128];
     let mut r = vec![0.0f32; 128];
@@ -74,7 +80,14 @@ fn callback_never_allocates_while_plans_swap_every_block() {
     std::thread::scope(|s| {
         s.spawn(|| {
             let mut k = 0;
+            let mut seen = 0;
             while !stop.load(Ordering::Relaxed) {
+                let p = pulled.load(Ordering::Acquire);
+                if p == seen {
+                    std::thread::yield_now();
+                    continue;
+                }
+                seen = p;
                 engine
                     .set_project(variants[k % variants.len()].clone())
                     .unwrap();
@@ -91,6 +104,7 @@ fn callback_never_allocates_while_plans_swap_every_block() {
         for _ in 0..blocks {
             // `pull_into` wraps the callback in `assert_no_alloc`
             dev.pull_into(&mut l, &mut r);
+            pulled.fetch_add(1, Ordering::Release);
             finite &= l.iter().chain(&r).all(|v| v.is_finite());
             if peak(&l) > 1e-3 {
                 loud += 1;
