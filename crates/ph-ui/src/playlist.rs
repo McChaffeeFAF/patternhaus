@@ -828,9 +828,16 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
     // playhead
     let x = grid.left() + st.x_of(cx.position as f64);
     if x >= grid.left() && x <= grid.right() {
-        painter.line_segment(
-            [Pos2::new(x, whole.top()), Pos2::new(x, grid.bottom())],
-            Stroke::new(1.5, col.playhead),
+        crate::paint::playhead(
+            &painter.with_clip_rect(Rect::from_min_max(
+                Pos2::new(grid.left(), whole.top()),
+                grid.right_bottom(),
+            )),
+            x,
+            whole.top(),
+            grid.bottom(),
+            cx.theme,
+            crate::motion::reduce(ui.ctx()),
         );
     }
     res

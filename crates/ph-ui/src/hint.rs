@@ -51,6 +51,9 @@ pub trait HintExt: Sized {
     /// A tooltip that is also the hint: `"Undo your last change (Ctrl+Z)"` becomes the name
     /// `Undo your last change` with the gesture `Ctrl+Z`.
     fn tip(self, text: &str) -> Self;
+    /// A hint, plus the shared right-click menu (Automate, MIDI learn, Help) for a control
+    /// that has no menu of its own.
+    fn hint_menu(self, name: &str, value: &str, gestures: &str) -> Self;
 }
 
 /// Splits `"Name (gestures)"`.
@@ -86,6 +89,20 @@ impl HintExt for Response {
         let (name, gestures) = split_tip(text);
         self.on_hover_text(text).hint(&name, "", &gestures)
     }
+
+    fn hint_menu(self, name: &str, value: &str, gestures: &str) -> Self {
+        let r = self.hint(name, value, gestures);
+        standard_menu(
+            &r,
+            false,
+            &UiHint {
+                name: name.into(),
+                value: value.into(),
+                gestures: gestures.into(),
+            },
+        );
+        r
+    }
 }
 
 /// What a context menu chose.
@@ -100,15 +117,19 @@ pub enum MenuChoice {
 /// Call from inside a `context_menu` closure, after any entries of the control's own.
 pub fn standard_entries(ui: &mut Ui, can_reset: bool, hint: &UiHint) -> MenuChoice {
     let mut choice = MenuChoice::None;
-    if can_reset && ui.button(crate::theme::caps("Reset to default")).clicked() {
+    if can_reset && crate::widgets::menu_item(ui, "Reset to default", "").clicked() {
         choice = MenuChoice::Reset;
         ui.close();
     }
-    ui.add_enabled(false, egui::Button::new(crate::theme::caps("Automate…")))
-        .on_disabled_hover_text("Automation lands in a later milestone");
-    ui.add_enabled(false, egui::Button::new(crate::theme::caps("MIDI learn…")))
-        .on_disabled_hover_text("MIDI mapping lands in a later milestone");
-    if ui.button(crate::theme::caps("Help")).clicked() {
+    for (label, why) in [
+        ("Automate…", "Automation lands in a later milestone"),
+        ("MIDI learn…", "MIDI mapping lands in a later milestone"),
+    ] {
+        let r = ui.add_enabled(false, egui::Button::new(crate::theme::caps(label)));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, false, label));
+        r.on_disabled_hover_text(why);
+    }
+    if crate::widgets::menu_item(ui, "Help", "").clicked() {
         let h = hint.clone();
         ui.ctx().data_mut(|d| d.insert_temp(Id::new(HELP), h));
         ui.close();

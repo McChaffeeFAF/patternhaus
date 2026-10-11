@@ -422,6 +422,7 @@ fn show_window(
             };
             let ink = |r: &egui::Response| if r.hovered() { c.text } else { c.dim };
             let (cl, g) = btn(ui, 0.0, "close");
+            cl.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close"));
             Icon::Close.paint(&p, g, ink(&cl));
             ev.close |= cl
                 .hint(
@@ -431,6 +432,13 @@ fn show_window(
                 )
                 .clicked();
             let (m, g) = btn(ui, 1.0, "maximize");
+            m.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    true,
+                    if maximized { "Restore" } else { "Maximize" },
+                )
+            });
             (if maximized {
                 Icon::Restore
             } else {
@@ -445,11 +453,15 @@ fn show_window(
                 )
                 .clicked();
             let (d, g) = btn(ui, 2.0, "detach");
+            d.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Detach"));
             Icon::Detach.paint(&p, g, ink(&d));
             ev.detach |= d
                 .hint("Detach", "", "opens the window in its own OS window")
                 .clicked();
             let (o, g) = btn(ui, 3.0, "options");
+            o.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Window options")
+            });
             Icon::Options.paint(&p, g, ink(&o));
             let o = o.hint("Window options", "", "move, size and per-window settings");
             egui::Popup::menu(&o).show(|ui| {

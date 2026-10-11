@@ -43,6 +43,8 @@ pub struct PhApp {
     fx_seen: Option<std::sync::Arc<ph_core::Project>>,
     /// The person has agreed to close (saved, or chose not to), so a close request goes through.
     pub quit_confirmed: bool,
+    /// The loading screen, until it has played (see [`PhApp::show_splash`]).
+    splash: Option<crate::splash::Splash>,
 }
 
 impl PhApp {
@@ -103,7 +105,14 @@ impl PhApp {
             fx_kinds: Default::default(),
             fx_seen: None,
             quit_confirmed: false,
+            splash: None,
         })
+    }
+
+    /// Shows the loading screen over the first frames. The real application asks for it; the
+    /// tests do not, so their screenshots are of the workspace.
+    pub fn show_splash(&mut self) {
+        self.splash = Some(crate::splash::Splash::new());
     }
 
     // ---- windows ---------------------------------------------------------------------------
@@ -442,6 +451,12 @@ impl PhApp {
         }
         self.core.publish_hint(hint::current(&ctx));
 
+        if let Some(sp) = &mut self.splash
+            && !sp.show(&ctx, &theme, self.core.reduce_motion)
+        {
+            self.splash = None;
+        }
+
         let title = window_title(&self.core.project.settings.title, self.core.dirty);
         if title != self.last_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -541,7 +556,7 @@ impl PhApp {
             wordmark(ui, &theme);
             ui.add_space(10.0);
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button(m("File"), |ui| {
+                crate::widgets::menu_button_rich(ui, "File", m("File"), |ui| {
                     if menu_item(ui, "New project…", "").clicked() {
                         self.core
                             .app_action("app.new_project", &serde_json::Value::Null);
@@ -573,7 +588,7 @@ impl PhApp {
                         ui.close();
                     }
                 });
-                ui.menu_button(m("Edit"), |ui| {
+                crate::widgets::menu_button_rich(ui, "Edit", m("Edit"), |ui| {
                     if menu_item(ui, "Undo (mine)", "Ctrl+Z").clicked() {
                         self.core.send(mapping::undo_mine());
                         ui.close();
@@ -589,7 +604,7 @@ impl PhApp {
                         ui.close();
                     }
                 });
-                ui.menu_button(m("View"), |ui| {
+                crate::widgets::menu_button_rich(ui, "View", m("View"), |ui| {
                     for p in PanelId::ALL {
                         if p == PanelId::Inspector {
                             continue; // instrument windows open from the channel rack
@@ -604,8 +619,10 @@ impl PhApp {
                         }
                     }
                     ui.separator();
-                    ui.menu_button(m("Theme"), |ui| self.theme_menu(ui));
-                    ui.menu_button(m("Layout"), |ui| {
+                    crate::widgets::menu_button_rich(ui, "Theme", m("Theme"), |ui| {
+                        self.theme_menu(ui)
+                    });
+                    crate::widgets::menu_button_rich(ui, "Layout", m("Layout"), |ui| {
                         if menu_item(ui, "Save for me", "").clicked() {
                             self.save_layout(false);
                             ui.close();
@@ -637,7 +654,7 @@ impl PhApp {
                         ui.close();
                     }
                 });
-                ui.menu_button(m("Help"), |ui| {
+                crate::widgets::menu_button_rich(ui, "Help", m("Help"), |ui| {
                     if menu_item(ui, "About Patternhaus…", "").clicked() {
                         self.core.dialog = Some(Dialog::About);
                         ui.close();
@@ -902,7 +919,7 @@ impl PhApp {
                 new_state = Some(Dialog::Rename { target, text });
             }
             Dialog::About => {
-                if crate::about::show(ctx) {
+                if crate::about::show(ctx, &self.core.theme) {
                     new_state = Some(Dialog::About);
                 } else {
                     close = true;

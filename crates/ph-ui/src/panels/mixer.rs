@@ -356,7 +356,15 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                 );
                 if ins > 0 {
                     let mut route = m.route_to_master;
-                    if ui.checkbox(&mut route, caps("Route to master")).changed() {
+                    if ui
+                        .checkbox(&mut route, caps("Route to master"))
+                        .hint_menu(
+                            "Route to master",
+                            if route { "on" } else { "off" },
+                            "sends this insert to the master; off for a send-only bus",
+                        )
+                        .changed()
+                    {
                         core.send(mapping::route_to_master(ins as u32, route));
                     }
                     ui.label(caps("Sidechain from"));
@@ -370,6 +378,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                                 .map_or("", |x| x.name.as_str())
                         )
                     });
+                    let cur2 = cur.clone();
                     egui::ComboBox::from_id_salt("sidechain")
                         .selected_text(cur)
                         .show_ui(ui, |ui| {
@@ -391,7 +400,13 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                                     core.send(mapping::sidechain(ins as u32, Some(j as u32)));
                                 }
                             }
-                        });
+                        })
+                        .response
+                        .hint_menu(
+                            "Sidechain source",
+                            &cur2,
+                            "the insert whose signal drives sidechain compressors on this one",
+                        );
                 }
             });
             ui.separator();
@@ -479,7 +494,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                     });
                 }
                 if m.effects.len() < MAX_EFFECTS {
-                    ui.menu_button(caps("+ Add effect"), |ui| {
+                    crate::widgets::menu_button(ui, "+ Add effect", |ui| {
                         for name in ph_engine::catalog::builtin_effects() {
                             if menu_item(ui, name, "").clicked() {
                                 core.send(mapping::effect_add(ins as u32, name));
@@ -531,7 +546,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         }
                     });
                 }
-                ui.menu_button(caps("+ Add send"), |ui| {
+                crate::widgets::menu_button(ui, "+ Add send", |ui| {
                     for (j, other) in project.mixer.iter().enumerate() {
                         if j != ins
                             && j != 0

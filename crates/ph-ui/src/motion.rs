@@ -155,6 +155,65 @@ mod tests {
         assert_eq!((b.level, b.peak), (0.0, 0.0));
     }
 
+    /// Runs one egui pass of `f` at a given time and clears the texture deltas.
+    fn pass(ctx: &Context, time: f64, f: impl FnOnce(&Context)) {
+        let input = egui::RawInput {
+            time: Some(time),
+            ..Default::default()
+        };
+        let mut f = Some(f);
+        ctx.run_ui(input, |ui| {
+            if let Some(f) = f.take() {
+                f(ui.ctx());
+            }
+        })
+        .textures_delta
+        .clear();
+    }
+
+    #[test]
+    fn easing_takes_a_moment_unless_motion_is_reduced() {
+        let id = Id::new("knob");
+        for (reduce_motion, jumps) in [(false, false), (true, true)] {
+            let ctx = Context::default();
+            set_reduce(&ctx, reduce_motion);
+            pass(&ctx, 0.0, |c| {
+                assert_eq!(ease(c, id, 0.0, 0.08), 0.0);
+            });
+            let mut got = 0.0;
+            for t in [0.02, 0.04, 0.06] {
+                pass(&ctx, t, |c| {
+                    got = ease(c, id, 1.0, 0.08);
+                });
+            }
+            assert_eq!(got == 1.0, jumps, "reduce={reduce_motion}: {got}");
+            if !jumps {
+                assert!(got > 0.0 && got < 1.0);
+            }
+        }
+    }
+
+    #[test]
+    fn a_pulse_fades_and_asks_for_repaints_only_while_it_lasts() {
+        let ctx = Context::default();
+        let id = Id::new("flash");
+        pass(&ctx, 1.0, |c| trigger(c, id));
+        let (mut k0, mut k1, mut k2) = (0.0, 0.0, 0.0);
+        pass(&ctx, 1.05, |c| k0 = pulse(c, id, 0.2));
+        pass(&ctx, 1.15, |c| k1 = pulse(c, id, 0.2));
+        pass(&ctx, 1.30, |c| k2 = pulse(c, id, 0.2));
+        assert!(k0 > k1 && k1 > 0.0, "{k0} {k1}");
+        assert_eq!(k2, 0.0, "over after its time");
+        // reduced motion: no pulse at all
+        set_reduce(&ctx, true);
+        let mut k = 1.0;
+        pass(&ctx, 1.31, |c| {
+            trigger(c, id);
+            k = pulse(c, id, 0.2);
+        });
+        assert_eq!(k, 0.0);
+    }
+
     #[test]
     fn decay_runs_from_one_to_zero() {
         assert_eq!(decay(10.0, 10.0, 2.0), 1.0);

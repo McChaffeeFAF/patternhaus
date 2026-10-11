@@ -166,7 +166,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                         }
                     })
                     .response
-                    .hint("Pattern", &cur, "click to choose the pattern to edit");
+                    .hint_menu("Pattern", &cur, "click to choose the pattern to edit");
                 if icon_button(ui, &theme, Icon::Plus, false, "New pattern", "").clicked() {
                     core.send(mapping::pattern_add());
                 }
@@ -413,16 +413,17 @@ pub fn health(ui: &mut Ui, core: &mut AppCore) {
                 .collect()
         })
         .unwrap_or_default();
-    let (fill, text) = if live_agents.is_empty() {
-        (c.bg4, "Agent  idle".to_string())
-    } else if live_agents.len() == 1 {
-        (c.agent, format!("Agent  {}", live_agents[0]))
+    let r = if live_agents.is_empty() {
+        ui.label(widgets::caption(&theme, "Agent  idle"))
     } else {
-        (c.agent, format!("Agents  {}", live_agents.len()))
+        let text = if live_agents.len() == 1 {
+            format!("Agent  {}", live_agents[0])
+        } else {
+            format!("Agents  {}", live_agents.len())
+        };
+        ui.scope(|ui| widgets::badge(ui, &text, c.agent, &theme))
+            .response
     };
-    let r = ui
-        .scope(|ui| widgets::badge(ui, &text, fill, &theme))
-        .response;
     r.hint(
         "Agent badge",
         &if live_agents.is_empty() {

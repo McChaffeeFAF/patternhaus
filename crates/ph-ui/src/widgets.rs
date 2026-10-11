@@ -106,6 +106,7 @@ pub fn knob(
         value: (ctl.fmt)(shown),
         gestures: KNOB_GESTURES.into(),
     };
+    resp.widget_info(|| egui::WidgetInfo::slider(true, shown, ctl.name));
     let resp = resp.hint(&uh.name, &uh.value, &uh.gestures);
     if hint::standard_menu(&resp, true, &uh) == MenuChoice::Reset {
         edit = Edit::Commit(default.clamp(min, max));
@@ -329,6 +330,7 @@ pub fn fader(
         value: (ctl.fmt)(shown),
         gestures: KNOB_GESTURES.into(),
     };
+    resp.widget_info(|| egui::WidgetInfo::slider(true, shown, ctl.name));
     let resp = resp.hint(&uh.name, &uh.value, &uh.gestures);
     if hint::standard_menu(&resp, true, &uh) == MenuChoice::Reset {
         edit = Edit::Commit(default.clamp(min, max));
@@ -791,6 +793,23 @@ pub fn btn(ui: &mut Ui, label: &str) -> Response {
     r
 }
 
+/// A menu button with an uppercase label: the hint and the accessible name are as typed.
+pub fn menu_button<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> Response {
+    menu_button_rich(ui, label, caps(label), add)
+}
+
+/// As [`menu_button`] with the label's look (size, tracking) given.
+pub fn menu_button_rich<R>(
+    ui: &mut Ui,
+    label: &str,
+    face: egui::RichText,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> Response {
+    let r = ui.menu_button(face, add).response;
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    r.hint(label, "", "click to open")
+}
+
 /// A menu entry: uppercase face, accessible name as typed, optional shortcut text on the
 /// right. No right-click menu of its own (menus are already menus).
 pub fn menu_item(ui: &mut Ui, label: &str, shortcut: &str) -> Response {
@@ -1104,7 +1123,7 @@ pub fn param_grid(
                                     }
                                 })
                                 .response
-                                .hint(&info.name, &format_param(info, cur), "click to choose");
+                                .hint_menu(&info.name, &format_param(info, cur), "click to choose");
                             if sel != before {
                                 changes.push((info.id.clone(), info.min + sel as f64));
                             }
@@ -1115,7 +1134,7 @@ pub fn param_grid(
                                     egui::DragValue::new(&mut v)
                                         .range(info.min as i64..=info.max as i64),
                                 )
-                                .hint(
+                                .hint_menu(
                                     &info.name,
                                     &format!("{v}"),
                                     "drag or type; double-click resets",

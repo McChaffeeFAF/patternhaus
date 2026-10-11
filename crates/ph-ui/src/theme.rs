@@ -345,7 +345,7 @@ impl Theme {
             grid_major: opt("grid_major", line)?,
             grid_bar: opt("grid_bar", lerp(line, dim, 0.45))?,
             key_white: opt("key_white", bg2)?,
-            key_black: opt("key_black", bg1)?,
+            key_black: opt("key_black", bg0)?,
             row_alt: opt("row_alt", bg1)?,
             note: opt("note", accent)?,
             ghost: opt("ghost", dim)?,
@@ -634,6 +634,100 @@ mod tests {
         m.density = Density::Compact;
         assert!(m.space(2) < roomy.0 && m.row() < roomy.1);
         assert_eq!(roomy.0 % 4.0, 0.0);
+    }
+
+    fn luminance(c: Color32) -> f64 {
+        let lin = |v: u8| {
+            let v = v as f64 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    }
+
+    /// WCAG contrast ratio.
+    fn contrast(a: Color32, b: Color32) -> f64 {
+        let (la, lb) = (luminance(a), luminance(b));
+        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    }
+
+    #[test]
+    fn text_stays_readable_on_every_surface_in_both_themes() {
+        for t in [Theme::neon_slate(), Theme::red_line()] {
+            let c = &t.colors;
+            for (name, bg) in [
+                ("bg0", c.bg0),
+                ("bg1", c.bg1),
+                ("bg2", c.bg2),
+                ("bg3", c.bg3),
+                ("bg4", c.bg4),
+            ] {
+                assert!(
+                    contrast(c.text, bg) >= 7.0,
+                    "{} text on {name}: {:.1}",
+                    t.name,
+                    contrast(c.text, bg)
+                );
+                assert!(
+                    contrast(c.dim, bg) >= 4.5,
+                    "{} dim on {name}: {:.1}",
+                    t.name,
+                    contrast(c.dim, bg)
+                );
+                // the accent is text and graphics: 4.5 on the quiet surfaces, 3.5 on raised ones
+                let need = if matches!(name, "bg3" | "bg4") {
+                    3.5
+                } else {
+                    4.5
+                };
+                assert!(
+                    contrast(c.accent, bg) >= need,
+                    "{} accent on {name}: {:.1}",
+                    t.name,
+                    contrast(c.accent, bg)
+                );
+            }
+            assert!(
+                contrast(c.accent_ink, c.accent) >= 4.5,
+                "{} ink on accent: {:.1}",
+                t.name,
+                contrast(c.accent_ink, c.accent)
+            );
+            assert!(
+                contrast(c.accent, c.lcd) >= 4.5,
+                "{} LCD: {:.1}",
+                t.name,
+                contrast(c.accent, c.lcd)
+            );
+            // faint is for disabled things only: it still has to be visible
+            assert!(
+                contrast(c.faint, c.bg2) >= 2.5,
+                "{} faint on bg2: {:.1}",
+                t.name,
+                contrast(c.faint, c.bg2)
+            );
+        }
+    }
+
+    #[test]
+    fn the_two_themes_define_the_same_tokens() {
+        let (a, b) = (Theme::neon_slate(), Theme::red_line());
+        assert_eq!(a.colors.pattern.len(), b.colors.pattern.len());
+        // the same set of keys in both files
+        let keys = |src: &str| -> Vec<String> {
+            let t: toml::Table = toml::from_str(src).unwrap();
+            let mut k: Vec<String> = t["colors"].as_table().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(NEON_SLATE_TOML), keys(RED_LINE_TOML));
+        // and they really differ where they should
+        assert_ne!(a.colors.accent, b.colors.accent);
+        assert_ne!(a.colors.agent, b.colors.agent);
+        assert_ne!(a.colors.clip, b.colors.clip);
     }
 
     #[test]

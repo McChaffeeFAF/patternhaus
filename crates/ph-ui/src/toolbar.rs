@@ -242,7 +242,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                             .color(theme.colors.dim),
                         );
                         piano_roll::snap_combo(ui, "toolbar_snap", &mut core.roll.snap, &theme)
-                            .hint(
+                            .hint_menu(
                                 "Snap",
                                 &piano_roll::snap_name(core.roll.snap),
                                 "chooses the grid notes snap to",

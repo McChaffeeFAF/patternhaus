@@ -3,6 +3,8 @@
 //! Default builds are MIT OR Apache-2.0. A build with the `asio` feature links Steinberg's
 //! ASIO SDK, so that binary is distributed under GPLv3, and the About box says so.
 
+use crate::theme::Theme;
+
 /// The licence paragraphs of the About box.
 pub fn licence_text(asio: bool) -> Vec<String> {
     let mut out = vec![
@@ -40,26 +42,66 @@ pub fn asio_build() -> bool {
     ph_engine::ASIO_BUILD
 }
 
-/// Draws the About window. Returns false when the user closes it.
-pub fn show(ctx: &egui::Context) -> bool {
-    let mut open = true;
+/// Draws the About window in the Patternhaus look. Returns false when the user closes it.
+pub fn show(ctx: &egui::Context, theme: &Theme) -> bool {
+    let c = &theme.colors;
+    let open = !ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let mut close = false;
     egui::Window::new("About Patternhaus")
-        .open(&mut open)
+        .title_bar(false)
         .collapsible(false)
         .resizable(false)
-        .default_width(460.0)
+        .fixed_size(egui::vec2(480.0, 0.0))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(
+            egui::Frame::new()
+                .fill(c.bg2)
+                .stroke(egui::Stroke::new(1.0, c.accent_dim))
+                .corner_radius(theme.metrics.radius_lg as u8)
+                .inner_margin(egui::Margin::same(20))
+                .shadow(egui::epaint::Shadow {
+                    offset: [0, 6],
+                    blur: 24,
+                    spread: 0,
+                    color: c.glow_soft,
+                }),
+        )
         .show(ctx, |ui| {
-            for (i, p) in licence_text(asio_build()).iter().enumerate() {
-                if i == 0 {
-                    ui.heading(p);
-                } else {
-                    ui.label(p);
-                }
-                ui.add_space(4.0);
+            let (rect, _) = ui.allocate_exact_size(
+                egui::vec2(ui.available_width(), 150.0),
+                egui::Sense::hover(),
+            );
+            crate::brand::paint_logo(
+                ui.painter(),
+                rect.center() + egui::vec2(0.0, 14.0),
+                0.9,
+                theme,
+                1.0,
+            );
+            ui.vertical_centered(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("VERSION {}", env!("CARGO_PKG_VERSION")))
+                        .font(egui::FontId::new(12.0, crate::fonts::mono()))
+                        .color(c.accent),
+                );
+            });
+            ui.add_space(10.0);
+            for p in licence_text(asio_build()).iter().skip(1) {
+                ui.label(
+                    egui::RichText::new(p)
+                        .font(egui::FontId::new(12.5, crate::fonts::body()))
+                        .color(c.dim),
+                );
+                ui.add_space(5.0);
             }
+            ui.add_space(6.0);
+            ui.vertical_centered(|ui| {
+                if crate::widgets::btn(ui, "Close").clicked() {
+                    close = true;
+                }
+            });
         });
-    open
+    open && !close
 }
 
 #[cfg(test)]

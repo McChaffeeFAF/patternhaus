@@ -73,8 +73,8 @@ pub fn snap_combo(
         .response
 }
 
-/// Zoom presets: the whole pattern, one bar, one beat, and a 1/64 detail where the finest
-/// grid is wide enough to hit.
+/// Zoom presets: the whole pattern, one bar, one beat, and a 1/64 detail where a 1/64 cell is
+/// wide enough to grab and to read.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ZoomPreset {
     Fit,
@@ -106,8 +106,8 @@ impl ZoomPreset {
             ZoomPreset::Fit => (w / pattern_len.max(ticks_per_bar).max(1) as f64).clamp(0.01, 0.5),
             ZoomPreset::Bar => w / ticks_per_bar.max(1) as f64,
             ZoomPreset::Beat => w / 960.0,
-            // 1/64 lines 16 px apart
-            ZoomPreset::Detail64 => 16.0 / 60.0,
+            // a 1/64 cell is 64 px wide (and always finer than one beat across the grid)
+            ZoomPreset::Detail64 => (64.0f64 / 60.0).max(w / 960.0 * 1.15).min(ZOOM_MAX),
         }
     }
 }
@@ -203,7 +203,7 @@ pub fn paint_time_grid(
         p.add(Shape::mesh(mesh));
     }
     // line strength per tier, brightest first: each tier one step dimmer
-    const STRENGTH: [f32; 5] = [1.0, 0.64, 0.4, 0.26, 0.16];
+    const STRENGTH: [f32; 5] = [1.0, 0.8, 0.6, 0.46, 0.36];
     // the bar tier thins out (every 2nd, 4th... bar) when bars are closer than the fade limit
     let mut bar_step = 1u64;
     while ((bar * bar_step) as f64 * px_per_tick) < TIER_MIN_PX as f64 && bar_step < 1 << 20 {
@@ -1570,8 +1570,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         }
         if let Some(f) = flash_map.get(&n.id) {
             let k = (1.0 - ((cx.now - f.at) / FLASH_SECS) as f32).clamp(0.0, 1.0);
+            // pulses once as it appears: the ring starts wide and settles
+            let pulse = if crate::motion::reduce(ui.ctx()) {
+                0.0
+            } else {
+                crate::motion::decay(cx.now, f.at, 0.45)
+            };
             shapes.push(Shape::rect_stroke(
-                r.expand(2.0),
+                r.expand(2.0 + 5.0 * pulse),
                 CornerRadius::same(3),
                 Stroke::new(2.0, col.agent.gamma_multiply(k)),
                 StrokeKind::Outside,
@@ -1680,12 +1686,13 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     // playhead
     if let Some(ph) = cx.playhead {
         let x = origin.x + view.x_of(ph as f64);
-        gp.line_segment(
-            [
-                Pos2::new(x, grid_rect.top()),
-                Pos2::new(x, grid_rect.bottom()),
-            ],
-            Stroke::new(1.5, col.playhead),
+        crate::paint::playhead(
+            &gp,
+            x,
+            grid_rect.top(),
+            grid_rect.bottom(),
+            cx.theme,
+            crate::motion::reduce(ui.ctx()),
         );
     }
 

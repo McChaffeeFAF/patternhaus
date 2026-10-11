@@ -2,6 +2,26 @@
 
 All notable changes to Patternhaus. Versions follow the milestones in `docs/milestones/`.
 
+## Unreleased
+
+### Changed
+- **The visual pass (M1/T8):** a neon-cyberpunk look in two themes, Neon Slate (default) and
+  Red Line, switchable live; user themes load from the config folder (`docs/theming.md`).
+  The old Dark and Light themes are removed.
+  - Bundled OFL fonts (Barlow Condensed, Barlow, Share Tech Mono) replace egui's default
+    fonts; one self-drawn vector icon set; knobs with value arcs and glow, recessed faders,
+    gradient meters with held peaks and clip LEDs, hardware-style step pads, LCD readouts.
+  - A new top bar (wordmark, menus, PAT/SONG, transport, tempo and bar-beat-tick LCDs, a
+    scope, DSP and RAM, the agent badge), a customisable toolbar, browser tabs and search with
+    a sample preview, new mixer strips, a hint bar, right-click menus on every control and an
+    options menu on every window.
+  - Motion on UI time only (pad flashes, meter fall-off, playhead trail, focus glow, knob
+    easing, toasts), with a reduce-motion setting.
+  - The piano roll and playlist snap and draw down to 1/64 (musical snap names, five grid
+    tiers, a minimum drawn size and click target for tiny notes, zoom presets with keys).
+  - A loading screen, an app icon (`packaging/icons`), a new window title and About box.
+- `get_state` has a `ui` view: the hint the UI is showing.
+
 ## [v0.1.0-m1] - Milestone 1: Make a Beat
 
 First milestone release, pre-alpha. A person in the UI, or an agent through MCP alone, can
@@ -32,7 +52,7 @@ WAV or FLAC.
 - **UI:**
   - an FL-style floating workspace (egui): browser, channel rack, step sequencer, piano roll, playlist, mixer, history, agents;
   - FL-compatible shortcuts and a remappable keymap;
-  - dark and light themes;
+  - dark and light themes (replaced in T8 by Neon Slate and Red Line);
   - Help → About with licence notices.
 - **Factory content:** a generated drum kit and Haus Synth presets, with provenance.
 - **Quality:**

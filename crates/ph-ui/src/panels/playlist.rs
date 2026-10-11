@@ -48,7 +48,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 }
             })
             .response
-            .hint("Playlist snap", &cur, "chooses the grid clips snap to");
+            .hint_menu("Playlist snap", &cur, "chooses the grid clips snap to");
         if icon_button(ui, &theme, Icon::Minus, false, "Zoom out", "Ctrl+wheel").clicked() {
             core.playlist.zoom_x(0.8, 100.0);
         }

@@ -63,7 +63,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
 
     // ---- toolbar
     ui.horizontal(|ui| {
-        ui.menu_button(caps("+ Channel"), |ui| {
+        crate::widgets::menu_button(ui, "+ Channel", |ui| {
             if menu_item(ui, "Sampler (empty)", "").clicked() {
                 core.add_channel(
                     "Sampler",
@@ -75,7 +75,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 );
                 ui.close();
             }
-            ui.menu_button(caps("Haus Synth"), |ui| {
+            crate::widgets::menu_button(ui, "Haus Synth", |ui| {
                 for cat in &core.browser.presets.clone() {
                     ui.menu_button(&cat.name, |ui| {
                         for p in &cat.children {
@@ -91,7 +91,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         ui.label(widgets::caption(&theme, "Steps"));
         let r = ui
             .add(egui::DragValue::new(&mut pat_steps).range(1..=256))
-            .hint(
+            .hint_menu(
                 "Steps",
                 &format!("{pat_steps}"),
                 "drag or type: pattern length in steps",
@@ -325,7 +325,11 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(irect));
                 let mut ins = ch.insert.0;
                 let r = child.add(egui::DragValue::new(&mut ins).range(0..=32));
-                let r = r.tip("Mixer insert (0 = master)");
+                let r = r.tip("Mixer insert (0 = master)").hint_menu(
+                    "Mixer insert",
+                    &format!("{ins}"),
+                    "drag or type: the mixer insert this channel plays through (0 = master)",
+                );
                 if (r.drag_stopped() || r.lost_focus()) && ins != ch.insert.0 {
                     core.send(mapping::channel_insert(ch.id, ins));
                 }

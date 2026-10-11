@@ -122,7 +122,8 @@ fn main() -> eframe::Result {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("Patternhaus")
+            .with_title(ph_ui::app::window_title("Untitled", false))
+            .with_icon(std::sync::Arc::new(ph_ui::icon::viewport_icon()))
             .with_inner_size([1500.0, 920.0])
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
@@ -181,7 +182,8 @@ fn main() -> eframe::Result {
                 library_roots: args.libraries.clone(),
                 config_dir: args.config.clone(),
             };
-            let app = PhApp::new(&cc.egui_ctx, studio, paths, hooks, engine_cfg, notice)?;
+            let mut app = PhApp::new(&cc.egui_ctx, studio, paths, hooks, engine_cfg, notice)?;
+            app.show_splash();
             Ok(Box::new(app))
         }),
     )

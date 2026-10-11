@@ -6,7 +6,7 @@ use crate::hint::HintExt;
 use crate::mapping;
 use crate::widgets::btn;
 use crate::widgets::{badge, section_label};
-use egui::{Color32, RichText, Ui};
+use egui::{RichText, Ui};
 use ph_commands::{EntryKind, HistoryEntry};
 use std::collections::BTreeSet;
 use std::time::SystemTime;
@@ -196,8 +196,7 @@ pub fn conflict_dialog(ctx: &egui::Context, core: &mut AppCore) {
                 if btn(ui, "Skip these objects").tip("Undo everything else, leave the conflicting objects as they are").clicked() {
                     choice = Some(ConflictChoice::Skip);
                 }
-                if ui
-                    .button(RichText::new("Force").color(Color32::from_rgb(255, 180, 84)))
+                if crate::widgets::btn_tinted(ui, "Force", core.theme.colors.warn)
                     .tip("Overwrite their changes too")
                     .clicked()
                 {

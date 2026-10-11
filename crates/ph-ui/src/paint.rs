@@ -149,3 +149,44 @@ pub fn mono_text(p: &Painter, pos: Pos2, align: Align2, text: &str, size: f32, c
         colour,
     );
 }
+
+/// A horizontal gradient rectangle from `left` to `right` colours (one quad).
+pub fn hgradient(p: &Painter, rect: Rect, left: Color32, right: Color32) {
+    let mut m = Mesh::default();
+    let uv = egui::epaint::WHITE_UV;
+    for (pos, color) in [
+        (rect.left_top(), left),
+        (rect.right_top(), right),
+        (rect.right_bottom(), right),
+        (rect.left_bottom(), left),
+    ] {
+        m.vertices.push(Vertex { pos, uv, color });
+    }
+    m.indices.extend([0, 1, 2, 0, 2, 3]);
+    p.add(Shape::mesh(m));
+}
+
+/// The playhead: a glowing line with a soft trail behind it. `reduce` drops the trail and the
+/// glow (reduced motion keeps the line).
+pub fn playhead(p: &Painter, x: f32, top: f32, bottom: f32, theme: &Theme, reduce: bool) {
+    let c = &theme.colors;
+    let area = p.clip_rect();
+    if x < area.left() - 40.0 || x > area.right() + 4.0 {
+        return;
+    }
+    if !reduce {
+        let trail = Rect::from_min_max(
+            Pos2::new((x - 26.0).max(area.left()), top),
+            Pos2::new(x, bottom),
+        );
+        hgradient(p, trail, c.tint.gamma_multiply(0.0), c.glow_soft);
+    }
+    glow_line(
+        p,
+        Pos2::new(x, top),
+        Pos2::new(x, bottom),
+        1.5,
+        c.playhead,
+        if reduce { 0.0 } else { 0.8 },
+    );
+}

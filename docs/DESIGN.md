@@ -334,6 +334,11 @@ The aim is a professional first impression, at FL-level density and polish, in o
 - **Customisable like FL:** a full theme/skin system (colours, fonts, control styles, density) that users can share, a customisable toolbar, right-click menus everywhere, and an options menu per window.
 - **Grid down to 1/64:** musical snap names (1/4 to 1/64, plus triplets); a five-tier grid (bar, beat, 1/16, 1/32, 1/64) that fades in by zoom; and a minimum drawn width and click target for tiny notes.
 - **Scaling:** works at any DPI.
+- **As built (M1/T8):**
+  - Themes are TOML files (`crates/ph-ui/themes/`, user themes in `<config>/themes/`; see `docs/theming.md`). The old Dark and Light themes were removed.
+  - Fonts are in `assets/fonts` (OFL, with provenance and licence texts); the icons are self-drawn vectors, so there is nothing to license.
+  - The hint bar's text is published through `ph-control`, so an agent can read it with `get_state { view: "ui" }`.
+  - The scope in the top bar is an envelope of the master level (the engine publishes levels, not samples).
 
 **Shared with agents.** The UI reads only snapshots, and every change goes through commands. So anything you can see, an agent can query, and anything you can do, an agent can do.
 
