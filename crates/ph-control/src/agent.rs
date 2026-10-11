@@ -161,6 +161,14 @@ fn sanitize(name: &str) -> String {
 }
 
 impl Agent {
+    /// Warnings for exactly this project (unloadable samples, unsupported instruments or
+    /// effects). Computed from the snapshot itself rather than read from the engine, which only
+    /// learns of a change once the bridge delivers it, so a reply never misses its own command's
+    /// warning.
+    fn warnings_for(&self, project: &Project) -> Vec<String> {
+        ph_engine::project_warnings(project, self.studio.assets.as_ref())
+    }
+
     pub fn new(studio: StudioHandle, grants: Arc<Grants>) -> Arc<Agent> {
         Arc::new(Agent {
             studio,
@@ -427,7 +435,11 @@ impl Agent {
 
     /// Runs requests as one transaction and diffs the project across it, atomically on the
     /// control thread so nobody else's edit is attributed to this one.
-    fn exec(&self, caller: &Caller, reqs: Vec<Request>) -> Result<(Vec<Executed>, Diff), CmdError> {
+    fn exec(
+        &self,
+        caller: &Caller,
+        reqs: Vec<Request>,
+    ) -> Result<(Vec<Executed>, Diff, Arc<Project>), CmdError> {
         let c = caller.clone();
         let (done, before, after) = self.studio.session.call(move |s, h| {
             let before = s.project().clone();
@@ -441,17 +453,18 @@ impl Agent {
         } else {
             diff(&before, &after)
         };
-        Ok((done, d))
+        Ok((done, d, after))
     }
 
     fn run_one(&self, caller: &Caller, req: Request) -> ToolOutput {
         match self.exec(caller, vec![req]) {
-            Ok((done, d)) => ToolOutput::json(self.result_json(&done, &d)),
+            Ok((done, d, after)) => ToolOutput::json(self.result_json(&done, &d, &after)),
             Err(e) => ToolOutput::error(err_text(&e)),
         }
     }
 
-    fn result_json(&self, done: &[Executed], d: &Diff) -> Value {
+    /// `after` is the project as these commands left it; its warnings go in the reply.
+    fn result_json(&self, done: &[Executed], d: &Diff, after: &Project) -> Value {
         let mut v = json!({
             "ok": true,
             "results": done.iter().map(|e| {
@@ -466,7 +479,7 @@ impl Agent {
         if !d.is_empty() {
             v["changes"] = d.to_json();
         }
-        let w = self.studio.engine.stats().warnings;
+        let w = self.warnings_for(after);
         if !w.is_empty() {
             v["engine_warnings"] = json!(w);
         }
@@ -499,7 +512,7 @@ impl Agent {
         }
         if args["as_one_undo"].as_bool().unwrap_or(true) {
             return match self.exec(caller, reqs) {
-                Ok((done, d)) => ToolOutput::json(self.result_json(&done, &d)),
+                Ok((done, d, after)) => ToolOutput::json(self.result_json(&done, &d, &after)),
                 Err(e) => ToolOutput::error(format!(
                     "{} (nothing was applied: the batch is all-or-nothing)",
                     err_text(&e)
@@ -508,11 +521,13 @@ impl Agent {
         }
         // Separate transactions, stopping at the first failure.
         let (mut all, mut diffs, mut failure) = (Vec::new(), Vec::new(), None);
+        let mut last = None;
         for (i, r) in reqs.into_iter().enumerate() {
             match self.exec(caller, vec![r]) {
-                Ok((mut done, d)) => {
+                Ok((mut done, d, after)) => {
                     all.append(&mut done);
                     diffs.extend(d.lines);
+                    last = Some(after);
                 }
                 Err(e) => {
                     failure = Some(format!("commands[{i}]: {}", err_text(&e)));
@@ -520,7 +535,14 @@ impl Agent {
                 }
             }
         }
-        let mut v = self.result_json(&all, &Diff { lines: diffs });
+        let after = match last {
+            Some(p) => p,
+            None => match self.studio.session.project() {
+                Ok(p) => p,
+                Err(e) => return ToolOutput::error(err_text(&e)),
+            },
+        };
+        let mut v = self.result_json(&all, &Diff { lines: diffs }, &after);
         if let Some(f) = failure {
             v["ok"] = json!(false);
             v["error"] = json!(format!("{f}; the earlier commands stay applied"));
@@ -801,7 +823,7 @@ impl Agent {
                 "warnings": h.warnings,
             },
         });
-        let w = self.studio.engine.stats().warnings;
+        let w = self.warnings_for(&p);
         if !w.is_empty() {
             v["engine_warnings"] = json!(w);
         }
@@ -939,7 +961,10 @@ impl Agent {
             out.insert(w.clone(), v);
         }
         let mut v = Value::Object(out);
-        let w = self.studio.engine.stats().warnings;
+        let w = match self.studio.session.project() {
+            Ok(p) => self.warnings_for(&p),
+            Err(_) => self.studio.engine.stats().warnings,
+        };
         if !w.is_empty() {
             v["engine_warnings"] = json!(w);
         }
