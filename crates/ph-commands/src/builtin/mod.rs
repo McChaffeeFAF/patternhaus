@@ -21,6 +21,7 @@ mod pattern;
 mod playlist;
 mod project;
 mod query;
+mod sample;
 mod step;
 #[cfg(test)]
 mod tests;
@@ -47,4 +48,5 @@ pub fn register_builtin(r: &mut Registry) {
     ui::register(r);
     history::register(r);
     query::register(r);
+    sample::register(r);
 }

@@ -92,6 +92,8 @@ pub struct Prefs {
     pub theme: Option<String>,
     /// Skip decorative animation (flashes, glow fades, easing, slides).
     pub reduce_motion: bool,
+    /// Library folders added by dropping a folder on the browser; shown on the next launch too.
+    pub library_folders: Vec<PathBuf>,
 }
 
 pub fn load_prefs(config: Option<&Path>) -> Prefs {

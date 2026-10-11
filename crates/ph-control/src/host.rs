@@ -206,6 +206,69 @@ impl Host for EngineHost {
         }
     }
 
+    fn import_file(
+        &mut self,
+        source: &Path,
+        into: ImportKind,
+        author: &Author,
+    ) -> CmdResult<String> {
+        let ImportKind::Sample = into;
+        let source = match author {
+            // The drop is the human's intent: any path they can read.
+            Author::Human if source.is_absolute() => source.to_path_buf(),
+            // Agents (and relative paths) stay inside the allowed roots.
+            _ => self.resolve_path(&source.to_string_lossy(), FileAccess::Read)?,
+        };
+        let name = source
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .ok_or_else(|| CmdError::Host(format!("{}: not a file", source.display())))?;
+        let bytes = std::fs::read(&source)
+            .map_err(|e| CmdError::Host(format!("{}: {e}", source.display())))?;
+        let ext = source.extension().and_then(|e| e.to_str());
+        ph_formats::decode::decode_bytes(&bytes, ext)
+            .map_err(|e| CmdError::Host(format!("cannot use {name} as a sample: {e}")))?;
+
+        let dir = self.project_dir.join("samples");
+        // The same bytes are already there: reuse that file.
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            let mut found: Vec<String> = entries
+                .flatten()
+                .filter(|e| e.metadata().is_ok_and(|m| m.len() == bytes.len() as u64))
+                .filter(|e| std::fs::read(e.path()).is_ok_and(|b| b == bytes))
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            found.sort();
+            if let Some(existing) = found.into_iter().next() {
+                return Ok(format!("samples/{existing}"));
+            }
+        }
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| CmdError::Host(format!("{}: {e}", dir.display())))?;
+        // Keep the name; on a clash add " (2)", " (3)" ...
+        let path = Path::new(&name);
+        let stem = path
+            .file_stem()
+            .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+        let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
+        let mut n = 1u32;
+        let (target, final_name) = loop {
+            let candidate = match (n, &ext) {
+                (1, _) => name.clone(),
+                (n, Some(e)) => format!("{stem} ({n}).{e}"),
+                (n, None) => format!("{stem} ({n})"),
+            };
+            let target = dir.join(&candidate);
+            if !target.exists() {
+                break (target, candidate);
+            }
+            n += 1;
+        };
+        std::fs::write(&target, &bytes)
+            .map_err(|e| CmdError::Host(format!("{}: {e}", target.display())))?;
+        Ok(format!("samples/{final_name}"))
+    }
+
     fn ui(&mut self, request: UiRequest) -> CmdResult<()> {
         // A closed receiver just means no UI is attached (headless).
         let _ = self.ui.send(request);

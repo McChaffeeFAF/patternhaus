@@ -4,6 +4,11 @@ All notable changes to Patternhaus. Versions follow the milestones in `docs/mile
 
 ## Unreleased
 
+### Added
+- **Drag and drop from the OS (M1/T9):** drop audio (WAV, AIFF, FLAC, MP3, OGG) on the channel rack or playlist to get one Sampler channel per file (one undo step), or on a channel row to replace its sample; drop .mid on the playlist or piano roll to import it; drop a folder on the browser to add a library folder (remembered); drop a project folder or project.json to open it (asking first when there are unsaved changes). The target lights up and the hint bar says what will happen; unsupported files are skipped with a notice naming them.
+- `sample.import` command and `Host::import_file`: dropped audio is validated by decoding and copied into the project's `samples/` folder (name kept, " (2)" on a clash, identical files reused). The human may import from any path; agents only from the project and library folders.
+- `file.import_midi` and `file.open` accept any absolute path from the human (agents stay confined).
+
 ### Changed
 - **The visual pass (M1/T8):** a neon-cyberpunk look in two themes, Neon Slate (default) and
   Red Line, switchable live; user themes load from the config folder (`docs/theming.md`).

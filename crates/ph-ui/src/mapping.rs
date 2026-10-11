@@ -415,6 +415,16 @@ pub fn file_save_as(path: &str) -> Request {
 pub fn file_open(path: &str) -> Request {
     confirmed(req("file.open", json!({ "path": path })))
 }
+/// Copy audio files into the project and add Sampler channels, or replace one channel's sample.
+pub fn sample_import(paths: &[String], channel: Option<ChannelId>) -> Request {
+    req(
+        "sample.import",
+        json!({ "paths": paths, "channel": channel }),
+    )
+}
+pub fn import_midi(path: &str) -> Request {
+    req("file.import_midi", json!({ "path": path }))
+}
 pub fn export_audio(path: &str, overwrite: bool) -> Request {
     req(
         "file.export_audio",

@@ -295,6 +295,10 @@ pub struct AppCore {
     hint_published: Option<ph_control::UiHint>,
     /// Which toolbar items show, and in what order (saved with the layout).
     pub toolbar: crate::toolbar::ToolbarConfig,
+    /// Where each droppable panel and row was drawn this frame (see `dnd`).
+    pub drop_zones: Vec<(egui::Rect, crate::dnd::DropZone)>,
+    /// What a drag of files over the window would do, while one is hovering.
+    pub drop_hover: Option<crate::dnd::DropHover>,
 }
 
 /// A window's scroll area, as last drawn.
@@ -401,6 +405,8 @@ impl AppCore {
             ram_at: f64::NEG_INFINITY,
             hint_published: None,
             toolbar: Default::default(),
+            drop_zones: Vec::new(),
+            drop_hover: None,
         };
         core.fix_selection();
         Ok(core)
@@ -597,6 +603,26 @@ impl AppCore {
                     if let Some(p) = self.after_save.take() {
                         self.ready.push(p);
                     }
+                }
+                if d.request.command == "sample.import" {
+                    for s in ex.result["skipped"].as_array().into_iter().flatten() {
+                        let name = s["path"]
+                            .as_str()
+                            .and_then(|p| std::path::Path::new(p).file_name())
+                            .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                        self.toast(
+                            ToastKind::Warn,
+                            format!(
+                                "Skipped {name}: {}",
+                                s["reason"].as_str().unwrap_or("could not be used")
+                            ),
+                        );
+                    }
+                }
+                if (d.request.command == "sample.import" || d.request.command == "file.import_midi")
+                    && let Some(s) = &ex.summary
+                {
+                    self.toast(ToastKind::Info, s.clone());
                 }
                 if d.request.command == "file.export_audio" {
                     let path = d.request.params["path"].as_str().unwrap_or("");

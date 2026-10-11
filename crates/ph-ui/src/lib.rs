@@ -10,6 +10,7 @@ pub mod browser_model;
 pub mod core;
 pub mod demo_agent;
 pub mod dispatch;
+pub mod dnd;
 pub mod fonts;
 pub mod hint;
 pub mod icon;

@@ -225,6 +225,17 @@ Neon, themes and polish. Everything here has an offscreen test or screenshot
 11. **About.** Help, About Patternhaus: the mark, the version and the licence text, including
     the three bundled fonts (SIL Open Font Licence 1.1).
 
+12. **Drag and drop.** From Windows Explorer, with the app open (and a project that has a few channels):
+    - Drag three .wav files over the channel rack: the rack lights up with the accent edge and glow, the hint bar says "Drop to add 3 samples as channels". Drop: three Sampler channels named after the files, in order. Undo (Ctrl+Z) removes all three at once. Check `samples/` in the project folder has the copies.
+    - Drag one .wav over a channel row: only that row lights, "Drop to replace Kick's sample". Drop: the sample changes, the name does not.
+    - Drop a file with the same name but different content: it is copied as `name (2).wav`. Drop the very same file twice: no second copy.
+    - Drag audio over the playlist: the hint says audio clips arrive later and that it adds channels.
+    - Drag a .mid over the playlist or piano roll: "MIDI: drop to import as a new pattern".
+    - Drag a folder over the browser: it lights; drop adds it on the Library tab. Restart the app: the folder is still there.
+    - With unsaved changes, drag a project folder (or its project.json) anywhere: Save / Don't save / Cancel appears; with none, it opens.
+    - Drop a .txt or .m4a: a warning toast names the file and why it was skipped. A corrupt .wav is skipped and named, the good ones still import.
+    - Windows may not report the pointer position during a drag from Explorer. If so, the row replace cannot be aimed; a single file then adds a channel instead. Tell us which you see.
+
 ## What to look for (the things tests cannot judge)
 
 - The 10 000-note piano roll (make one with the scripted agent or MIDI import) scrolls and zooms
