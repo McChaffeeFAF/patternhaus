@@ -90,7 +90,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     if history.is_empty() {
         ui.label(
             RichText::new("Nothing yet. Edit something and it appears here.")
-                .color(theme.colors.text_dim),
+                .color(theme.colors.dim),
         );
     }
     // the window itself scrolls (see `windows::show_content`)
@@ -102,7 +102,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 ui.label(
                     RichText::new(format!("{:>4}", e.txn))
                         .monospace()
-                        .color(theme.colors.text_dim),
+                        .color(theme.colors.dim),
                 );
                 let fill = match &e.author {
                     ph_commands::Author::Human => theme.colors.accent,
@@ -127,7 +127,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 };
                 let mut rt = RichText::new(label);
                 if reverted {
-                    rt = rt.strikethrough().color(theme.colors.text_dim);
+                    rt = rt.strikethrough().color(theme.colors.dim);
                 }
                 ui.label(rt);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -156,7 +156,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                         RichText::new(when)
                             .monospace()
                             .size(10.0)
-                            .color(theme.colors.text_dim),
+                            .color(theme.colors.dim),
                     );
                 });
             });

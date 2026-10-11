@@ -81,38 +81,46 @@ pub fn load_keymap(config: Option<&Path>) -> (Keymap, Option<String>) {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
-struct Settings {
-    #[serde(default)]
-    theme: Option<String>,
+/// Small per-user preferences (`settings.toml`).
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Prefs {
+    /// Theme id (built-in, or a file in `<config>/themes`).
+    pub theme: Option<String>,
+    /// Skip decorative animation (flashes, glow fades, easing, slides).
+    pub reduce_motion: bool,
+}
+
+pub fn load_prefs(config: Option<&Path>) -> Prefs {
+    config
+        .map(settings_path)
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|t| toml::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_prefs(config: &Path, prefs: &Prefs) -> std::io::Result<()> {
+    std::fs::create_dir_all(config)?;
+    std::fs::write(
+        settings_path(config),
+        toml::to_string(prefs).unwrap_or_default(),
+    )
 }
 
 pub fn load_theme(config: Option<&Path>) -> (Theme, Option<String>) {
-    let Some(path) = config.map(settings_path) else {
-        return (Theme::dark(), None);
-    };
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return (Theme::dark(), None);
-    };
-    let s: Settings = toml::from_str(&text).unwrap_or_default();
-    match s.theme.as_deref() {
-        None => (Theme::dark(), None),
-        Some(name) => match crate::theme::load(name) {
+    match load_prefs(config).theme.as_deref() {
+        None => (Theme::default_theme(), None),
+        Some(name) => match crate::theme::load_from(name, config) {
             Ok(t) => (t, None),
-            Err(e) => (Theme::dark(), Some(format!("theme {name}: {e}"))),
+            Err(e) => (Theme::default_theme(), Some(format!("theme {name}: {e}"))),
         },
     }
 }
 
 pub fn save_theme(config: &Path, name: &str) -> std::io::Result<()> {
-    std::fs::create_dir_all(config)?;
-    let s = Settings {
-        theme: Some(name.to_string()),
-    };
-    std::fs::write(
-        settings_path(config),
-        toml::to_string(&s).unwrap_or_default(),
-    )
+    let mut prefs = load_prefs(Some(config));
+    prefs.theme = Some(name.to_string());
+    save_prefs(config, &prefs)
 }
 
 pub fn save_keymap(config: &Path, km: &Keymap) -> std::io::Result<()> {
@@ -211,8 +219,17 @@ mod tests {
                 .is_some()
         );
 
-        save_theme(dir.path(), "light").unwrap();
+        save_theme(dir.path(), "red-line").unwrap();
         let (t, err) = load_theme(Some(dir.path()));
-        assert!(err.is_none() && !t.dark);
+        assert!(err.is_none() && t.id == "red-line");
+        // saving the theme keeps the other preferences
+        let mut p = load_prefs(Some(dir.path()));
+        p.reduce_motion = true;
+        save_prefs(dir.path(), &p).unwrap();
+        save_theme(dir.path(), "neon-slate").unwrap();
+        assert!(load_prefs(Some(dir.path())).reduce_motion);
+        // an old settings file naming the retired themes falls back to the default
+        save_theme(dir.path(), "light").unwrap();
+        assert_eq!(load_theme(Some(dir.path())).0.id, "neon-slate");
     }
 }

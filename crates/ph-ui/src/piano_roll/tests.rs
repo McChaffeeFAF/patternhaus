@@ -339,7 +339,7 @@ fn run_frame(
 fn spike_ten_thousand_notes_frame_cost() {
     let (p, pat, ch) = project_with_notes(10_000, 64);
     assert_eq!(p.pattern(pat).unwrap().note_count(), 10_000);
-    let theme = Theme::dark();
+    let theme = Theme::default_theme();
     let ctx = egui::Context::default();
     theme.apply(&ctx);
     let mut st = PianoRollState::default();

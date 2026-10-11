@@ -115,7 +115,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     .get(&pattern)
                     .map_or(String::new(), |p| format!("Pattern: {}", p.name)),
             )
-            .color(theme.colors.text_dim),
+            .color(theme.colors.dim),
         );
     });
     ui.separator();
@@ -163,9 +163,9 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     row_rect.shrink2(Vec2::new(0.0, 1.0)),
                     CornerRadius::same(3),
                     if selected {
-                        theme.colors.panel_alt
+                        theme.colors.bg3
                     } else {
-                        theme.colors.panel
+                        theme.colors.bg2
                     },
                 );
                 let mut x = row_rect.left() + 4.0;
@@ -175,7 +175,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 let grip = Rect::from_center_size(Pos2::new(x + 6.0, mid), Vec2::new(12.0, 22.0));
                 let gr = ui.interact(grip, ui.id().with(("grip", ch.id)), Sense::drag());
                 for dy in [-5.0, 0.0, 5.0] {
-                    p.circle_filled(Pos2::new(x + 6.0, mid + dy), 1.3, theme.colors.text_dim);
+                    p.circle_filled(Pos2::new(x + 6.0, mid + dy), 1.3, theme.colors.dim);
                 }
                 if gr.drag_started() {
                     core.rack.reorder = Some(ch.id);
@@ -215,7 +215,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     &ch.name,
                     FontId::proportional(13.0),
                     if ch.muted {
-                        theme.colors.text_dim
+                        theme.colors.dim
                     } else {
                         theme.colors.text
                     },
@@ -597,7 +597,7 @@ fn step_row(
                 lerp(colour.gamma_multiply(0.55), colour, v),
             );
         } else if matches!(s, Step::Other) {
-            painter.circle_filled(r.center(), 2.5, theme.colors.text_dim);
+            painter.circle_filled(r.center(), 2.5, theme.colors.dim);
         }
         if play_step == Some(i) {
             painter.rect_stroke(

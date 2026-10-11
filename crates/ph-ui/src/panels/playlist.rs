@@ -43,7 +43,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         ui.label(
             egui::RichText::new("Click: place · drag: move · edge: resize · right-click: delete · shift-drag ruler: loop")
                 .size(10.0)
-                .color(theme.colors.text_dim),
+                .color(theme.colors.dim),
         );
     });
 

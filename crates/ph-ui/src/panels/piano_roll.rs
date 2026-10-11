@@ -103,7 +103,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         }
         ui.label(
             egui::RichText::new(format!("{} selected", core.roll.selection.len()))
-                .color(theme.colors.text_dim),
+                .color(theme.colors.dim),
         );
     });
 

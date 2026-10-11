@@ -1,0 +1,53 @@
+# Neon Slate: the default Patternhaus theme (DESIGN section 9, approved 2026-10-10).
+# Every colour is a token; widgets never use colour literals. See docs/theming.md.
+id = "neon-slate"
+name = "Neon Slate"
+dark = true
+
+[colors]
+bg0 = "#0b1016"        # deepest: workspace background, wells
+bg1 = "#111820"        # bars and docks
+bg2 = "#16202a"        # window body
+bg3 = "#1e2a36"        # title bars, controls
+bg4 = "#263444"        # raised: hover, knob caps
+line = "#2a3949"
+line_soft = "#1c2732"
+text = "#dbe7f3"
+dim = "#8fa2b8"
+faint = "#5d6f84"      # disabled only
+accent = "#38c6ff"
+accent_hot = "#9be6ff"
+accent_ink = "#03141d" # text on an accent fill
+lcd = "#060a0e"
+warn = "#ffb648"
+clip = "#ff3d6a"
+agent = "#c084fc"
+pad = "#1b2632"
+pad_group = "#223040"
+knob_track = "#2b3a4a"
+pattern = ["#38c6ff", "#7c8cff", "#2dd4bf", "#94a3b8", "#f472b6"]
+# semantic extras
+ok = "#3ddc97"
+error = "#ff5d6c"
+
+# Alpha of the glow tokens; glow, glow_soft and tint are the accent at these alphas.
+[glow]
+glow = 0.55
+glow_soft = 0.18
+tint = 0.12
+
+[metrics]
+density = "comfortable"   # or "compact"
+rounding = 3.0
+radius_sm = 2.0
+radius_md = 3.0
+radius_lg = 6.0
+spacing = 8.0             # base unit on the 4 px grid
+row_height = 26.0
+scale = 1.0
+font_caption = 10.0
+font_label = 11.5
+font_body = 13.0
+font_title = 12.5
+font_readout = 13.0
+font_lcd = 24.0

@@ -121,7 +121,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
                 InstrumentSpec::MultiSampler { .. } => "Haus Sampler",
                 InstrumentSpec::Plugin { .. } => "Plugin",
             })
-            .color(theme.colors.text_dim),
+            .color(theme.colors.dim),
         );
     });
     ui.separator();
@@ -211,7 +211,7 @@ fn sampler(
             Sense::hover(),
         );
         let p = ui.painter();
-        p.rect_filled(rect, CornerRadius::same(4), theme.colors.bg);
+        p.rect_filled(rect, CornerRadius::same(4), theme.colors.bg0);
         match wave {
             Some(w) => {
                 let mid = rect.center().y;
@@ -254,7 +254,7 @@ fn sampler(
                     egui::Align2::RIGHT_BOTTOM,
                     format!("{:.2} s", w.frames as f64 / w.sample_rate.max(1.0)),
                     egui::FontId::proportional(10.0),
-                    theme.colors.text_dim,
+                    theme.colors.dim,
                 );
             }
             None => {
@@ -263,7 +263,7 @@ fn sampler(
                     egui::Align2::CENTER_CENTER,
                     "(cannot preview this file)",
                     egui::FontId::proportional(12.0),
-                    theme.colors.text_dim,
+                    theme.colors.dim,
                 );
             }
         }
@@ -326,9 +326,7 @@ fn synth(
                 }
             });
         if !params.is_empty() {
-            ui.label(
-                RichText::new(format!("{} edited", params.len())).color(theme.colors.text_dim),
-            );
+            ui.label(RichText::new(format!("{} edited", params.len())).color(theme.colors.dim));
         }
     });
     let Some(d) = desc else { return };

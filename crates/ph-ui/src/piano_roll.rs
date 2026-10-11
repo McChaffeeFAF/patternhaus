@@ -1017,7 +1017,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     let avail = ui.available_size();
     let (resp, painter) = ui.allocate_painter(avail, Sense::click_and_drag());
     let whole = resp.rect;
-    painter.rect_filled(whole, CornerRadius::ZERO, col.bg);
+    painter.rect_filled(whole, CornerRadius::ZERO, col.bg0);
 
     let grid_rect = Rect::from_min_max(
         Pos2::new(whole.left() + KEYBOARD_W, whole.top() + RULER_H),
@@ -1375,7 +1375,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                         .note_rect(n.key, n.start, n.length)
                         .translate(origin.to_vec2());
                     let c = if *to == Some(true) {
-                        col.text_dim
+                        col.dim
                     } else {
                         col.accent
                     };
@@ -1423,7 +1423,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             if black {
                 col.key_black.gamma_multiply(1.0)
             } else {
-                col.panel_alt
+                col.bg3
             },
         );
         if black {
@@ -1431,7 +1431,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                 Rect::from_min_size(r.min, Vec2::new(KEYBOARD_W * 0.62, r.height()))
                     .shrink2(Vec2::new(0.0, 0.5)),
                 CornerRadius::ZERO,
-                col.bg,
+                col.bg0,
             );
         }
         if key % 12 == 0 || view.key_h >= 14.0 {
@@ -1440,18 +1440,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                 Align2::RIGHT_CENTER,
                 note_name(key),
                 FontId::proportional(10.0),
-                if key % 12 == 0 {
-                    col.text
-                } else {
-                    col.text_dim
-                },
+                if key % 12 == 0 { col.text } else { col.dim },
             );
         }
     }
 
     // ---- ruler ---------------------------------------------------------------------------
     let rp = painter.with_clip_rect(ruler_rect);
-    rp.rect_filled(ruler_rect, CornerRadius::ZERO, col.panel_alt);
+    rp.rect_filled(ruler_rect, CornerRadius::ZERO, col.bg3);
     let mut bar_step = 1;
     while (bar as f64 * bar_step as f64 * view.px_per_tick) < 40.0 {
         bar_step *= 2;
@@ -1472,7 +1468,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             Align2::LEFT_TOP,
             format!("{}", b + 1),
             FontId::proportional(10.0),
-            col.text_dim,
+            col.dim,
         );
         b += bar_step;
     }
@@ -1489,7 +1485,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
 
     // ---- velocity lane -------------------------------------------------------------------
     let lp = painter.with_clip_rect(lane_rect);
-    lp.rect_filled(lane_rect, CornerRadius::ZERO, col.panel);
+    lp.rect_filled(lane_rect, CornerRadius::ZERO, col.bg2);
     let vel_override: Option<(&Vec<NoteId>, f32)> = match &st.drag {
         Drag::Velocity { ids, value } => Some((ids, *value)),
         _ => None,
@@ -1525,7 +1521,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         Align2::LEFT_TOP,
         "Velocity",
         FontId::proportional(10.0),
-        col.text_dim,
+        col.dim,
     );
     out
 }

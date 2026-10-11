@@ -459,7 +459,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
     let col = &cx.theme.colors;
     let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let whole = resp.rect;
-    painter.rect_filled(whole, CornerRadius::ZERO, col.bg);
+    painter.rect_filled(whole, CornerRadius::ZERO, col.bg0);
     let grid = Rect::from_min_max(
         Pos2::new(whole.left() + HEADER_W, whole.top() + RULER_H),
         whole.max,
@@ -557,14 +557,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
         hp.rect_filled(
             r.shrink2(Vec2::new(0.0, 0.5)),
             CornerRadius::ZERO,
-            if tr.muted { col.row_alt } else { col.panel_alt },
+            if tr.muted { col.row_alt } else { col.bg3 },
         );
         hp.text(
             r.left_center() + Vec2::new(8.0, 0.0),
             Align2::LEFT_CENTER,
             &tr.name,
             FontId::proportional(12.0),
-            if tr.muted { col.text_dim } else { col.text },
+            if tr.muted { col.dim } else { col.text },
         );
         let m = Rect::from_center_size(
             Pos2::new(r.right() - 16.0, r.center().y),
@@ -578,9 +578,9 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             if tr.muted {
                 col.warn
             } else if mresp.hovered() {
-                col.widget_hover
+                col.bg4
             } else {
-                col.widget
+                col.bg3
             },
         );
         hp.text(
@@ -591,7 +591,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             if tr.muted {
                 egui::Color32::BLACK
             } else {
-                col.text_dim
+                col.dim
             },
         );
         if mresp.clicked() {
@@ -701,7 +701,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
                 (p.name.clone(), rgb(p.color))
             });
         let sel = st.selection.contains(&c.id);
-        gp.rect_filled(r, CornerRadius::same(3), lerp(col.panel, base, 0.85));
+        gp.rect_filled(r, CornerRadius::same(3), lerp(col.bg2, base, 0.85));
         gp.rect_filled(
             Rect::from_min_size(r.min, Vec2::new(r.width(), 14.0f32.min(r.height()))),
             CornerRadius {
@@ -802,7 +802,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
     rp.rect_filled(
         Rect::from_min_max(ruler.min, Pos2::new(ruler.max.x, ruler.max.y)),
         CornerRadius::ZERO,
-        col.panel_alt,
+        col.bg3,
     );
     if let Some((a, b)) = loop_now {
         rp.rect_filled(
@@ -834,7 +834,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             Align2::LEFT_TOP,
             format!("{}", b + 1),
             FontId::proportional(10.0),
-            col.text_dim,
+            col.dim,
         );
         b += bar_step;
     }

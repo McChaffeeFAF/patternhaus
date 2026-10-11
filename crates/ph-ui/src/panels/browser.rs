@@ -75,7 +75,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     ui.label(
         RichText::new("Click to preview, double-click or drag to the channel rack to add.")
             .size(10.0)
-            .color(theme.colors.text_dim),
+            .color(theme.colors.dim),
     );
     ui.separator();
     let filter = core.browser.filter.to_lowercase();

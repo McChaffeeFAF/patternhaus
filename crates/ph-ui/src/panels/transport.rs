@@ -105,7 +105,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         ui.label(
             RichText::new(format_time(live.status.position, bpm))
                 .monospace()
-                .color(c.text_dim),
+                .color(c.dim),
         );
         ui.separator();
 
@@ -203,7 +203,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         } else if load > 0.5 {
             c.warn
         } else {
-            c.text_dim
+            c.dim
         };
         ui.label(RichText::new(format!("DSP {:.0}%", load * 100.0)).color(col))
             .on_hover_text(format!(

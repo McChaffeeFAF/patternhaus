@@ -361,3 +361,50 @@ source = "hand-authored, Patternhaus contributors"
 path = "presets/synth/pluck/pizz.json"
 license = "CC0-1.0"
 source = "hand-authored, Patternhaus contributors"
+
+# Third-party fonts (not CC0): see assets/fonts/README.md.
+
+[[file]]
+path = "fonts/README.md"
+license = "CC0-1.0"
+source = "hand-authored, Patternhaus contributors"
+
+[[file]]
+path = "fonts/Barlow-Regular.ttf"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/tree/main/ofl/barlow (Barlow Project Authors)"
+
+[[file]]
+path = "fonts/Barlow-Medium.ttf"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/tree/main/ofl/barlow (Barlow Project Authors)"
+
+[[file]]
+path = "fonts/OFL-barlow.txt"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/blob/main/ofl/barlow/OFL.txt"
+
+[[file]]
+path = "fonts/BarlowCondensed-Medium.ttf"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/tree/main/ofl/barlowcondensed (Barlow Project Authors)"
+
+[[file]]
+path = "fonts/BarlowCondensed-SemiBold.ttf"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/tree/main/ofl/barlowcondensed (Barlow Project Authors)"
+
+[[file]]
+path = "fonts/OFL-barlowcondensed.txt"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/blob/main/ofl/barlowcondensed/OFL.txt"
+
+[[file]]
+path = "fonts/ShareTechMono-Regular.ttf"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/tree/main/ofl/sharetechmono (Carrois Type Design)"
+
+[[file]]
+path = "fonts/OFL-sharetechmono.txt"
+license = "OFL-1.1"
+source = "https://github.com/google/fonts/blob/main/ofl/sharetechmono/OFL.txt"

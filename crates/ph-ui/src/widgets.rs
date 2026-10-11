@@ -68,16 +68,8 @@ pub fn knob(
             .collect();
         Shape::line(pts, stroke)
     };
-    p.circle_filled(
-        centre,
-        r - 2.0,
-        if resp.hovered() {
-            c.widget_hover
-        } else {
-            c.widget
-        },
-    );
-    p.add(arc(a0, a1, Stroke::new(2.5, c.border)));
+    p.circle_filled(centre, r - 2.0, if resp.hovered() { c.bg4 } else { c.bg3 });
+    p.add(arc(a0, a1, Stroke::new(2.5, c.line)));
     let t = if max > min {
         ((shown - min) / (max - min)).clamp(0.0, 1.0) as f32
     } else {
@@ -182,7 +174,7 @@ pub fn fader(
     let c = &theme.colors;
     let p = ui.painter();
     let track = Rect::from_center_size(rect.center(), Vec2::new(4.0, rect.height() - 8.0));
-    p.rect_filled(track, CornerRadius::same(2), c.border);
+    p.rect_filled(track, CornerRadius::same(2), c.line);
     let t = ((shown - min) / (max - min)).clamp(0.0, 1.0) as f32;
     let y = track.bottom() - track.height() * t;
     p.rect_filled(
@@ -198,15 +190,15 @@ pub fn fader(
         handle,
         CornerRadius::same(3),
         if resp.hovered() || resp.dragged() {
-            c.widget_active
+            c.bg4
         } else {
-            c.widget_hover
+            c.bg4
         },
     );
     p.rect_stroke(
         handle,
         CornerRadius::same(3),
-        Stroke::new(1.0, c.text_dim),
+        Stroke::new(1.0, c.dim),
         StrokeKind::Inside,
     );
     p.line_segment(
@@ -232,7 +224,7 @@ pub fn meter(ui: &mut Ui, size: Vec2, peak: [f32; 2], rms: [f32; 2], theme: &The
 pub fn paint_meter(ui: &Ui, rect: Rect, peak: [f32; 2], rms: [f32; 2], theme: &Theme) {
     let c = &theme.colors;
     let p = ui.painter();
-    p.rect_filled(rect, CornerRadius::same(2), c.bg);
+    p.rect_filled(rect, CornerRadius::same(2), c.bg0);
     let vertical = rect.height() >= rect.width();
     for ch in 0..2 {
         let lane = if vertical {
@@ -262,11 +254,11 @@ pub fn paint_meter(ui: &Ui, rect: Rect, peak: [f32; 2], rms: [f32; 2], theme: &T
                 )
             };
             let colour = if level > 0.91 {
-                c.meter_hi
+                c.clip
             } else if level > 0.76 {
-                c.meter_mid
+                c.warn
             } else {
-                c.meter_lo
+                c.accent
             };
             p.rect_filled(fill, CornerRadius::ZERO, colour.gamma_multiply(alpha));
         }
@@ -285,9 +277,9 @@ pub fn toggle(ui: &mut Ui, on: bool, label: &str, on_colour: Color32, theme: &Th
     let fill = if on {
         on_colour
     } else if resp.hovered() {
-        c.widget_hover
+        c.bg4
     } else {
-        c.widget
+        c.bg3
     };
     ui.painter()
         .rect_filled(rect, CornerRadius::same(theme.metrics.rounding as u8), fill);
@@ -432,7 +424,7 @@ pub fn param_grid(
                         ui.label(
                             egui::RichText::new(&info.name)
                                 .size(10.0)
-                                .color(theme.colors.text_dim),
+                                .color(theme.colors.dim),
                         );
                         if !shown.is_empty() {
                             ui.label(egui::RichText::new(shown).size(10.0));
@@ -462,7 +454,7 @@ pub fn section_label(ui: &mut Ui, text: &str, theme: &Theme) {
         egui::RichText::new(text)
             .size(11.0)
             .strong()
-            .color(theme.colors.text_dim),
+            .color(theme.colors.dim),
     );
 }
 

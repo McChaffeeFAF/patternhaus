@@ -24,9 +24,7 @@ pub fn licence_text(asio: bool) -> Vec<String> {
         );
     }
     out.push(
-        "Third-party components and their licences, including the Hack and Ubuntu fonts \
-         (SIL Open Font Licence 1.1, Ubuntu Font Licence 1.0) and the symphonia decoders \
-         (MPL-2.0, unmodified), are listed in THIRD_PARTY_NOTICES.md, shipped next to this \
+        "Third-party components and their licences, including the bundled Barlow,          Barlow Condensed and Share Tech Mono fonts (SIL Open Font Licence 1.1) and the          symphonia decoders (MPL-2.0, unmodified), are listed in THIRD_PARTY_NOTICES.md, shipped next to this \
          program."
             .into(),
     );
@@ -74,7 +72,7 @@ mod tests {
         let t = licence_text(false).join("\n");
         assert!(t.contains("MIT") && t.contains("Apache License 2.0"));
         assert!(t.contains("THIRD_PARTY_NOTICES.md"));
-        assert!(t.contains("Open Font") && t.contains("Ubuntu Font"));
+        assert!(t.contains("Open Font") && t.contains("Barlow"));
         assert!(!t.contains("GPLv3"));
     }
 

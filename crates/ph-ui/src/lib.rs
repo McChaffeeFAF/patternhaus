@@ -9,6 +9,7 @@ pub mod browser_model;
 pub mod core;
 pub mod demo_agent;
 pub mod dispatch;
+pub mod fonts;
 pub mod keymap;
 pub mod live;
 pub mod mapping;

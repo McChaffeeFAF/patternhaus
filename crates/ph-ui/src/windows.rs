@@ -258,7 +258,7 @@ fn show_window(
                 CornerRadius::same(6)
             };
             // body, border, title bar
-            p.rect_filled(win, round, theme.colors.panel);
+            p.rect_filled(win, round, theme.colors.bg2);
             let title_rect = Rect::from_min_size(win.min, Vec2::new(win.width(), TITLE_H));
             p.rect_filled(
                 title_rect,
@@ -268,7 +268,7 @@ fn show_window(
                     sw: 0,
                     se: 0,
                 },
-                theme.colors.panel_alt,
+                theme.colors.bg3,
             );
             if is_front {
                 p.line_segment(
@@ -308,7 +308,7 @@ fn show_window(
                     if is_front {
                         theme.colors.accent_dim
                     } else {
-                        theme.colors.border
+                        theme.colors.line
                     },
                 ),
                 StrokeKind::Inside,
@@ -355,7 +355,7 @@ fn show_window(
                 if is_front {
                     theme.colors.text
                 } else {
-                    theme.colors.text_dim
+                    theme.colors.dim
                 },
             );
 
@@ -376,13 +376,13 @@ fn show_window(
                         if what == "close" {
                             theme.colors.error.gamma_multiply(0.7)
                         } else {
-                            theme.colors.widget_hover
+                            theme.colors.bg4
                         },
                     );
                 }
                 (resp, r.shrink(6.0))
             };
-            let stroke = Stroke::new(1.3, theme.colors.text_dim);
+            let stroke = Stroke::new(1.3, theme.colors.dim);
             let (c, g) = btn(ui, 0.0, "close");
             p.line_segment([g.left_top(), g.right_bottom()], stroke);
             p.line_segment([g.left_bottom(), g.right_top()], stroke);

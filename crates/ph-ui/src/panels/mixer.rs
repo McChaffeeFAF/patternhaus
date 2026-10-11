@@ -93,9 +93,9 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         rect.shrink(1.0),
         CornerRadius::same(4),
         if selected {
-            theme.colors.panel_alt
+            theme.colors.bg3
         } else {
-            theme.colors.panel
+            theme.colors.bg2
         },
     );
     if selected {
@@ -144,9 +144,7 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
     p.rect_filled(
         head,
         CornerRadius::same(3),
-        m.color
-            .map_or(theme.colors.widget, rgb)
-            .gamma_multiply(0.55),
+        m.color.map_or(theme.colors.bg3, rgb).gamma_multiply(0.55),
     );
     p.text(
         head.left_top() + Vec2::new(4.0, 2.0),
@@ -157,7 +155,7 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
             format!("{i}")
         },
         FontId::proportional(9.0),
-        theme.colors.text_dim,
+        theme.colors.dim,
     );
     p.text(
         head.center() + Vec2::new(0.0, 6.0),
@@ -215,7 +213,7 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         Align2::CENTER_CENTER,
         volume_db(shown),
         FontId::proportional(10.0),
-        theme.colors.text_dim,
+        theme.colors.dim,
     );
     // pan knob + buttons
     let kr = Rect::from_min_size(
@@ -263,7 +261,7 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
             format!("{nfx} fx")
         },
         FontId::proportional(9.0),
-        theme.colors.text_dim,
+        theme.colors.dim,
     );
 }
 
@@ -359,7 +357,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         if let Some(v) = e.commit() {
                             core.send(mapping::effect_mix(ins as u32, idx, v as f32));
                         }
-                        ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
+                        ui.label(RichText::new("mix").size(10.0).color(theme.colors.dim));
                         if idx > 0 && ui.small_button("^").on_hover_text("Move up").clicked() {
                             core.send(mapping::effect_move(ins as u32, idx, idx - 1));
                             core.effect_edits.push(EffectEdit::Move {
@@ -401,9 +399,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         }
                     });
                 } else {
-                    ui.label(
-                        RichText::new("Insert is full (10 effects)").color(theme.colors.text_dim),
-                    );
+                    ui.label(RichText::new("Insert is full (10 effects)").color(theme.colors.dim));
                 }
 
                 // ---- sends
@@ -456,7 +452,7 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                 ui.label(
                     RichText::new("Click an effect to open its own window.")
                         .size(11.0)
-                        .color(theme.colors.text_dim),
+                        .color(theme.colors.dim),
                 );
             }
         });
@@ -492,7 +488,7 @@ pub fn effect_window(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize)
         if let Some(v) = e.commit() {
             core.send(mapping::effect_mix(insert, index, v as f32));
         }
-        ui.label(RichText::new("mix").size(10.0).color(theme.colors.text_dim));
+        ui.label(RichText::new("mix").size(10.0).color(theme.colors.dim));
     });
     ui.separator();
     // the window itself scrolls (see `windows::show_content`)

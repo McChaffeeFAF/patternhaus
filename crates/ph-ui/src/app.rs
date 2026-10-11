@@ -48,6 +48,7 @@ impl PhApp {
         engine_config: EngineConfig,
         audio_notice: Option<String>,
     ) -> Result<PhApp, String> {
+        crate::fonts::install(ctx);
         let (theme, theme_err) = settings::load_theme(paths.config_dir.as_deref());
         let (keymap, keymap_err) = settings::load_keymap(paths.config_dir.as_deref());
         let layout = settings::load_layout(&settings::project_layout_path(&paths.project_dir))
@@ -321,7 +322,7 @@ impl PhApp {
     }
 
     pub fn set_theme(&mut self, name: &str) {
-        if let Ok(t) = crate::theme::load(name) {
+        if let Ok(t) = crate::theme::load_from(name, self.core.paths.config_dir.as_deref()) {
             self.core.theme = std::sync::Arc::new(t);
             self.theme_applied = false;
             if let Some(c) = &self.core.paths.config_dir {
@@ -368,7 +369,7 @@ impl PhApp {
         egui::Panel::top("transport")
             .frame(
                 egui::Frame::new()
-                    .fill(theme.colors.panel)
+                    .fill(theme.colors.bg2)
                     .inner_margin(egui::Margin::symmetric(8, 6)),
             )
             .show(ui, |ui| panels::transport::show(ui, &mut self.core));
@@ -380,14 +381,14 @@ impl PhApp {
                 .size_range(140.0..=640.0)
                 .frame(
                     egui::Frame::new()
-                        .fill(theme.colors.panel)
+                        .fill(theme.colors.bg2)
                         .inner_margin(egui::Margin::same(6)),
                 )
                 .show(ui, |ui| panels::browser::show(ui, &mut self.core));
             self.ws.set_browser_width(r.response.rect.width());
         }
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme.colors.bg))
+            .frame(egui::Frame::new().fill(theme.colors.bg0))
             .show(ui, |ui| {
                 self.work_rect = windows::show_workspace(ui, &mut self.ws, &mut self.core);
             });
@@ -607,11 +608,11 @@ impl PhApp {
                     self.core.project.patterns.len(),
                     self.core.project.clips.len()
                 ))
-                .color(theme.colors.text_dim),
+                .color(theme.colors.dim),
             );
             let n = self.core.dispatch.in_flight();
             if n > 0 {
-                ui.label(RichText::new(format!("{n} pending")).color(theme.colors.text_dim));
+                ui.label(RichText::new(format!("{n} pending")).color(theme.colors.dim));
             }
             if self.core.dirty {
                 ui.label(RichText::new("unsaved changes").color(theme.colors.warn));

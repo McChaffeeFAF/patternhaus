@@ -1,0 +1,50 @@
+# Red Line: the alternate Patternhaus theme (DESIGN section 9, approved 2026-10-10).
+id = "red-line"
+name = "Red Line"
+dark = true
+
+[colors]
+bg0 = "#110b0e"
+bg1 = "#181015"
+bg2 = "#20151b"
+bg3 = "#2a1c24"
+bg4 = "#36242e"
+line = "#3b2833"
+line_soft = "#271a21"
+text = "#f1dfe4"
+dim = "#b6949e"
+faint = "#7e6069"
+accent = "#ff3b5c"
+accent_hot = "#ff9aab"
+accent_ink = "#1d0308"
+lcd = "#0b0608"
+warn = "#ffc247"
+clip = "#ffe066"
+agent = "#3fd8ff"
+pad = "#24171e"
+pad_group = "#2e1e27"
+knob_track = "#3a2732"
+pattern = ["#ff3b5c", "#ff8a3d", "#f2c14e", "#a8939a", "#c084fc"]
+ok = "#5fd38d"
+error = "#ff8a3d"
+
+[glow]
+glow = 0.55
+glow_soft = 0.18
+tint = 0.12
+
+[metrics]
+density = "comfortable"   # or "compact"
+rounding = 3.0
+radius_sm = 2.0
+radius_md = 3.0
+radius_lg = 6.0
+spacing = 8.0             # base unit on the 4 px grid
+row_height = 26.0
+scale = 1.0
+font_caption = 10.0
+font_label = 11.5
+font_body = 13.0
+font_title = 12.5
+font_readout = 13.0
+font_lcd = 24.0
