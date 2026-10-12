@@ -212,13 +212,16 @@ fn sampler(
     theme: &Theme,
 ) {
     crate::widgets::leave_room(ui, 0.0, |ui| {
-        ui.add(
-            egui::Label::new(format!(
-                "Sample: {}",
-                sample.unwrap_or("(none) - drop one here from the browser")
-            ))
-            .truncate(),
-        )
+        let full = format!(
+            "Sample: {}",
+            sample.unwrap_or("(none) - drop one here from the browser")
+        );
+        // a long path keeps its start and its file name: C:\...\Kick 808.wav
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let shown = crate::paint::fit_path(ui.painter(), &full, font, ui.available_width());
+        let cut = shown != full;
+        let r = ui.add(egui::Label::new(shown).truncate());
+        if cut { r.on_hover_text(full) } else { r }
     });
     if let Some(r) = sample {
         let (assets, project_dir) = (

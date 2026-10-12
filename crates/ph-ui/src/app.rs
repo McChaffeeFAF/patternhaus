@@ -237,7 +237,9 @@ impl PhApp {
                 }
                 AfterPrompt::NewProject => self.core.send(mapping::project_new(None)),
                 AfterPrompt::OpenProject { path } => self.core.send(mapping::file_open(&path)),
-                AfterPrompt::ImportFlp { path } => self.core.send(mapping::import_flp(&path)),
+                AfterPrompt::ImportFlp { path, next_to_flp } => {
+                    self.core.send(mapping::import_flp_at(&path, next_to_flp))
+                }
             }
         }
     }
@@ -738,7 +740,8 @@ impl PhApp {
         ui.horizontal(|ui| {
             // the hint may be as long as a user's name: it gets at most 60% of the bar, so the
             // counters and the title on the right always have their room
-            let left_w = ui.available_width() * 0.6;
+            let bar_w = ui.available_width();
+            let left_w = bar_w * 0.6;
             ui.allocate_ui_with_layout(
                 egui::vec2(left_w, ui.available_height()),
                 egui::Layout::left_to_right(egui::Align::Center),
@@ -812,14 +815,23 @@ impl PhApp {
                     ),
                     c.dim,
                 ));
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(&self.core.project.settings.title)
-                            .font(egui::FontId::new(12.0, crate::fonts::body_medium()))
-                            .color(c.text),
-                    )
-                    .truncate(),
-                );
+                // the title takes at most about 30% of the bar; the full name is on hover
+                let title = &self.core.project.settings.title;
+                let cap = TITLE_MAX_FRACTION * bar_w;
+                let r = ui
+                    .scope(|ui| {
+                        ui.set_max_width(cap);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(title)
+                                    .font(egui::FontId::new(12.0, crate::fonts::body_medium()))
+                                    .color(c.text),
+                            )
+                            .truncate(),
+                        )
+                    })
+                    .inner;
+                r.on_hover_text(title);
             });
         });
     }
@@ -862,6 +874,38 @@ impl PhApp {
                         }
                     });
                 });
+            }
+            Dialog::ImportFlp { path } => {
+                modal(ctx, "Import FL Studio project", |ui| {
+                    ui.label(format!(
+                        "Import {} as a new Patternhaus project?",
+                        crate::paint::ellipsize_middle(&path, 60)
+                    ));
+                    ui.label(
+                        RichText::new("Your FL project is not changed.")
+                            .color(self.core.theme.colors.dim),
+                    );
+                    ui.horizontal(|ui| {
+                        if btn(ui, "Import into Patternhaus Projects").clicked() {
+                            self.core.ask_or_do(AfterPrompt::ImportFlp {
+                                path: path.clone(),
+                                next_to_flp: false,
+                            });
+                            close = true;
+                        }
+                        if btn(ui, "Next to the FL project").clicked() {
+                            self.core.ask_or_do(AfterPrompt::ImportFlp {
+                                path: path.clone(),
+                                next_to_flp: true,
+                            });
+                            close = true;
+                        }
+                        if btn(ui, "Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                });
+                new_state = Some(Dialog::ImportFlp { path });
             }
             Dialog::OpenProject { mut path } => {
                 modal(ctx, "Open project", |ui| {
@@ -1107,6 +1151,9 @@ impl PhApp {
         }));
     }
 }
+
+/// The bottom bar gives the project title at most this share of its width.
+pub const TITLE_MAX_FRACTION: f32 = 0.3;
 
 /// The OS window title: the project name, a dot while there are unsaved changes, then the
 /// product.

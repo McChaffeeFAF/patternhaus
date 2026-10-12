@@ -382,7 +382,10 @@ fn run_theme(theme: &str, prefix: &str) {
         .drag_move(WindowId::ChannelRack, 20.0, 20.0);
     h.state_mut().ws.drag_move(WindowId::Mixer, 200.0, 300.0);
     step(&mut h, 6);
-    if let Ok(img) = h.render() {
+    // only PH_SCREENSHOTS=1 writes the tracked PNGs: a plain `cargo test` leaves the tree clean
+    if std::env::var_os("PH_SCREENSHOTS").is_some_and(|v| v == "1")
+        && let Ok(img) = h.render()
+    {
         img.save(shots().join(format!("{prefix}-long-names.png")))
             .unwrap();
     }

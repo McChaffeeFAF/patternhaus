@@ -274,3 +274,93 @@ pub fn ellipsize(text: &str, max: usize) -> String {
         t
     }
 }
+
+/// Shortens a path-like `text` in the middle so the file name stays visible: `C:\…\Kick 808.wav`.
+/// `fits` says whether a candidate is short enough; text that fits comes back unchanged. The
+/// kept head is as long as still fits; when even `…\name` is too long the name itself is cut
+/// at its end. Separators are `/` and `\`.
+pub fn middle_ellipsis(text: &str, fits: impl Fn(&str) -> bool) -> String {
+    if fits(text) {
+        return text.to_owned();
+    }
+    let Some(sep_at) = text.rfind(['/', '\\']) else {
+        return cut_end(text, &fits);
+    };
+    let (head, tail) = text.split_at(sep_at); // tail starts with the separator
+    let chars: Vec<char> = head.chars().collect();
+    let make = |n: usize| format!("{}\u{2026}{tail}", chars[..n].iter().collect::<String>());
+    if !fits(&make(0)) {
+        // not even "…\name": keep the start of the name
+        return cut_end(&format!("\u{2026}{tail}"), &fits);
+    }
+    let (mut lo, mut hi) = (0usize, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if fits(&make(mid)) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    make(lo)
+}
+
+fn cut_end(text: &str, fits: &impl Fn(&str) -> bool) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let make = |n: usize| format!("{}\u{2026}", chars[..n].iter().collect::<String>());
+    let (mut lo, mut hi) = (0usize, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if fits(&make(mid)) {
+            lo = mid;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    make(lo)
+}
+
+/// [`middle_ellipsis`] measured in pixels: `text` at `font` no wider than `max_w`.
+pub fn fit_path(p: &Painter, text: &str, font: FontId, max_w: f32) -> String {
+    middle_ellipsis(text, |s| {
+        p.layout_no_wrap(s.to_owned(), font.clone(), Color32::TRANSPARENT)
+            .size()
+            .x
+            <= max_w.max(0.0) + 0.01
+    })
+}
+
+/// [`middle_ellipsis`] counted in characters, for places that cannot measure (dialog text).
+pub fn ellipsize_middle(text: &str, max: usize) -> String {
+    middle_ellipsis(text, |s| s.chars().count() <= max)
+}
+
+#[cfg(test)]
+mod middle_tests {
+    use super::*;
+
+    #[test]
+    fn keeps_the_file_name_and_the_start() {
+        let p = r"C:\Users\someone\Music\Samples\Drums\Kick 808.wav";
+        assert_eq!(ellipsize_middle(p, 100), p);
+        let s = ellipsize_middle(p, 20);
+        assert!(s.chars().count() <= 20, "{s}");
+        assert!(s.ends_with(r"\Kick 808.wav"), "{s}");
+        assert!(s.starts_with("C:"), "{s}");
+        assert!(s.contains('\u{2026}'));
+        assert_eq!(ellipsize_middle(p, 14), "…\\Kick 808.wav");
+    }
+
+    #[test]
+    fn a_name_longer_than_the_room_is_cut_at_its_end() {
+        let s = ellipsize_middle("/a/b/a-very-long-file-name.wav", 8);
+        assert_eq!(s.chars().count(), 8);
+        assert!(s.starts_with('\u{2026}') && s.ends_with('\u{2026}'), "{s}");
+        assert_eq!(
+            ellipsize_middle("no-separators-here.wav", 8)
+                .chars()
+                .count(),
+            8
+        );
+    }
+}
