@@ -745,5 +745,81 @@ pub fn all() -> Vec<Recipe> {
     let mut v = haus808();
     v.extend(haus909());
     v.extend(acoustic());
+    v.extend(impulse_responses());
     v
+}
+
+const REVERB_IR: &[(&str, f64)] = &[
+    ("seed", 1.0),
+    ("dur", 1.0),
+    ("rt60", 1.0),
+    ("damp", 1.0),
+    ("pre", 0.0),
+    ("er", 0.0),
+    ("er_win", 0.05),
+    ("spring", 0.0),
+    ("spring_period", 0.037),
+    ("release", 0.1),
+];
+
+/// Reverb impulse responses for the convolution reverb (`factory:ir/<name>`).
+fn impulse_responses() -> Vec<Recipe> {
+    let ir = |name: &str, over: &[(&'static str, f64)]| {
+        r(
+            &format!("ir/{name}"),
+            "reverb_ir",
+            mk(REVERB_IR, over),
+            voices::reverb_ir,
+        )
+    };
+    vec![
+        ir(
+            "room",
+            &[
+                ("seed", 101.0),
+                ("dur", 0.6),
+                ("rt60", 0.45),
+                ("damp", 5.0),
+                ("pre", 0.002),
+                ("er", 14.0),
+                ("er_win", 0.025),
+                ("release", 0.1),
+            ],
+        ),
+        ir(
+            "hall",
+            &[
+                ("seed", 102.0),
+                ("dur", 3.2),
+                ("rt60", 2.2),
+                ("damp", 0.9),
+                ("pre", 0.012),
+                ("er", 24.0),
+                ("er_win", 0.08),
+                ("release", 0.4),
+            ],
+        ),
+        ir(
+            "plate",
+            &[
+                ("seed", 103.0),
+                ("dur", 2.2),
+                ("rt60", 1.5),
+                ("damp", 0.35),
+                ("release", 0.3),
+            ],
+        ),
+        ir(
+            "spring",
+            &[
+                ("seed", 104.0),
+                ("dur", 2.4),
+                ("rt60", 1.8),
+                ("damp", 1.6),
+                ("spring", 1.0),
+                ("spring_period", 0.037),
+                ("release", 0.3),
+            ],
+        ),
+    ]
 }

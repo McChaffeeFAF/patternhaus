@@ -50,4 +50,13 @@ effect_tests! {
     delay => "delay",
     filter => "filter",
     saturator => "saturator",
+    multiband => "multiband",
+    gate => "gate",
+    convolution => "convolution",
+    chorus => "chorus",
+    flanger => "flanger",
+    phaser => "phaser",
+    bitcrush => "bitcrush",
+    stereo => "stereo",
+    analyzer => "analyzer",
 }

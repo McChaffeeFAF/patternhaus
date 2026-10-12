@@ -252,3 +252,41 @@ pub fn sub(p: &P) -> Vec<f64> {
     }
     finish(out, p.g("release"))
 }
+
+/// Reverb impulse response (mono): exponentially decaying noise whose brightness closes
+/// with time (a one-pole low-pass, `damp` per second), sparse early reflections inside
+/// `er_win` seconds, an optional pre-delay and, for `spring`, a burst-gated echo train with a
+/// period of `spring_period` seconds. Textbook statistical reverb modelling (Schroeder 1962;
+/// Moorer 1979), all generated from the seeded noise source.
+pub fn reverb_ir(p: &P) -> Vec<f64> {
+    let n = frames(p.g("dur"));
+    let pre = frames(p.g("pre"));
+    let mut rng = Rng::new(p.g("seed") as u64);
+    let rt60 = p.g("rt60");
+    let damp = p.g("damp");
+    let spring = p.g("spring") > 0.5;
+    let mut lp = 0.0f64;
+    let mut out = vec![0.0f64; n];
+    for i in pre..n {
+        let t = (i - pre) as f64 / SR;
+        let env = exp(-6.907755278982137 * t / rt60);
+        let alpha = (1.0 - damp * t * 0.25).clamp(0.04, 1.0);
+        lp += (rng.bipolar() - lp) * alpha;
+        let mut s = lp * env;
+        if spring {
+            let period = p.g("spring_period");
+            let ph = (t % period) / period;
+            s *= 2.0 * exp(-ph * 18.0);
+        }
+        out[i] = s;
+    }
+    let er_win = p.g("er_win");
+    for _ in 0..p.g("er") as usize {
+        let at = pre + frames(rng.uniform() * er_win) + 24;
+        if at < n {
+            let a = 0.9 - 0.7 * (at - pre) as f64 / (er_win * SR);
+            out[at] += if rng.uniform() < 0.5 { -a } else { a };
+        }
+    }
+    finish(out, p.g("release"))
+}
