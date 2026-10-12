@@ -13,7 +13,7 @@
 //! picks a channel row (replace its sample) over the rack (new channels). Some platforms do not
 //! report the pointer during a file drag; then the default panel for the kind of file is used.
 
-use crate::core::{AfterPrompt, AppCore, PanelAction, PanelId, ToastKind};
+use crate::core::{AfterPrompt, AppCore, Dialog, PanelAction, PanelId, ToastKind};
 use crate::{hint, mapping, paint, settings};
 use egui::{Context, Id, LayerId, Order, Pos2, Rect};
 use ph_core::ChannelId;
@@ -361,7 +361,7 @@ pub fn execute(core: &mut AppCore, plan: Plan, zone: Option<DropZone>) {
                 ),
             );
         }
-        core.ask_or_do(AfterPrompt::ImportFlp {
+        core.dialog = Some(Dialog::ImportFlp {
             path: file.to_string_lossy().into_owned(),
         });
         return;
