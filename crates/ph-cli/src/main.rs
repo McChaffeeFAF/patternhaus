@@ -184,6 +184,7 @@ impl Backend {
             } else {
                 AudioMode::Silent
             },
+            projects_dir: ph_control::default_projects_dir(),
             grant,
         })?;
         Ok(Backend::Local {
@@ -425,6 +426,7 @@ async fn run(cmd: Cmd) -> Result<bool, String> {
                     } else {
                         AudioMode::Silent
                     },
+                    projects_dir: ph_control::default_projects_dir(),
                     grant,
                 })?;
                 eprintln!(

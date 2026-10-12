@@ -15,6 +15,7 @@ pub struct EngineHost {
     project_dir: PathBuf,
     library_roots: Vec<PathBuf>,
     exports_dir: Option<PathBuf>,
+    projects_dir: Option<PathBuf>,
     ui: Sender<UiRequest>,
     recording: bool,
     /// The sample resolver the engine uses; moved along with the project folder on open.
@@ -34,6 +35,7 @@ impl EngineHost {
             project_dir: config.project_dir.clone(),
             library_roots: config.library_roots.clone(),
             exports_dir: config.exports_dir.clone(),
+            projects_dir: config.projects_dir.clone(),
             ui,
             recording: false,
             resolver: None,
@@ -61,6 +63,16 @@ impl EngineHost {
             metronome: s.metronome,
         }
     }
+}
+
+/// `Documents/Patternhaus Projects` for the current user (`%USERPROFILE%` on Windows, `$HOME`
+/// elsewhere); `None` when the home folder is unknown. Nothing is created here.
+pub fn default_projects_dir() -> Option<PathBuf> {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    let home = std::env::var_os(var)
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())?;
+    Some(home.join("Documents").join("Patternhaus Projects"))
 }
 
 /// Lexically normalises `path` against `base`, refusing `..` that would climb out.
@@ -201,6 +213,7 @@ impl Host for EngineHost {
         let p = normalise(&self.project_dir, path).ok_or_else(deny)?;
         let mut roots: Vec<&PathBuf> = vec![&self.project_dir];
         roots.extend(self.exports_dir.iter());
+        roots.extend(self.projects_dir.iter());
         if access == FileAccess::Read {
             roots.extend(self.library_roots.iter());
         }
@@ -295,6 +308,10 @@ impl Host for EngineHost {
         // A closed receiver just means no UI is attached (headless).
         let _ = self.ui.send(request);
         Ok(())
+    }
+
+    fn projects_dir(&self) -> Option<PathBuf> {
+        self.projects_dir.clone()
     }
 
     fn set_project_dir(&mut self, dir: &Path) {

@@ -305,22 +305,90 @@ fn export_midi(ctx: &mut CommandCtx<'_>, p: ExportMidi) -> CmdResult<CommandOutp
 pub struct ImportFlp {
     /// The .flp file. Agents may only name files inside the allowed folders.
     path: String,
+    /// Where the new project folder goes: `projects_folder` (default; `Documents/Patternhaus
+    /// Projects/<name>`) or `next_to_flp` (`<name> (Patternhaus)` beside the .flp). If the
+    /// chosen place cannot be written, the projects folder is used and the report says so.
+    #[serde(default)]
+    placement: Placement,
 }
 
-/// Where an FLP import goes: `<name> (Patternhaus)` beside the `.flp`, or ` (2)`, ` (3)` ...
-/// when that folder exists (an import never overwrites anything).
-fn import_dir(src: &Path) -> std::path::PathBuf {
-    let parent = src.parent().unwrap_or_else(|| Path::new("."));
-    let stem = src
-        .file_stem()
-        .map_or_else(|| "FL project".into(), |s| s.to_string_lossy().into_owned());
-    let mut dir = parent.join(format!("{stem} (Patternhaus)"));
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+    #[default]
+    ProjectsFolder,
+    NextToFlp,
+}
+
+/// `parent/<name>`, numbered `<name> (2)`, `(3)` ... while that exists (an import never
+/// overwrites anything).
+fn numbered_dir(parent: &Path, name: &str) -> std::path::PathBuf {
+    let mut dir = parent.join(name);
     let mut n = 2;
     while dir.exists() {
-        dir = parent.join(format!("{stem} (Patternhaus) ({n})"));
+        dir = parent.join(format!("{name} ({n})"));
         n += 1;
     }
     dir
+}
+
+/// Creates the new project folder in `parent`, where the caller may write. Errors describe why
+/// the place is unusable.
+fn make_import_dir(
+    host: &dyn Host,
+    author: &Author,
+    parent: &Path,
+    name: &str,
+) -> Result<std::path::PathBuf, String> {
+    let wanted = numbered_dir(parent, name);
+    let dir = if *author == Author::Human {
+        wanted
+    } else {
+        host.resolve_path(&wanted.to_string_lossy(), FileAccess::Write)
+            .map_err(|e| e.to_string())?
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    Ok(dir)
+}
+
+/// Picks and creates the folder for an FLP import, with a note when the fallback was used.
+fn choose_import_dir(
+    host: &dyn Host,
+    author: &Author,
+    src: &Path,
+    placement: Placement,
+) -> CmdResult<(std::path::PathBuf, Option<String>)> {
+    let stem = src
+        .file_stem()
+        .map_or_else(|| "FL project".into(), |s| s.to_string_lossy().into_owned());
+    let projects = host.projects_dir();
+    let beside = || {
+        let parent = src.parent().unwrap_or_else(|| Path::new("."));
+        make_import_dir(host, author, parent, &format!("{stem} (Patternhaus)"))
+    };
+    let in_projects = |p: &Path| make_import_dir(host, author, p, &stem);
+    let first = match (placement, &projects) {
+        (Placement::ProjectsFolder, Some(p)) => in_projects(p),
+        // No projects folder known to this host: beside the .flp is all there is.
+        (Placement::ProjectsFolder, None) | (Placement::NextToFlp, _) => beside(),
+    };
+    match first {
+        Ok(dir) => Ok((dir, None)),
+        Err(why) => match &projects {
+            Some(p) if placement == Placement::NextToFlp => {
+                let dir = in_projects(p).map_err(|e| {
+                    CmdError::Host(format!("cannot create the project folder ({why}; {e})"))
+                })?;
+                let note = format!(
+                    "Placed in the Patternhaus projects folder because the folder next to the FL project could not be used ({why})."
+                );
+                Ok((dir, Some(note)))
+            }
+            _ => Err(CmdError::Host(format!(
+                "cannot create the project folder: {why}"
+            ))),
+        },
+    }
 }
 
 // SPEC-GAP: 4.1: the spec lists the placeholders but not how to resolve them.
@@ -389,17 +457,11 @@ pub(crate) fn import_flp_project(
         std::fs::read(&src).map_err(|e| CmdError::Host(format!("{}: {e}", src.display())))?;
     // Refuse a file that is not a project before anything is created.
     ph_formats::flp::parse(&bytes).map_err(|e| CmdError::Host(format!("{}: {e}", p.path)))?;
-    let wanted = import_dir(&src);
-    let dir = if *author == Author::Human {
-        wanted
-    } else {
-        host.resolve_path(&wanted.to_string_lossy(), FileAccess::Write)?
-    };
+    let (dir, note) = choose_import_dir(host, author, &src, p.placement)?;
     let title = src
         .file_stem()
         .map_or_else(|| "FL project".into(), |s| s.to_string_lossy().into_owned());
     let previous = host.resolve_path(".", FileAccess::Read).ok();
-    std::fs::create_dir_all(&dir).map_err(|e| CmdError::Host(format!("{}: {e}", dir.display())))?;
     // The samples are copied into the new folder, so the host moves there first.
     host.set_project_dir(&dir);
     let built = {
@@ -412,7 +474,7 @@ pub(crate) fn import_flp_project(
     };
     let written = built
         .map_err(|e| CmdError::Host(format!("{}: {e}", p.path)))
-        .and_then(|imp| write_import(&dir, &imp).map(|()| imp));
+        .and_then(|imp| write_import(&dir, &imp, note.as_deref()).map(|()| imp));
     let imp = match written {
         Ok(imp) => imp,
         Err(e) => {
@@ -434,6 +496,7 @@ pub(crate) fn import_flp_project(
         "channels": imp.project.channels.len(),
         "patterns": imp.project.patterns.len(),
         "report": imp.report.to_json(),
+        "placement_note": note,
     });
     s.reset(imp.project);
     Ok(SessionOut {
@@ -443,7 +506,11 @@ pub(crate) fn import_flp_project(
     })
 }
 
-fn write_import(dir: &Path, imp: &ph_formats::flp::FlpImport) -> CmdResult<()> {
+fn write_import(
+    dir: &Path,
+    imp: &ph_formats::flp::FlpImport,
+    note: Option<&str>,
+) -> CmdResult<()> {
     let host_err = |p: &Path, e: std::io::Error| CmdError::Host(format!("{}: {e}", p.display()));
     ph_formats::save_project(&imp.project, dir).map_err(|e| CmdError::Host(e.to_string()))?;
     for f in &imp.files {
@@ -454,6 +521,13 @@ fn write_import(dir: &Path, imp: &ph_formats::flp::FlpImport) -> CmdResult<()> {
         std::fs::write(&target, &f.bytes).map_err(|e| host_err(&target, e))?;
     }
     let report = dir.join("import-report.md");
-    std::fs::write(&report, imp.report.to_markdown(&imp.project.settings.title))
-        .map_err(|e| host_err(&report, e))
+    let mut text = imp.report.to_markdown(&imp.project.settings.title);
+    if let Some(n) = note {
+        text.push_str(&format!("
+## Placement
+
+{n}
+"));
+    }
+    std::fs::write(&report, text).map_err(|e| host_err(&report, e))
 }

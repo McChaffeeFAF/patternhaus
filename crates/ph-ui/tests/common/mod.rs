@@ -27,6 +27,7 @@ pub fn studio(dir: &std::path::Path, project: Project) -> Studio {
             assets_dir: assets_dir(),
             library_roots: vec![],
             exports_dir: None,
+            projects_dir: None,
             engine: EngineConfig::default(),
             audio: AudioMode::Silent,
         },

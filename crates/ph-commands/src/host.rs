@@ -57,6 +57,13 @@ pub trait Host {
     fn set_project_dir(&mut self, dir: &std::path::Path) {
         let _ = dir;
     }
+
+    /// The Patternhaus projects folder (`Documents/Patternhaus Projects`): where
+    /// `file.import_flp` puts new projects by default, and a folder agents may write to.
+    /// Additive default: hosts without one return `None`.
+    fn projects_dir(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// An audio file's format, from [`Host::sample_info`].
