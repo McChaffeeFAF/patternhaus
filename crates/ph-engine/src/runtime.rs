@@ -770,10 +770,14 @@ impl Runtime {
 
 fn event_order(e: &Event) -> (u32, u8, u8, u32) {
     match e.kind {
+        // the relative order of the M1 kinds is unchanged (ph-node crate docs)
         EventKind::AllNotesOff => (e.frame, 0, 0, 0),
         EventKind::NoteOff { note_id, key, .. } => (e.frame, 1, key, note_id),
-        EventKind::NoteOn { note_id, key, .. } => (e.frame, 2, key, note_id),
-        EventKind::Param { id, .. } => (e.frame, 3, 0, id.0),
+        EventKind::Cc { controller, .. } => (e.frame, 2, 0, controller as u32),
+        EventKind::PitchBend { .. } => (e.frame, 2, 1, 0),
+        EventKind::NoteOn { note_id, key, .. } => (e.frame, 3, key, note_id),
+        EventKind::Param { id, .. } => (e.frame, 4, 0, id.0),
+        EventKind::NoteExpression { note_id, .. } => (e.frame, 5, 0, note_id),
     }
 }
 
