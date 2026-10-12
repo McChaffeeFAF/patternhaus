@@ -80,7 +80,8 @@ fn harness(app: PhApp, w: f32, h: f32) -> H {
 }
 
 fn shots_dir() -> Option<PathBuf> {
-    std::env::var_os("PH_SCREENSHOTS").map(|_| {
+    // only PH_SCREENSHOTS=1 writes the tracked PNGs: a plain `cargo test` leaves the tree clean
+    (std::env::var_os("PH_SCREENSHOTS").is_some_and(|v| v == "1")).then(|| {
         let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/screenshots/M1");
         std::fs::create_dir_all(&d).unwrap();
         d

@@ -17,6 +17,9 @@ pub struct HeadlessOptions {
     /// Factory assets; found next to the executable or in the source tree when `None`.
     pub assets_dir: Option<PathBuf>,
     pub audio: AudioMode,
+    /// The Patternhaus projects folder (see [`StudioConfig::projects_dir`]); front ends pass
+    /// `default_projects_dir()`, tests a temp folder or `None`.
+    pub projects_dir: Option<PathBuf>,
     /// Scopes every client gets (headless sessions are started on purpose, so the default
     /// the CLI passes is `full`).
     pub grant: Grant,
@@ -63,6 +66,7 @@ pub fn start_headless(opts: HeadlessOptions) -> Result<(Studio, Arc<Agent>), Str
         assets_dir: assets,
         library_roots: Vec::new(),
         exports_dir: None,
+        projects_dir: opts.projects_dir.clone(),
         engine: EngineConfig::default(),
         audio: opts.audio,
     };

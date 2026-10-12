@@ -458,7 +458,7 @@ fn hovering_highlights_the_target_and_leaving_clears_it() {
 }
 
 #[test]
-fn an_flp_file_is_imported_as_a_new_project_asking_first_when_unsaved() {
+fn an_flp_file_asks_where_to_import_then_asks_about_unsaved_changes() {
     let mut r = start();
     let flp = r.file("song.flp", &ph_formats::flp::build::sample_project());
     let pos = Pos2::new(800.0, 500.0);
@@ -469,33 +469,70 @@ fn an_flp_file_is_imported_as_a_new_project_asking_first_when_unsaved() {
     );
     r.app().core.dirty = true;
     r.drop_at(&[&flp], pos);
+    // first the placement question
+    match &r.app().core.dialog {
+        Some(Dialog::ImportFlp { path }) => assert_eq!(Path::new(path), flp),
+        d => panic!("expected the placement question, got {d:?}"),
+    }
+    assert_eq!(r.app().core.project.settings.title, "Drop test");
+    // choosing a place, with unsaved changes, asks the T5c question
+    r.app().core.dialog = None;
+    r.app().core.ask_or_do(AfterPrompt::ImportFlp {
+        path: flp.to_string_lossy().into_owned(),
+        next_to_flp: true,
+    });
     match &r.app().core.dialog {
         Some(Dialog::Unsaved {
-            then: AfterPrompt::ImportFlp { path },
-        }) => assert_eq!(Path::new(path), flp),
+            then: AfterPrompt::ImportFlp { path, next_to_flp },
+        }) => {
+            assert_eq!(Path::new(path), flp);
+            assert!(*next_to_flp);
+        }
         d => panic!("expected the unsaved-changes question, got {d:?}"),
     }
     assert_eq!(r.app().core.project.settings.title, "Drop test");
-    // Don't save: it imports, beside the file
+    // Don't save: it imports, beside the file as asked
     r.app().core.dialog = None;
     r.app().core.ready.push(AfterPrompt::ImportFlp {
         path: flp.to_string_lossy().into_owned(),
+        next_to_flp: true,
     });
     r.settle();
     assert_eq!(r.app().core.project.settings.title, "Synthetic song");
     assert_eq!(r.app().core.project.channels.len(), 3);
-    assert!(
-        r.drops
-            .path()
-            .join("song (Patternhaus)/import-report.md")
-            .is_file()
-    );
+    let imported = r.drops.path().join("song (Patternhaus)");
+    assert!(imported.join("import-report.md").is_file());
+    // the UI's project folder followed the import
+    assert_eq!(r.app().core.paths.project_dir, imported);
 
-    // a clean project imports at once
+    // a clean project imports at once once a place is chosen (the host has no projects folder
+    // in tests, so both choices land beside the file)
     let mut r = start();
     let flp = r.file("again.flp", &ph_formats::flp::build::sample_project());
     r.app().core.dirty = false;
     r.drop_at(&[&flp], pos);
+    assert!(matches!(
+        r.app().core.dialog,
+        Some(Dialog::ImportFlp { .. })
+    ));
+    r.app().core.dialog = None;
+    r.app().core.ask_or_do(AfterPrompt::ImportFlp {
+        path: flp.to_string_lossy().into_owned(),
+        next_to_flp: false,
+    });
+    r.settle();
     assert!(r.app().core.dialog.is_none());
     assert_eq!(r.app().core.project.settings.title, "Synthetic song");
+}
+
+#[test]
+fn opening_a_project_moves_the_ui_project_folder() {
+    let mut r = start();
+    let other = save_other_project(&r);
+    r.app().core.dirty = false;
+    r.app().core.ask_or_do(AfterPrompt::OpenProject {
+        path: other.to_string_lossy().into_owned(),
+    });
+    r.settle();
+    assert_eq!(r.app().core.paths.project_dir, other);
 }

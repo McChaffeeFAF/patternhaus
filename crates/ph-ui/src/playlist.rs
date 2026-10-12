@@ -758,6 +758,17 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             }
         }
     }
+    // hovering a clip shows its full name (the label on the clip may be cut to fit)
+    if let Some(pp) = pointer
+        && resp.hovered()
+        && !st.is_dragging()
+        && grid.contains(pp)
+        && let Some((id, _)) = st.clip_at(pp - grid.min)
+        && let Some(c) = st.clips.iter().find(|c| c.id == id)
+    {
+        let full = cx.project.clip_label(c);
+        let _ = resp.clone().on_hover_text(full);
+    }
     match &st.drag {
         Drag::Place {
             track,

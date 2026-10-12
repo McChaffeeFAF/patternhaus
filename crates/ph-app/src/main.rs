@@ -151,6 +151,7 @@ fn main() -> eframe::Result {
                 assets_dir: assets_dir.clone(),
                 library_roots: libraries.clone(),
                 exports_dir: None,
+                projects_dir: ph_control::default_projects_dir(),
                 engine: engine_cfg.clone(),
                 audio,
             };
