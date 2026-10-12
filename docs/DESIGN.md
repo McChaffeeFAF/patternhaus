@@ -364,7 +364,12 @@ The aim is a professional first impression, at FL-level density and polish, in o
 - **Imports:** channels, patterns and notes, playlist, mixer routing, automation, and third-party plugin states.
 - **Native FL plugins:** mapped to the closest Patternhaus equivalent where one exists, otherwise a labelled placeholder that keeps the original data.
 - **Import report:** lists everything that was approximated or skipped.
-- **Placement:** `file.import_flp` writes a new folder `<name> (Patternhaus)/` beside the `.flp` (numbered when it exists) and opens it; plugin states go to `plugins/*.flpstate`, the report to `import-report.md`.
+- **Placement (decided 2026-10-11, owner sign-off):**
+  - `file.import_flp` writes a new self-contained folder and opens it. It never overwrites: if the name exists it numbers the folder `<name> (2)`, `(3)` and so on. Samples are copied in (duplicates reused), plugin states go to `plugins/*.flpstate`, and the report to `import-report.md`.
+  - **Default location:** the Patternhaus projects folder, `Documents\Patternhaus Projects\<name>` (the same place the release launcher uses for new projects). It's outside OneDrive and FL's own folders, and it's an allowed folder for agents.
+  - **Option, per import:** "next to the FL project", as `<name> (Patternhaus)/` beside the `.flp`.
+  - **Fallback:** if the chosen location isn't writable (for example a read-only demo folder), use the Patternhaus projects folder and say so in the report.
+  - **Status:** the M2/T5 implementation currently uses "beside the `.flp`" as the default. Switching to the default above is queued in the M2 follow-ups.
 - **Corpus:** the owner's projects are a local-only test corpus.
 
 ## 11. Platforms and audio/MIDI I/O
