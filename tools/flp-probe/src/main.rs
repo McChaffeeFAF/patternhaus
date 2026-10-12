@@ -1,12 +1,17 @@
 //! `flp-probe dump <file.flp> [--preview N]`: prints the event stream of one file.
 //! `flp-probe stats <file-or-dir>...`: aggregate statistics over many files (numbers only).
+//! `flp-probe corpus <file-or-dir>...`: imports every file with `ph_formats::flp` and diffs the
+//! result against an independent reading (numbers only; local use, never in CI).
+
+mod corpus;
 
 use flp_probe::{Stats, dump_line, parse, version};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: flp-probe dump <file.flp> [--preview N] | flp-probe stats <file-or-dir>...";
+    "usage: flp-probe dump <file.flp> [--preview N] | flp-probe stats <file-or-dir>...
+       | flp-probe corpus <file-or-dir>... (imports every file, prints aggregates)";
 
 fn collect(path: &Path, out: &mut Vec<PathBuf>) {
     if path.is_dir() {
@@ -88,6 +93,14 @@ fn main() -> ExitCode {
             dump(&args[1], preview)
         }
         Some("stats") if args.len() >= 2 => stats(&args[1..]),
+        Some("corpus") if args.len() >= 2 => {
+            let mut files = Vec::new();
+            for p in &args[1..] {
+                collect(Path::new(p), &mut files);
+            }
+            print!("{}", corpus::run(&files));
+            ExitCode::SUCCESS
+        }
         _ => {
             eprintln!("{USAGE}");
             ExitCode::FAILURE
