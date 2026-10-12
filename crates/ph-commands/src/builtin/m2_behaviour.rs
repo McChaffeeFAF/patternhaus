@@ -554,19 +554,6 @@ fn m2_stubs_name_their_track() {
             e => panic!("{cmd}: {e}"),
         }
     }
-    // destructive like file.open: needs confirm, then names T5
-    let mut req = Request::new("file.import_flp", json!({ "path": "song.flp" }));
-    assert!(matches!(
-        r.s.execute(&r.who, req.clone(), &mut r.h),
-        Err(CmdError::NeedsConfirm(_))
-    ));
-    req.confirm = true;
-    let e = r.s.execute(&r.who, req, &mut r.h).unwrap_err();
-    assert!(matches!(&e, CmdError::Unavailable { track, .. } if track == "T5"));
-    assert_eq!(
-        e.to_string(),
-        "file.import_flp is not available until M2/T5 (FLP import)"
-    );
     // params are still checked first, so agents learn the schema now
     assert!(matches!(
         r.err("record.arm", json!({ "input": 0, "trak": 2 })),

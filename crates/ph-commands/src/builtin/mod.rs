@@ -35,7 +35,7 @@ mod ui;
 mod util;
 
 pub(crate) use channel::solo_channel;
-pub(crate) use file::open_project;
+pub(crate) use file::{import_flp_project, open_project};
 pub(crate) use mixer::solo_insert;
 
 use crate::*;

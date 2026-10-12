@@ -57,6 +57,13 @@ pub fn register(r: &mut Registry) {
         crate::session_cmd::stub::<Open>,
     ));
     r.register(typed(
+        "file.import_flp",
+        "Open an FL Studio project (.flp) as a new Patternhaus project, with an import report.",
+        Scope::Full,
+        DESTRUCTIVE,
+        crate::session_cmd::stub::<ImportFlp>,
+    ));
+    r.register(typed(
         "file.export_audio",
         "Render the song (or a range) to a WAV or FLAC file.",
         Scope::Full,
@@ -291,4 +298,162 @@ fn export_midi(ctx: &mut CommandCtx<'_>, p: ExportMidi) -> CmdResult<CommandOutp
     Ok(CommandOutput::value(
         json!({ "path": path, "bytes": bytes.len() }),
     ))
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImportFlp {
+    /// The .flp file. Agents may only name files inside the allowed folders.
+    path: String,
+}
+
+/// Where an FLP import goes: `<name> (Patternhaus)` beside the `.flp`, or ` (2)`, ` (3)` ...
+/// when that folder exists (an import never overwrites anything).
+fn import_dir(src: &Path) -> std::path::PathBuf {
+    let parent = src.parent().unwrap_or_else(|| Path::new("."));
+    let stem = src
+        .file_stem()
+        .map_or_else(|| "FL project".into(), |s| s.to_string_lossy().into_owned());
+    let mut dir = parent.join(format!("{stem} (Patternhaus)"));
+    let mut n = 2;
+    while dir.exists() {
+        dir = parent.join(format!("{stem} (Patternhaus) ({n})"));
+        n += 1;
+    }
+    dir
+}
+
+// SPEC-GAP: 4.1: the spec lists the placeholders but not how to resolve them.
+/// Expands a leading `%NAME%` placeholder of a stored sample path from the environment
+/// (spec 4.1 names `%USERPROFILE%`, `%FLStudioData%`, `%FLStudioFactoryData%` but not how to
+/// resolve them: only environment variables are tried, so FL's own folders are not found).
+fn expand_placeholder(path: &str) -> Option<std::path::PathBuf> {
+    let rest = path.strip_prefix('%')?;
+    let (name, tail) = rest.split_once('%')?;
+    let base = std::env::var_os(name)?;
+    let tail = tail.trim_start_matches(['/', '\\']).replace('\\', "/");
+    Some(std::path::PathBuf::from(base).join(tail))
+}
+
+/// Finds a sample an FLP names on this machine and copies it into the new project folder
+/// through the host, so the import is self-contained.
+struct HostSamples<'a> {
+    host: &'a mut dyn Host,
+    author: &'a Author,
+    flp_dir: std::path::PathBuf,
+}
+
+impl ph_formats::flp::SampleResolver for HostSamples<'_> {
+    fn resolve(&mut self, flp_path: &str) -> Option<ph_formats::flp::ResolvedSample> {
+        let plain = std::path::PathBuf::from(flp_path.replace('\\', "/"));
+        let candidates = [
+            expand_placeholder(flp_path),
+            Some(plain.clone()),
+            // a relative path is taken relative to the .flp
+            plain.is_relative().then(|| self.flp_dir.join(&plain)),
+        ];
+        for cand in candidates.into_iter().flatten() {
+            if !cand.is_file() {
+                continue;
+            }
+            let Ok(reference) = self
+                .host
+                .import_file(&cand, ImportKind::Sample, self.author)
+            else {
+                continue;
+            };
+            let info = self.host.sample_info(&reference).ok()?;
+            return Some(ph_formats::flp::ResolvedSample {
+                reference,
+                frames: info.frames,
+                sample_rate: info.sample_rate,
+                channels: info.channels,
+            });
+        }
+        None
+    }
+}
+
+/// Session-handled: builds a new project from an FL Studio file in a new folder beside it,
+/// saves it there with its plugin states and `import-report.md`, and replaces the session's
+/// project (like `file.open`).
+pub(crate) fn import_flp_project(
+    s: &mut Session,
+    host: &mut dyn Host,
+    author: &Author,
+    params: Value,
+) -> CmdResult<SessionOut> {
+    let p: ImportFlp = parse("file.import_flp", params)?;
+    let src = read_path(host, author, &p.path)?;
+    let bytes =
+        std::fs::read(&src).map_err(|e| CmdError::Host(format!("{}: {e}", src.display())))?;
+    // Refuse a file that is not a project before anything is created.
+    ph_formats::flp::parse(&bytes).map_err(|e| CmdError::Host(format!("{}: {e}", p.path)))?;
+    let wanted = import_dir(&src);
+    let dir = if *author == Author::Human {
+        wanted
+    } else {
+        host.resolve_path(&wanted.to_string_lossy(), FileAccess::Write)?
+    };
+    let title = src
+        .file_stem()
+        .map_or_else(|| "FL project".into(), |s| s.to_string_lossy().into_owned());
+    let previous = host.resolve_path(".", FileAccess::Read).ok();
+    std::fs::create_dir_all(&dir).map_err(|e| CmdError::Host(format!("{}: {e}", dir.display())))?;
+    // The samples are copied into the new folder, so the host moves there first.
+    host.set_project_dir(&dir);
+    let built = {
+        let mut samples = HostSamples {
+            host: &mut *host,
+            author,
+            flp_dir: src.parent().map(Path::to_path_buf).unwrap_or_default(),
+        };
+        ph_formats::flp::import_flp(&bytes, &title, &mut samples)
+    };
+    let written = built
+        .map_err(|e| CmdError::Host(format!("{}: {e}", p.path)))
+        .and_then(|imp| write_import(&dir, &imp).map(|()| imp));
+    let imp = match written {
+        Ok(imp) => imp,
+        Err(e) => {
+            if let Some(prev) = previous {
+                host.set_project_dir(&prev);
+            }
+            let _ = std::fs::remove_dir(&dir); // only removed when still empty
+            return Err(e);
+        }
+    };
+    let summary = format!(
+        "imported {} from FL Studio: {}",
+        imp.project.settings.title,
+        imp.report.summary_line()
+    );
+    let result = json!({
+        "path": dir,
+        "report_file": "import-report.md",
+        "channels": imp.project.channels.len(),
+        "patterns": imp.project.patterns.len(),
+        "report": imp.report.to_json(),
+    });
+    s.reset(imp.project);
+    Ok(SessionOut {
+        result,
+        summary: Some(summary),
+        ..Default::default()
+    })
+}
+
+fn write_import(dir: &Path, imp: &ph_formats::flp::FlpImport) -> CmdResult<()> {
+    let host_err = |p: &Path, e: std::io::Error| CmdError::Host(format!("{}: {e}", p.display()));
+    ph_formats::save_project(&imp.project, dir).map_err(|e| CmdError::Host(e.to_string()))?;
+    for f in &imp.files {
+        let target = dir.join(&f.path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| host_err(parent, e))?;
+        }
+        std::fs::write(&target, &f.bytes).map_err(|e| host_err(&target, e))?;
+    }
+    let report = dir.join("import-report.md");
+    std::fs::write(&report, imp.report.to_markdown(&imp.project.settings.title))
+        .map_err(|e| host_err(&report, e))
 }

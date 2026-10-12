@@ -1143,6 +1143,54 @@ fn file_commands_export() {
 }
 
 #[test]
+fn file_import_flp_creates_a_project_beside_the_file() {
+    let mut r = Rig::new();
+    small_song(&mut r);
+    let src = r.dir().join("song.flp");
+    std::fs::write(&src, ph_formats::flp::build::sample_project()).unwrap();
+    let params = json!({ "path": src.to_string_lossy() });
+    // destructive like file.open: needs confirm
+    assert!(matches!(
+        r.err("file.import_flp", params.clone()),
+        CmdError::NeedsConfirm(_)
+    ));
+    assert!(!r.s.history().is_empty(), "nothing happened yet");
+    let out = r.confirmed("file.import_flp", params.clone());
+    let dir = r.dir().join("song (Patternhaus)");
+    assert_eq!(out.result["path"], json!(dir));
+    assert_eq!(out.result["report"]["counts"]["notes"], 3);
+    assert_eq!(out.result["report"]["counts"]["clips"], 4);
+    assert!(out.summary.unwrap().contains("3 notes"));
+    // the session now holds the imported project, with a fresh history
+    assert_eq!(r.p().settings.title, "Synthetic song");
+    assert_eq!(r.p().channels.len(), 3);
+    assert!(r.s.history().is_empty());
+    // and the folder holds the project, the plugin states and the report
+    assert_eq!(ph_formats::load_project(&dir).unwrap(), *r.p());
+    assert!(dir.join("plugins/flp-channel-1.flpstate").is_file());
+    let report = std::fs::read_to_string(dir.join("import-report.md")).unwrap();
+    assert!(report.contains("## Skipped"));
+    // importing again never overwrites: a numbered folder
+    let again = r.confirmed("file.import_flp", params);
+    assert_eq!(
+        again.result["path"],
+        json!(r.dir().join("song (Patternhaus) (2)"))
+    );
+    // not an FL file, and a missing file, are errors that change nothing
+    std::fs::write(r.dir().join("bad.flp"), b"not a project at all").unwrap();
+    let before = r.p().clone();
+    for name in ["bad.flp", "missing.flp"] {
+        let path = r.dir().join(name);
+        assert!(matches!(
+            r.err_confirmed("file.import_flp", json!({ "path": path.to_string_lossy() })),
+            CmdError::Host(_)
+        ));
+    }
+    assert_eq!(r.p(), &before);
+    assert!(!r.dir().join("bad (Patternhaus)").exists());
+}
+
+#[test]
 fn ui_commands() {
     let mut r = Rig::new();
     let (pat, ch) = small_song(&mut r);
