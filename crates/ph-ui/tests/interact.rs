@@ -231,7 +231,7 @@ fn placing_and_moving_clips_in_the_playlist() {
         .values()
         .find(|c| c.track == 5)
         .expect("clip on track 6");
-    assert_eq!((new.start, new.pattern), (3840, ids.beat));
+    assert_eq!((new.start, new.pattern()), (3840, Some(ids.beat)));
 }
 
 // ---- piano roll: lasso, slice and mute --------------------------------------------------

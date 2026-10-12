@@ -198,7 +198,7 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
     let clip_line = |p: &Project, c: &ph_core::Clip| {
         format!(
             "{} {} on track {}",
-            p.patterns.get(&c.pattern).map_or("?", |x| x.name.as_str()),
+            p.clip_label(c),
             bar_span(&t, c.start, c.start + c.length),
             c.track + 1
         )

@@ -37,3 +37,13 @@ id_type!(
     /// Stable id of a note inside one pattern. Lets agents edit or delete a specific note.
     NoteId
 );
+id_type!(
+    /// Stable id of an entry in the project's sample registry ([`crate::SampleEntry`]).
+    /// Never reused within a project.
+    SampleId
+);
+id_type!(
+    /// Stable id of an automation point ([`crate::AutomationPoint`]). Unique across the
+    /// whole project (not just its clip) and never reused.
+    PointId
+);

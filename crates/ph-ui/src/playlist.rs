@@ -376,7 +376,16 @@ impl PlaylistState {
             .selection
             .iter()
             .filter_map(|id| self.clip(*id))
-            .map(|c| mapping::clip_add(c.track, c.pattern, c.start + c.length, Some(c.length)))
+            // audio and automation clips get their own duplicate in M2/T6 and T7
+            .filter_map(|c| {
+                let pat = c.pattern()?;
+                Some(mapping::clip_add(
+                    c.track,
+                    pat,
+                    c.start + c.length,
+                    Some(c.length),
+                ))
+            })
             .collect();
         if reqs.is_empty() {
             vec![]
@@ -551,9 +560,9 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             if resp.double_clicked()
                 && grid.contains(pp)
                 && let Some((id, _)) = st.clip_at(rel)
-                && let Some(c) = st.clip(id)
+                && let Some(pat) = st.clip(id).and_then(|c| c.pattern())
             {
-                res.out.push(PlOut::OpenPattern(c.pattern));
+                res.out.push(PlOut::OpenPattern(pat));
             }
         }
     }
@@ -680,13 +689,11 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             continue;
         }
         r = r.shrink2(Vec2::new(0.0, 1.0));
-        let (name, base) = cx
-            .project
-            .patterns
-            .get(&c.pattern)
-            .map_or(("?".to_string(), col.ghost), |p| {
-                (p.name.clone(), rgb(p.color))
-            });
+        let name = cx.project.clip_label(c);
+        let base = c
+            .pattern()
+            .and_then(|p| cx.project.patterns.get(&p))
+            .map_or(col.ghost, |p| rgb(p.color));
         let sel = st.selection.contains(&c.id);
         gp.rect_filled(r, CornerRadius::same(3), lerp(col.bg2, base, 0.85));
         gp.rect_filled(

@@ -7,12 +7,16 @@
 //! - Every change is a [`Patch`] on one [`ObjectPath`]. Commands build patches with [`Edit`];
 //!   undo, redo, replay and agent preview apply them with [`apply`].
 
+mod audio;
+mod automation;
 mod ids;
 mod model;
 mod patch;
 mod path;
 mod time;
 
+pub use audio::*;
+pub use automation::*;
 pub use ids::*;
 pub use model::*;
 pub use patch::*;
@@ -33,6 +37,10 @@ pub enum ModelError {
     NoTrack(usize),
     #[error("no clip with id {0}")]
     NoClip(ClipId),
+    #[error("no sample with id {0}")]
+    NoSample(SampleId),
+    #[error("no automation point with id {0}")]
+    NoPoint(PointId),
     #[error("invalid value: {0}")]
     Invalid(String),
     #[error("invalid patch: {0}")]
@@ -46,3 +54,6 @@ pub type ModelResult<T> = Result<T, ModelError>;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod m2_tests;

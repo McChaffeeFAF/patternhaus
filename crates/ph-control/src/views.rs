@@ -266,7 +266,7 @@ pub fn sections_view(p: &Project) -> Value {
             .values()
             .filter(|c| c.start <= w[0] && c.start + c.length >= w[1])
             .filter(|c| !p.tracks.get(c.track as usize).is_some_and(|t| t.muted))
-            .map(|c| c.pattern)
+            .filter_map(|c| c.pattern())
             .collect();
         match segs.last_mut() {
             Some(last) if last.2 == active => last.1 = w[1],

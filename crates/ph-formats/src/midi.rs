@@ -247,8 +247,12 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
                 {
                     continue;
                 }
-                let plen = project.pattern_length(clip.pattern)?.max(1);
-                let pat = project.pattern(clip.pattern)?;
+                // only pattern clips hold notes
+                let Some(pid) = clip.pattern() else {
+                    continue;
+                };
+                let plen = project.pattern_length(pid)?.max(1);
+                let pat = project.pattern(pid)?;
                 for (ch, notes) in &pat.notes {
                     for n in notes.values() {
                         if n.muted || n.start < clip.offset {

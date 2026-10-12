@@ -1073,12 +1073,12 @@ impl Agent {
                     .clips
                     .values()
                     .map(|c| {
-                        let pat = p.patterns.get(&c.pattern);
+                        let pat = c.pattern().and_then(|id| p.patterns.get(&id));
                         PlaylistClipBox {
                             track: c.track as usize,
                             start: c.start,
                             length: c.length,
-                            label: pat.map_or("?".into(), |x| x.name.clone()),
+                            label: p.clip_label(c),
                             color: pat.map_or(0x5f9ea0, |x| x.color),
                         }
                     })

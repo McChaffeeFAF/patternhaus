@@ -1224,7 +1224,7 @@ fn query_commands() {
     let q = |r: &mut Rig, c: &str, p: Value| r.run(c, p).result;
     let all = q(&mut r, "query.project", json!({}));
     assert_eq!(all["settings"]["title"], "Test");
-    assert_eq!(all["format_version"], 1);
+    assert_eq!(all["format_version"], FORMAT_VERSION);
     let chs = q(&mut r, "query.channels", json!({}));
     assert_eq!(chs["channels"][0]["name"], "Lead");
     let pats = q(&mut r, "query.patterns", json!({}));

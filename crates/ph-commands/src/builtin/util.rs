@@ -36,6 +36,11 @@ pub fn channel_name(p: &Project, id: ChannelId) -> CmdResult<String> {
     Ok(p.channel(id)?.name.clone())
 }
 
+/// What a clip plays, for summaries (see [`Project::clip_label`]).
+pub fn clip_label(p: &Project, clip: &Clip) -> String {
+    p.clip_label(clip)
+}
+
 pub fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
@@ -87,9 +92,20 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
             }
         }
     }
+    for (cid, pid) in points_of(&cur) {
+        let path = ObjectPath::Point(cid, pid);
+        if get(target, path).is_none() {
+            ed.put(path, None)?;
+        }
+    }
     for id in cur.clips.keys() {
         if !target.clips.contains_key(id) {
             ed.put(ObjectPath::Clip(*id), None)?;
+        }
+    }
+    for id in cur.samples.keys() {
+        if !target.samples.contains_key(id) {
+            ed.put(ObjectPath::Sample(*id), None)?;
         }
     }
     let keep_c: Vec<ChannelId> = cur
@@ -149,9 +165,26 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
             }
         }
     }
+    for id in target.samples.keys() {
+        let path = ObjectPath::Sample(*id);
+        ed.put(path, get(target, path))?;
+    }
     for id in target.clips.keys() {
         let path = ObjectPath::Clip(*id);
         ed.put(path, get(target, path))?;
     }
+    for (cid, pid) in points_of(target) {
+        let path = ObjectPath::Point(cid, pid);
+        ed.put(path, get(target, path))?;
+    }
     Ok(())
+}
+
+/// Every automation point, as (clip, point).
+fn points_of(p: &Project) -> Vec<(ClipId, PointId)> {
+    p.clips
+        .values()
+        .filter_map(|c| c.automation().map(|a| (c.id, a)))
+        .flat_map(|(c, a)| a.points.keys().map(move |p| (c, *p)))
+        .collect()
 }
