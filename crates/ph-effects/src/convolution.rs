@@ -281,10 +281,19 @@ impl Engine {
             self.hist[c][w + BLOCK] = x[c];
             let window = &self.hist[c][w + 1..w + 1 + BLOCK];
             let h = &self.h0r[c.min(self.nch - 1)];
-            let mut head = 0.0f32;
-            for (a, b) in h.iter().zip(window) {
-                head += a * b;
+            // eight independent partial sums let the compiler vectorise the dot product
+            let mut lanes = [0.0f32; 8];
+            let (hc, _) = h.as_chunks::<8>();
+            let (wc, _) = window.as_chunks::<8>();
+            for (ha, wa) in hc.iter().zip(wc) {
+                for k in 0..8 {
+                    lanes[k] += ha[k] * wa[k];
+                }
             }
+            let head = (lanes[0] + lanes[4])
+                + (lanes[1] + lanes[5])
+                + (lanes[2] + lanes[6])
+                + (lanes[3] + lanes[7]);
             y[c] = head + self.tail[c][self.fill];
             self.inbuf[c][self.fill] = x[c];
         }

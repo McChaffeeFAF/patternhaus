@@ -658,6 +658,9 @@ fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effe
         )
         .truncate(),
     );
+    if desc.id == "ph.fx.analyzer" {
+        analyzer_view(ui, Id::new(("fx_analyzer", insert, index)), &theme);
+    }
     let overrides = match effect {
         EffectSpec::Builtin { params, .. } => params.clone(),
         _ => Default::default(),
@@ -676,3 +679,101 @@ fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effe
     }
     let _ = Edit::None;
 }
+
+/// The analyser effect's window: live spectrum, short-term / momentary loudness, phase
+/// correlation and peak meters, from the lock-free feed of the most recently activated
+/// analyser (`ph_engine::catalog::analyzer_feed`).
+fn analyzer_view(ui: &mut Ui, id: Id, theme: &crate::theme::Theme) {
+    const DB_LO: f32 = -100.0;
+    const DB_HI: f32 = 0.0;
+    let c = &theme.colors;
+    let Some(feed) = ph_engine::catalog::analyzer_feed() else {
+        ui.label(widgets::caption(
+            theme,
+            "No analyser is running yet: play the project to see its spectrum.",
+        ));
+        return;
+    };
+    let width = ui.available_width().clamp(240.0, 520.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, 120.0), Sense::hover());
+    let p = ui.painter();
+    crate::paint::well(p, rect, 3, c.lcd, theme);
+    let inner = rect.shrink(4.0);
+    for db in [-20.0f32, -40.0, -60.0, -80.0] {
+        let y = inner.bottom() - inner.height() * (db - DB_LO) / (DB_HI - DB_LO);
+        p.line_segment(
+            [Pos2::new(inner.left(), y), Pos2::new(inner.right(), y)],
+            Stroke::new(1.0, c.grid_minor),
+        );
+    }
+    let spec = feed.spectrum();
+    let n = spec.len();
+    let points: Vec<Pos2> = spec
+        .iter()
+        .enumerate()
+        .map(|(k, db)| {
+            let x = inner.left() + inner.width() * (k as f32 + 0.5) / n as f32;
+            let t = ((db - DB_LO) / (DB_HI - DB_LO)).clamp(0.0, 1.0);
+            Pos2::new(x, inner.bottom() - inner.height() * t)
+        })
+        .collect();
+    p.add(egui::Shape::line(points, Stroke::new(1.5, c.accent)));
+    for (hz, label) in [(100.0f32, "100"), (1000.0, "1k"), (10000.0, "10k")] {
+        let x = inner.left()
+            + inner.width() * (hz / ANALYZER_F_LO).log10()
+                / (ANALYZER_F_HI / ANALYZER_F_LO).log10();
+        widgets::text_in(
+            ui,
+            Rect::from_min_size(
+                Pos2::new(x - 12.0, inner.bottom() - 12.0),
+                Vec2::new(24.0, 12.0),
+            ),
+            label,
+            9.0,
+            c.dim,
+        );
+    }
+    ui.horizontal(|ui| {
+        let lufs = |v: f32| {
+            if v <= SILENT_LUFS {
+                "-inf".to_string()
+            } else {
+                format!("{v:.1}")
+            }
+        };
+        widgets::lcd(
+            ui,
+            theme,
+            &format!("S {} LUFS", lufs(feed.short_term_lufs())),
+            12.0,
+            110.0,
+            "Short-term loudness (3 s)",
+        );
+        widgets::lcd(
+            ui,
+            theme,
+            &format!("M {} LUFS", lufs(feed.momentary_lufs())),
+            12.0,
+            110.0,
+            "Momentary loudness (400 ms)",
+        );
+        widgets::lcd(
+            ui,
+            theme,
+            &format!("Corr {:+.2}", feed.correlation()),
+            12.0,
+            90.0,
+            "Stereo phase correlation",
+        );
+        let (mrect, _) = ui.allocate_exact_size(Vec2::new(70.0, 14.0), Sense::hover());
+        let peak = feed.peak();
+        widgets::paint_meter(ui, id.with("meter"), mrect, peak, peak, theme);
+    });
+    // keep the display moving while the window is open
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(33));
+}
+
+const ANALYZER_F_LO: f32 = 20.0;
+const ANALYZER_F_HI: f32 = 20000.0;
+const SILENT_LUFS: f32 = -119.0;
