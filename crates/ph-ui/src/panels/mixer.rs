@@ -34,6 +34,11 @@ pub fn volume_db(v: f32) -> String {
 }
 
 /// Insert label: its name, or the number when unnamed.
+/// Room the controls after an effect slot's name take: bypass, mix knob and caption, up, down, close.
+const SLOT_CONTROLS_W: f32 = 190.0;
+/// Room the controls after a send's name take: level knob, dB readout, remove.
+const SEND_CONTROLS_W: f32 = 130.0;
+
 fn insert_label(i: usize, m: &MixerInsert) -> String {
     if m.name.is_empty() {
         format!("{i}")
@@ -135,12 +140,14 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
                 Stroke::new(2.0, c.agent.gamma_multiply(k)),
                 StrokeKind::Inside,
             );
-            p.text(
+            crate::paint::text_fit(
+                &p,
                 rect.right_top() + Vec2::new(-4.0, 8.0),
                 Align2::RIGHT_TOP,
                 who.trim_start_matches("agent:"),
                 FontId::new(9.0, crate::fonts::cond()),
                 c.agent,
+                STRIP_W - 30.0,
             );
             ui.ctx().request_repaint();
         }
@@ -168,10 +175,12 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
     );
     let nr = ui.interact(name_rect, ui.id().with(("strip", i)), Sense::click());
     let label = insert_label(i, &m).to_uppercase();
-    let galley = p.layout_no_wrap(
-        label.clone(),
+    let (galley, cut) = crate::paint::fit_galley(
+        &p,
+        &label,
         FontId::new(12.0, crate::fonts::cond_bold()),
         if selected { c.text } else { c.dim },
+        name_rect.height() - 4.0,
     );
     let clip = p.with_clip_rect(name_rect.expand2(Vec2::new(2.0, 0.0)));
     clip.add(
@@ -182,6 +191,11 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         )
         .with_angle(-std::f32::consts::FRAC_PI_2),
     );
+    let nr = if cut {
+        nr.on_hover_text(insert_label(i, &m))
+    } else {
+        nr
+    };
     let nr = nr.hint(
         &insert_label(i, &m),
         "",
@@ -350,9 +364,12 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
         .id_salt("mixer_detail")
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new(format!("{}  (insert {ins})", insert_label(ins, &m)))
-                        .font(FontId::new(15.0, crate::fonts::cond_bold())),
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(format!("{}  (insert {ins})", insert_label(ins, &m)))
+                            .font(FontId::new(15.0, crate::fonts::cond_bold())),
+                    )
+                    .truncate(),
                 );
                 if ins > 0 {
                     let mut route = m.route_to_master;
@@ -379,34 +396,42 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                         )
                     });
                     let cur2 = cur.clone();
-                    egui::ComboBox::from_id_salt("sidechain")
-                        .selected_text(cur)
-                        .show_ui(ui, |ui| {
-                            if ui
-                                .selectable_label(m.sidechain_from.is_none(), "none")
-                                .clicked()
-                            {
-                                core.send(mapping::sidechain(ins as u32, None));
-                            }
-                            for (j, other) in project.mixer.iter().enumerate().skip(1) {
-                                if j != ins
-                                    && ui
-                                        .selectable_label(
-                                            m.sidechain_from == Some(InsertId(j as u32)),
-                                            format!("{j} {}", other.name),
-                                        )
-                                        .clicked()
+                    ui.scope(|ui| {
+                        ui.set_max_width(220.0);
+                        egui::ComboBox::from_id_salt("sidechain")
+                            .selected_text(cur)
+                            .truncate()
+                            .show_ui(ui, |ui| {
+                                ui.set_max_width(widgets::MENU_W);
+                                if ui
+                                    .selectable_label(m.sidechain_from.is_none(), "none")
+                                    .clicked()
                                 {
-                                    core.send(mapping::sidechain(ins as u32, Some(j as u32)));
+                                    core.send(mapping::sidechain(ins as u32, None));
                                 }
-                            }
-                        })
-                        .response
-                        .hint_menu(
-                            "Sidechain source",
-                            &cur2,
-                            "the insert whose signal drives sidechain compressors on this one",
-                        );
+                                for (j, other) in project.mixer.iter().enumerate().skip(1) {
+                                    if j != ins
+                                        && ui
+                                            .add(
+                                                egui::Button::selectable(
+                                                    m.sidechain_from == Some(InsertId(j as u32)),
+                                                    format!("{j} {}", other.name),
+                                                )
+                                                .truncate(),
+                                            )
+                                            .clicked()
+                                    {
+                                        core.send(mapping::sidechain(ins as u32, Some(j as u32)));
+                                    }
+                                }
+                            })
+                            .response
+                            .hint_menu(
+                                "Sidechain source",
+                                &cur2,
+                                "the insert whose signal drives sidechain compressors on this one",
+                            );
+                    });
                 }
             });
             ui.separator();
@@ -420,9 +445,13 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                     };
                     ui.horizontal(|ui| {
                         let sel = core.sel.effect == Some(idx);
-                        if ui
-                            .selectable_label(sel, format!("{}. {}", idx + 1, name))
-                            .clicked()
+                        if widgets::leave_room(ui, SLOT_CONTROLS_W, |ui| {
+                            ui.add(
+                                egui::Button::selectable(sel, format!("{}. {}", idx + 1, name))
+                                    .truncate(),
+                            )
+                        })
+                        .clicked()
                         {
                             core.sel.effect = Some(idx);
                             core.window_requests.push((
@@ -513,14 +542,19 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                 for s in &m.sends {
                     ui.horizontal(|ui| {
                         let to = s.to.0;
-                        ui.label(format!(
-                            "-> {} {}",
-                            to,
-                            project
-                                .mixer
-                                .get(to as usize)
-                                .map_or("", |x| x.name.as_str())
-                        ));
+                        widgets::leave_room(ui, SEND_CONTROLS_W, |ui| {
+                            ui.add(
+                                egui::Label::new(format!(
+                                    "-> {} {}",
+                                    to,
+                                    project
+                                        .mixer
+                                        .get(to as usize)
+                                        .map_or("", |x| x.name.as_str())
+                                ))
+                                .truncate(),
+                            )
+                        });
                         let (_, e) = knob(
                             ui,
                             Id::new(("send", ins, to)),
@@ -616,10 +650,13 @@ fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effe
         ui.label("This effect has no parameter descriptor.");
         return;
     };
-    ui.label(
-        RichText::new(&desc.name)
-            .font(FontId::new(15.0, crate::fonts::cond_bold()))
-            .color(theme.colors.text),
+    ui.add(
+        egui::Label::new(
+            RichText::new(&desc.name)
+                .font(FontId::new(15.0, crate::fonts::cond_bold()))
+                .color(theme.colors.text),
+        )
+        .truncate(),
     );
     let overrides = match effect {
         EffectSpec::Builtin { params, .. } => params.clone(),

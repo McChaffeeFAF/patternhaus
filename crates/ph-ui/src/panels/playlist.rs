@@ -24,11 +24,16 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             .and_then(|p| project.patterns.get(&p))
             .map_or("(none)".to_string(), |p| p.name.clone());
         ui.label(crate::widgets::caption(&theme, "Place"));
-        ui.label(
-            egui::RichText::new(name)
-                .font(egui::FontId::new(13.0, crate::fonts::body_medium()))
-                .color(theme.colors.text),
-        );
+        crate::widgets::leave_room(ui, 330.0, |ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(name)
+                        .font(egui::FontId::new(13.0, crate::fonts::body_medium()))
+                        .color(theme.colors.text),
+                )
+                .truncate(),
+            )
+        });
         ui.separator();
         ui.label(crate::widgets::caption(&theme, "Snap"));
         let bar = core.playlist.bar;

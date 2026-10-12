@@ -693,11 +693,16 @@ impl PhApp {
         }
         if !errors.is_empty() {
             ui.separator();
+            ui.set_max_width(crate::widgets::MENU_W);
             for e in errors {
-                ui.label(
-                    RichText::new(e)
-                        .color(self.core.theme.colors.warn)
-                        .size(11.0),
+                // a theme file's error carries the file's text: shortened to the menu
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(e)
+                            .color(self.core.theme.colors.warn)
+                            .size(11.0),
+                    )
+                    .truncate(),
                 );
             }
         }
@@ -730,32 +735,60 @@ impl PhApp {
         let theme = self.core.theme.clone();
         let c = &theme.colors;
         ui.horizontal(|ui| {
-            match hint::current(ui.ctx()) {
-                Some(h) => {
-                    ui.label(
-                        RichText::new(&h.name)
-                            .font(egui::FontId::new(12.5, crate::fonts::body_medium()))
-                            .color(c.text),
-                    );
-                    if !h.value.is_empty() {
-                        ui.label(
-                            RichText::new(&h.value)
-                                .font(egui::FontId::new(12.0, crate::fonts::mono()))
-                                .color(c.accent),
-                        );
+            // the hint may be as long as a user's name: it gets at most 60% of the bar, so the
+            // counters and the title on the right always have their room
+            let left_w = ui.available_width() * 0.6;
+            ui.allocate_ui_with_layout(
+                egui::vec2(left_w, ui.available_height()),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.set_clip_rect(ui.max_rect().intersect(ui.clip_rect()));
+                    match hint::current(ui.ctx()) {
+                        Some(h) => {
+                            let gest = if h.gestures.is_empty() { 0.0 } else { 160.0 };
+                            let val = if h.value.is_empty() { 0.0 } else { 100.0 };
+                            crate::widgets::leave_room(ui, gest + val, |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&h.name)
+                                            .font(egui::FontId::new(
+                                                12.5,
+                                                crate::fonts::body_medium(),
+                                            ))
+                                            .color(c.text),
+                                    )
+                                    .truncate(),
+                                )
+                            });
+                            if !h.value.is_empty() {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&h.value)
+                                            .font(egui::FontId::new(12.0, crate::fonts::mono()))
+                                            .color(c.accent),
+                                    )
+                                    .truncate(),
+                                );
+                            }
+                            if !h.gestures.is_empty() {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&h.gestures).size(12.0).color(c.dim),
+                                    )
+                                    .truncate(),
+                                );
+                            }
+                        }
+                        None => {
+                            ui.label(
+                                RichText::new("Hover a control for its name, value and gestures.")
+                                    .size(12.0)
+                                    .color(c.faint),
+                            );
+                        }
                     }
-                    if !h.gestures.is_empty() {
-                        ui.label(RichText::new(&h.gestures).size(12.0).color(c.dim));
-                    }
-                }
-                None => {
-                    ui.label(
-                        RichText::new("Hover a control for its name, value and gestures.")
-                            .size(12.0)
-                            .color(c.faint),
-                    );
-                }
-            }
+                },
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let mono = |t: String, col| {
                     RichText::new(t)
@@ -778,10 +811,13 @@ impl PhApp {
                     ),
                     c.dim,
                 ));
-                ui.label(
-                    RichText::new(&self.core.project.settings.title)
-                        .font(egui::FontId::new(12.0, crate::fonts::body_medium()))
-                        .color(c.text),
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(&self.core.project.settings.title)
+                            .font(egui::FontId::new(12.0, crate::fonts::body_medium()))
+                            .color(c.text),
+                    )
+                    .truncate(),
                 );
             });
         });
@@ -1045,7 +1081,15 @@ impl PhApp {
                                 );
                                 ui.painter()
                                     .rect_filled(bar, egui::CornerRadius::same(1), c);
-                                ui.label(&t.text);
+                                // wraps anywhere: a long unbroken path must not widen the toast
+                                let mut job = egui::text::LayoutJob::simple(
+                                    t.text.clone(),
+                                    egui::TextStyle::Body.resolve(ui.style()),
+                                    ui.visuals().text_color(),
+                                    ui.available_width(),
+                                );
+                                job.wrap.break_anywhere = true;
+                                ui.label(job);
                             });
                         })
                 });
