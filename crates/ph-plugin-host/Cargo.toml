@@ -1,0 +1,18 @@
+[package]
+name = "ph-plugin-host"
+description = "Patternhaus plugin hosting contract: scan results, plugin instances as processors, state, editors and the crash-catch boundary (CLAP/VST3 in M2/T3)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ph-core.workspace = true
+ph-node.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+raw-window-handle.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

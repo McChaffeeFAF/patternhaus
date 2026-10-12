@@ -2881,6 +2881,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ph-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "ph-core",
+ "ph-node",
+ "raw-window-handle",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ph-ui"
 version = "0.1.0"
 dependencies = [

@@ -22,6 +22,7 @@ ph-control = { path = "crates/ph-control", version = "0.1.0" }
 ph-ui = { path = "crates/ph-ui", version = "0.1.0" }
 ph-cli = { path = "crates/ph-cli", version = "0.1.0" }
 ph-analysis = { path = "crates/ph-analysis", version = "0.1.0" }
+ph-plugin-host = { path = "crates/ph-plugin-host", version = "0.1.0" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 schemars = "1"
@@ -41,6 +42,8 @@ eframe = { version = "0.36", default-features = false, features = ["wgpu", "wayl
 egui_kittest = { version = "0.36", features = ["wgpu", "snapshot"] }
 toml = "1"
 ron = "0.12"
+# window handles for plugin editors (already in the tree through winit/wgpu)
+raw-window-handle = "0.6"
 
 [profile.dev]
 # DSP is unusably slow unoptimised; keep debug info but optimise a little, and dependencies fully.
