@@ -810,10 +810,31 @@ pub fn menu_button_rich<R>(
     r.hint(label, "", "click to open")
 }
 
+/// Widest a menu of user-named entries grows before its entries are shortened with "…".
+pub const MENU_W: f32 = 280.0;
+
+/// Runs `add` in a column that leaves `reserve` px of the row free for the controls that follow
+/// it, so a long name inside it (`Label::truncate`, `Button::truncate`) is shortened instead of
+/// pushing them out of the row or under them.
+pub fn leave_room<R>(ui: &mut Ui, reserve: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.scope(|ui| {
+        // a sideways-scrolling parent offers unbounded room: stop at the visible edge
+        let room = ui
+            .available_width()
+            .min(ui.clip_rect().right() - ui.cursor().left());
+        let w = (room - reserve).max(48.0);
+        ui.set_max_width(w);
+        add(ui)
+    })
+    .inner
+}
+
 /// A menu entry: uppercase face, accessible name as typed, optional shortcut text on the
 /// right. No right-click menu of its own (menus are already menus).
 pub fn menu_item(ui: &mut Ui, label: &str, shortcut: &str) -> Response {
-    let mut b = egui::Button::new(caps(label));
+    // entries named by the user (insert, pattern, preset names) must not stretch the menu
+    ui.set_max_width(ui.available_width().min(MENU_W));
+    let mut b = egui::Button::new(caps(label)).truncate();
     if !shortcut.is_empty() {
         b = b.shortcut_text(
             egui::RichText::new(shortcut)
@@ -1192,16 +1213,24 @@ pub fn param_grid(
     changes
 }
 
+/// Longest badge text, in characters.
+pub const BADGE_MAX_CHARS: usize = 28;
+
 /// Small coloured badge with text (author tags, counters).
 pub fn badge(ui: &mut Ui, text: &str, fill: Color32, theme: &Theme) {
     let ink = theme.colors.accent_ink;
+    // a badge measures its text whole: a long client or author name is cut to 28 characters
+    let shown = crate::paint::ellipsize(text, BADGE_MAX_CHARS);
     let galley = ui.painter().layout_no_wrap(
-        text.to_uppercase(),
+        shown.to_uppercase(),
         FontId::new(theme.metrics.font_caption, crate::fonts::cond()),
         ink,
     );
     let (rect, resp) = ui.allocate_exact_size(galley.size() + Vec2::new(8.0, 3.0), Sense::hover());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
+    if shown != text {
+        let _ = resp.on_hover_text(text);
+    }
     ui.painter().rect_filled(rect, CornerRadius::same(3), fill);
     ui.painter()
         .galley(rect.min + Vec2::new(4.0, 1.5), galley, ink);

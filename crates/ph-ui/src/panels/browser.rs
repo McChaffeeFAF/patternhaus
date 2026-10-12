@@ -332,12 +332,14 @@ fn tree_row(
     );
     x += 22.0;
     // names are the user's, in the case they were typed
-    p.with_clip_rect(rect).text(
-        egui::pos2(x, rect.center().y),
-        egui::Align2::LEFT_CENTER,
+    crate::paint::text_fit_on(
+        &p.with_clip_rect(rect),
+        &resp,
+        (egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER),
         &n.name,
         egui::FontId::new(13.0, crate::fonts::body()),
         if is_sel { c.accent_hot } else { c.text },
+        rect.right() - x - 6.0,
     );
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, n.name.as_str()));
     let gestures = match &n.kind {

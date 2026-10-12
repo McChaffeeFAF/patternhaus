@@ -111,14 +111,17 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         {
             core.rack.velocity_view = !core.rack.velocity_view;
         }
-        ui.label(
-            egui::RichText::new(
-                project
-                    .patterns
-                    .get(&pattern)
-                    .map_or(String::new(), |p| format!("Pattern: {}", p.name)),
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(
+                    project
+                        .patterns
+                        .get(&pattern)
+                        .map_or(String::new(), |p| format!("Pattern: {}", p.name)),
+                )
+                .color(theme.colors.dim),
             )
-            .color(theme.colors.dim),
+            .truncate(),
         );
     });
     ui.separator();
@@ -218,9 +221,10 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     Vec2::new(104.0, ROW_H - 4.0),
                 );
                 let nr = ui.interact(name_rect, ui.id().with(("name", ch.id)), Sense::click());
-                ui.painter().text(
-                    Pos2::new(name_rect.left() + 2.0, mid),
-                    Align2::LEFT_CENTER,
+                crate::paint::text_fit_on(
+                    ui.painter(),
+                    &nr,
+                    (Pos2::new(name_rect.left() + 2.0, mid), Align2::LEFT_CENTER),
                     &ch.name,
                     FontId::proportional(13.0),
                     if ch.muted {
@@ -228,6 +232,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     } else {
                         theme.colors.text
                     },
+                    name_rect.width() - 2.0,
                 );
                 if nr.clicked() {
                     core.sel.channel = Some(ch.id);
@@ -251,12 +256,14 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                             Stroke::new(2.0, theme.colors.agent.gamma_multiply(k)),
                             StrokeKind::Inside,
                         );
-                        ui.painter().text(
+                        crate::paint::text_fit(
+                            ui.painter(),
                             Pos2::new(name_rect.right() - 2.0, row_rect.top() + 1.0),
                             Align2::RIGHT_TOP,
                             who.trim_start_matches("agent:"),
                             FontId::proportional(9.0),
                             theme.colors.agent,
+                            name_rect.width() - 4.0,
                         );
                     }
                 }
@@ -416,6 +423,7 @@ fn channel_menu(
         }
         ui.menu_button(caps("Route to insert"), |ui| {
             ui.set_max_height(300.0);
+            ui.set_max_width(widgets::MENU_W);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 for i in 0..=32u32 {
                     let name = core
@@ -424,7 +432,10 @@ fn channel_menu(
                         .get(i as usize)
                         .map_or(String::new(), |m| m.name.clone());
                     if ui
-                        .selectable_label(ch.insert.0 == i, format!("{i}  {name}"))
+                        .add(
+                            egui::Button::selectable(ch.insert.0 == i, format!("{i}  {name}"))
+                                .truncate(),
+                        )
                         .clicked()
                     {
                         core.send(mapping::channel_insert(ch.id, i));
