@@ -34,7 +34,7 @@ pub use endpoint::{
 pub use events::{Event, EventHub};
 pub use grants::{GrantPrompt, Grants, grant_text, parse_grant};
 pub use headless::{HeadlessOptions, find_assets_dir, start_headless};
-pub use host::EngineHost;
+pub use host::{EngineHost, default_projects_dir};
 pub use jsonrpc::serve_jsonrpc;
 pub use mcp::PatternhausServer;
 
@@ -79,6 +79,9 @@ pub struct StudioConfig {
     pub library_roots: Vec<PathBuf>,
     /// Where exports may be written besides the project folder.
     pub exports_dir: Option<PathBuf>,
+    /// The Patternhaus projects folder: the default home of FLP imports, and an allowed
+    /// read/write root for agents (see [`default_projects_dir`]). `None` for none.
+    pub projects_dir: Option<PathBuf>,
     pub engine: EngineConfig,
     pub audio: AudioMode,
 }

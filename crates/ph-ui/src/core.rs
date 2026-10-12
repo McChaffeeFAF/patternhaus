@@ -125,12 +125,18 @@ pub enum AfterPrompt {
     /// Import an FL Studio project (`.flp`) as a new project.
     ImportFlp {
         path: String,
+        /// Put the project beside the `.flp` instead of in the Patternhaus projects folder.
+        next_to_flp: bool,
     },
 }
 
 #[derive(Clone, Debug)]
 pub enum Dialog {
     OpenProject {
+        path: String,
+    },
+    /// A dropped `.flp`: where should the imported project go?
+    ImportFlp {
         path: String,
     },
     /// "Save / Don't save / Cancel" before something that would lose unsaved changes.
@@ -609,6 +615,18 @@ impl AppCore {
                     if let Some(p) = self.after_save.take() {
                         self.ready.push(p);
                     }
+                }
+                // The project folder moved (file.open, FLP import): the browser's project tab, the
+                // save prompts and the layout file follow it.
+                if matches!(d.request.command.as_str(), "file.open" | "file.import_flp")
+                    && let Some(p) = ex.result["path"].as_str()
+                {
+                    self.paths.project_dir = PathBuf::from(p);
+                }
+                if d.request.command == "file.import_flp"
+                    && let Some(note) = ex.result["placement_note"].as_str()
+                {
+                    self.toast(ToastKind::Warn, note.to_string());
                 }
                 if d.request.command == "sample.import" {
                     for s in ex.result["skipped"].as_array().into_iter().flatten() {

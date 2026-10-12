@@ -13,6 +13,10 @@ struct FakeHost {
     inner: NullHost,
     ui: Vec<UiRequest>,
     renders: Vec<RenderRequest>,
+    /// The Patternhaus projects folder (an absolute temp folder), if the test has one.
+    projects: Option<PathBuf>,
+    /// Absolute folders agents may not write (to model a read-only place).
+    unwritable: Vec<PathBuf>,
 }
 
 impl FakeHost {
@@ -22,6 +26,8 @@ impl FakeHost {
             inner: NullHost::default(),
             ui: Vec::new(),
             renders: Vec::new(),
+            projects: None,
+            unwritable: Vec::new(),
         }
     }
 }
@@ -41,8 +47,26 @@ impl Host for FakeHost {
             peak_dbfs: -6.0,
         })
     }
-    fn resolve_path(&self, path: &str, _: FileAccess) -> CmdResult<PathBuf> {
+    fn projects_dir(&self) -> Option<PathBuf> {
+        self.projects.clone()
+    }
+    fn resolve_path(&self, path: &str, access: FileAccess) -> CmdResult<PathBuf> {
         let p = Path::new(path);
+        if let Some(pr) = &self.projects
+            && p.is_absolute()
+            && p.starts_with(pr)
+        {
+            return Ok(p.to_path_buf());
+        }
+        if p.is_absolute()
+            && access == FileAccess::Write
+            && self.unwritable.iter().any(|u| p.starts_with(u))
+        {
+            return Err(CmdError::Host(format!("{path} is read-only")));
+        }
+        if p.is_absolute() && p.starts_with(&self.root) {
+            return Ok(p.to_path_buf());
+        }
         if p.is_absolute() || p.components().any(|c| c == Component::ParentDir) {
             return Err(CmdError::Host(format!("{path} is outside the project")));
         }
@@ -1142,12 +1166,20 @@ fn file_commands_export() {
     ));
 }
 
-#[test]
-fn file_import_flp_creates_a_project_beside_the_file() {
+/// A rig whose projects folder is a separate temp folder (never the real Documents).
+fn flp_rig() -> (Rig, tempfile::TempDir, PathBuf) {
     let mut r = Rig::new();
-    small_song(&mut r);
+    let projects = tempfile::tempdir().unwrap();
+    r.h.projects = Some(projects.path().to_path_buf());
     let src = r.dir().join("song.flp");
     std::fs::write(&src, ph_formats::flp::build::sample_project()).unwrap();
+    (r, projects, src)
+}
+
+#[test]
+fn file_import_flp_defaults_to_the_projects_folder_and_never_overwrites() {
+    let (mut r, projects, src) = flp_rig();
+    small_song(&mut r);
     let params = json!({ "path": src.to_string_lossy() });
     // destructive like file.open: needs confirm
     assert!(matches!(
@@ -1156,8 +1188,9 @@ fn file_import_flp_creates_a_project_beside_the_file() {
     ));
     assert!(!r.s.history().is_empty(), "nothing happened yet");
     let out = r.confirmed("file.import_flp", params.clone());
-    let dir = r.dir().join("song (Patternhaus)");
+    let dir = projects.path().join("song");
     assert_eq!(out.result["path"], json!(dir));
+    assert!(out.result["placement_note"].is_null());
     assert_eq!(out.result["report"]["counts"]["notes"], 3);
     assert_eq!(out.result["report"]["counts"]["clips"], 4);
     assert!(out.summary.unwrap().contains("3 notes"));
@@ -1170,12 +1203,20 @@ fn file_import_flp_creates_a_project_beside_the_file() {
     assert!(dir.join("plugins/flp-channel-1.flpstate").is_file());
     let report = std::fs::read_to_string(dir.join("import-report.md")).unwrap();
     assert!(report.contains("## Skipped"));
-    // importing again never overwrites: a numbered folder
-    let again = r.confirmed("file.import_flp", params);
+    // nothing was written beside the .flp
+    assert!(!r.dir().join("song (Patternhaus)").exists());
+    // importing again never overwrites: numbered folders
+    let again = r.confirmed("file.import_flp", params.clone());
     assert_eq!(
         again.result["path"],
-        json!(r.dir().join("song (Patternhaus) (2)"))
+        json!(projects.path().join("song (2)"))
     );
+    let third = r.confirmed("file.import_flp", params);
+    assert_eq!(
+        third.result["path"],
+        json!(projects.path().join("song (3)"))
+    );
+    assert!(dir.join("project.json").is_file(), "the first is untouched");
     // not an FL file, and a missing file, are errors that change nothing
     std::fs::write(r.dir().join("bad.flp"), b"not a project at all").unwrap();
     let before = r.p().clone();
@@ -1187,7 +1228,42 @@ fn file_import_flp_creates_a_project_beside_the_file() {
         ));
     }
     assert_eq!(r.p(), &before);
-    assert!(!r.dir().join("bad (Patternhaus)").exists());
+    assert!(!projects.path().join("bad").exists());
+}
+
+#[test]
+fn file_import_flp_next_to_the_flp_when_asked() {
+    let (mut r, projects, src) = flp_rig();
+    let params = json!({ "path": src.to_string_lossy(), "placement": "next_to_flp" });
+    let out = r.confirmed("file.import_flp", params.clone());
+    let dir = r.dir().join("song (Patternhaus)");
+    assert_eq!(out.result["path"], json!(dir));
+    assert!(out.result["placement_note"].is_null());
+    assert!(dir.join("project.json").is_file());
+    let again = r.confirmed("file.import_flp", params);
+    assert_eq!(
+        again.result["path"],
+        json!(r.dir().join("song (Patternhaus) (2)"))
+    );
+    assert_eq!(std::fs::read_dir(projects.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn file_import_flp_falls_back_to_the_projects_folder_when_unwritable() {
+    let (mut r, projects, src) = flp_rig();
+    r.who = Caller::agent("claude", Grant(vec![Scope::Full]));
+    let root = r.dir().to_path_buf();
+    r.h.unwritable.push(root);
+    let out = r.confirmed(
+        "file.import_flp",
+        json!({ "path": src.to_string_lossy(), "placement": "next_to_flp" }),
+    );
+    let dir = projects.path().join("song");
+    assert_eq!(out.result["path"], json!(dir));
+    assert!(out.result["placement_note"].is_string());
+    let report = std::fs::read_to_string(dir.join("import-report.md")).unwrap();
+    assert!(report.contains("## Placement"), "{report}");
+    assert!(!r.dir().join("song (Patternhaus)").exists());
 }
 
 #[test]

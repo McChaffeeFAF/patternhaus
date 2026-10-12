@@ -1,6 +1,7 @@
 use super::*;
 use ph_commands::{Grant, Scope};
 use serde_json::json;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 fn studio(dir: &std::path::Path) -> Studio {
@@ -10,6 +11,25 @@ fn studio(dir: &std::path::Path) -> Studio {
         assets_dir: assets,
         library_roots: vec![],
         exports_dir: None,
+        projects_dir: None,
+        engine: EngineConfig::default(),
+        audio: AudioMode::Silent,
+    };
+    Studio::start(config, Project::empty("t")).unwrap()
+}
+
+fn studio_with(
+    dir: &std::path::Path,
+    projects: Option<PathBuf>,
+    libraries: Vec<PathBuf>,
+) -> Studio {
+    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+    let config = StudioConfig {
+        project_dir: dir.to_path_buf(),
+        assets_dir: assets,
+        library_roots: libraries,
+        exports_dir: None,
+        projects_dir: projects,
         engine: EngineConfig::default(),
         audio: AudioMode::Silent,
     };
@@ -546,4 +566,51 @@ fn opening_another_project_folder_moves_saves_and_samples_there() {
         w.is_empty(),
         "opened project's samples resolve from its own folder: {w:?}"
     );
+}
+
+#[test]
+fn agent_flp_import_is_confined_to_the_projects_folder() {
+    let proj = tempfile::tempdir().unwrap();
+    let projects = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let library = tempfile::tempdir().unwrap();
+    let s = studio_with(
+        proj.path(),
+        Some(projects.path().to_path_buf()),
+        vec![library.path().to_path_buf()],
+    );
+    let agent = Caller::agent("claude", Grant(vec![Scope::Full]));
+    let flp = ph_formats::flp::build::sample_project();
+    let confirmed = |params: serde_json::Value| {
+        s.handle().execute(
+            &agent,
+            ph_commands::Request {
+                confirm: true,
+                ..ph_commands::Request::new("file.import_flp", params)
+            },
+        )
+    };
+    // a file outside every allowed folder cannot even be read
+    let far = outside.path().join("far.flp");
+    std::fs::write(&far, &flp).unwrap();
+    assert!(confirmed(json!({ "path": far.to_string_lossy() })).is_err());
+    assert_eq!(std::fs::read_dir(projects.path()).unwrap().count(), 0);
+    // a readable file (library folder, read-only for agents): the default placement writes to
+    // the projects folder, which agents may write to
+    let near = library.path().join("near.flp");
+    std::fs::write(&near, &flp).unwrap();
+    let out = confirmed(json!({ "path": near.to_string_lossy() })).unwrap();
+    assert_eq!(out.result["path"], json!(projects.path().join("near")));
+    assert!(projects.path().join("near/project.json").is_file());
+    assert!(out.result["placement_note"].is_null());
+    // next to the file would be a read-only library folder: the projects folder is used,
+    // and the report says so
+    let out =
+        confirmed(json!({ "path": near.to_string_lossy(), "placement": "next_to_flp" })).unwrap();
+    assert_eq!(out.result["path"], json!(projects.path().join("near (2)")));
+    assert!(out.result["placement_note"].is_string());
+    let report =
+        std::fs::read_to_string(projects.path().join("near (2)/import-report.md")).unwrap();
+    assert!(report.contains("## Placement"), "{report}");
+    assert!(!library.path().join("near (Patternhaus)").exists());
 }
