@@ -16,6 +16,9 @@ use ph_core::{PPQ, Tick};
 use ph_engine::PlayMode;
 
 /// `bar:beat:tick`, 1-based bars and beats.
+/// Widest the pattern selector's box grows before its text is shortened.
+const PATTERN_BOX_MAX_W: f32 = 240.0;
+
 pub fn format_position(pos: Tick, ticks_per_bar: Tick) -> String {
     let bar = pos / ticks_per_bar.max(1);
     let within = pos % ticks_per_bar.max(1);
@@ -152,21 +155,33 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     .pattern
                     .and_then(|id| names.iter().find(|(i, _)| *i == id))
                     .map_or("(no pattern)".to_string(), |(_, n)| n.clone());
-                egui::ComboBox::from_id_salt("pattern_select")
-                    .selected_text(&cur)
-                    .width(120.0)
-                    .show_ui(ui, |ui| {
-                        for (id, name) in &names {
-                            if ui
-                                .selectable_label(core.sel.pattern == Some(*id), name)
-                                .clicked()
-                            {
-                                core.select_pattern(*id);
+                // a long name is shortened inside the box, not allowed to push the buttons
+                ui.scope(|ui| {
+                    ui.set_max_width(PATTERN_BOX_MAX_W);
+                    egui::ComboBox::from_id_salt("pattern_select")
+                        .selected_text(&cur)
+                        .truncate()
+                        .width(120.0)
+                        .show_ui(ui, |ui| {
+                            ui.set_max_width(crate::widgets::MENU_W);
+                            for (id, name) in &names {
+                                if ui
+                                    .add(
+                                        egui::Button::selectable(
+                                            core.sel.pattern == Some(*id),
+                                            name,
+                                        )
+                                        .truncate(),
+                                    )
+                                    .clicked()
+                                {
+                                    core.select_pattern(*id);
+                                }
                             }
-                        }
-                    })
-                    .response
-                    .hint_menu("Pattern", &cur, "click to choose the pattern to edit");
+                        })
+                        .response
+                        .hint_menu("Pattern", &cur, "click to choose the pattern to edit");
+                });
                 if icon_button(ui, &theme, Icon::Plus, false, "New pattern", "").clicked() {
                     core.send(mapping::pattern_add());
                 }
@@ -417,7 +432,7 @@ pub fn health(ui: &mut Ui, core: &mut AppCore) {
         ui.label(widgets::caption(&theme, "Agent  idle"))
     } else {
         let text = if live_agents.len() == 1 {
-            format!("Agent  {}", live_agents[0])
+            format!("Agent  {}", crate::paint::ellipsize(&live_agents[0], 22))
         } else {
             format!("Agents  {}", live_agents.len())
         };
@@ -468,7 +483,7 @@ pub fn health(ui: &mut Ui, core: &mut AppCore) {
         ui.label(mono(format!("{} overloads", live.stats.overloads), c.error));
     }
     if let Some(n) = &core.audio_notice {
-        ui.label(RichText::new(n).color(c.warn));
+        ui.add(egui::Label::new(RichText::new(n).color(c.warn)).truncate());
     }
 }
 

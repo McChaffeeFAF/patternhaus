@@ -582,12 +582,15 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             CornerRadius::ZERO,
             if tr.muted { col.row_alt } else { col.bg3 },
         );
-        hp.text(
+        // the name stops before the mute button (22 px wide, 5 px from the edge)
+        let (_, name_cut) = crate::paint::text_fit(
+            &hp,
             r.left_center() + Vec2::new(8.0, 0.0),
             Align2::LEFT_CENTER,
             &tr.name,
             FontId::proportional(12.0),
             if tr.muted { col.dim } else { col.text },
+            HEADER_W - 8.0 - 32.0,
         );
         let m = Rect::from_center_size(
             Pos2::new(r.right() - 16.0, r.center().y),
@@ -621,6 +624,9 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             id.with("name"),
             Sense::click(),
         );
+        if name_cut {
+            let _ = nresp.clone().on_hover_text(&tr.name);
+        }
         if nresp.double_clicked() {
             res.rename_track = Some(t as u32);
         }
@@ -706,12 +712,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             },
             base,
         );
-        gp.with_clip_rect(r.intersect(grid)).text(
+        crate::paint::text_fit(
+            &gp.with_clip_rect(r.intersect(grid)),
             r.left_top() + Vec2::new(4.0, 1.0),
             Align2::LEFT_TOP,
-            name,
+            &name,
             FontId::new(11.0, crate::fonts::body_medium()),
             col.accent_ink,
+            r.width() - 8.0,
         );
         if sel {
             gp.rect_stroke(
@@ -738,12 +746,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
                     Stroke::new(2.0, col.agent.gamma_multiply(k)),
                     StrokeKind::Outside,
                 );
-                gp.text(
+                crate::paint::text_fit(
+                    &gp,
                     r.right_top() + Vec2::new(-3.0, 1.0),
                     Align2::RIGHT_TOP,
                     who.trim_start_matches("agent:"),
                     FontId::new(9.0, crate::fonts::cond()),
                     col.accent_ink.gamma_multiply(k.max(0.4)),
+                    (r.width() - 6.0).max(0.0),
                 );
             }
         }

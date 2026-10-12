@@ -28,11 +28,17 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             .patterns
             .get(&pattern)
             .map_or("?", |p| p.name.as_str());
-        ui.label(
-            egui::RichText::new(format!("{ch_name}  \u{b7}  {pat_name}"))
-                .font(egui::FontId::new(13.0, crate::fonts::body_medium()))
-                .color(theme.colors.text),
-        );
+        // the buttons after the title keep their room; a long title is shortened
+        crate::widgets::leave_room(ui, 430.0, |ui| {
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(format!("{ch_name}  \u{b7}  {pat_name}"))
+                        .font(egui::FontId::new(13.0, crate::fonts::body_medium()))
+                        .color(theme.colors.text),
+                )
+                .truncate(),
+            )
+        });
         ui.add_space(6.0);
         for (icon, a, name, gestures) in [
             (

@@ -131,7 +131,9 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
     ui.horizontal(|ui| {
         let (r, p) = ui.allocate_painter(Vec2::new(8.0, 20.0), Sense::hover());
         p.rect_filled(r.rect, CornerRadius::same(2), rgb(ch.color));
-        ui.label(RichText::new(&ch.name).strong().size(15.0));
+        crate::widgets::leave_room(ui, 110.0, |ui| {
+            ui.add(egui::Label::new(RichText::new(&ch.name).strong().size(15.0)).truncate())
+        });
         ui.label(
             RichText::new(match &ch.instrument {
                 InstrumentSpec::Sampler { .. } => "Sampler",
@@ -209,10 +211,15 @@ fn sampler(
     desc: Option<&ph_node::NodeDescriptor>,
     theme: &Theme,
 ) {
-    ui.label(format!(
-        "Sample: {}",
-        sample.unwrap_or("(none) - drop one here from the browser")
-    ));
+    crate::widgets::leave_room(ui, 0.0, |ui| {
+        ui.add(
+            egui::Label::new(format!(
+                "Sample: {}",
+                sample.unwrap_or("(none) - drop one here from the browser")
+            ))
+            .truncate(),
+        )
+    });
     if let Some(r) = sample {
         let (assets, project_dir) = (
             core.paths.assets_dir.clone(),

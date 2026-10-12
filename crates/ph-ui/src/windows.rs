@@ -110,7 +110,9 @@ pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
     // rows instead of scrolling sideways
     let scroll_x = match id {
         WindowId::Instrument(_) | WindowId::Effect(..) => Some(false),
-        WindowId::Mixer | WindowId::History | WindowId::Agents => Some(true),
+        WindowId::Mixer => Some(true),
+        // rows of names are shortened to the window instead of scrolling sideways
+        WindowId::History | WindowId::Agents => Some(false),
         WindowId::Playlist | WindowId::ChannelRack | WindowId::PianoRoll => None,
     };
     let Some(x) = scroll_x else {
@@ -388,12 +390,20 @@ fn show_window(
                     crate::fonts::cond_bold(),
                 ))
             };
+            // a long name is shortened to the room before the buttons (the full title is the
+            // hint and the tooltip); the buttons never get covered
+            let title_room = (drag_rect.width() - title_x - 6.0).max(0.0);
             let galley = egui::WidgetText::from(rich).into_galley(
                 ui,
-                Some(egui::TextWrapMode::Extend),
-                f32::INFINITY,
+                Some(egui::TextWrapMode::Truncate),
+                title_room,
                 egui::TextStyle::Button,
             );
+            let tr = if galley.elided {
+                tr.on_hover_text(&title)
+            } else {
+                tr
+            };
             let tp = Pos2::new(
                 title_rect.left() + title_x,
                 title_rect.center().y - galley.size().y / 2.0,

@@ -34,7 +34,14 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             egui::Frame::group(ui.style())
                 .fill(theme.colors.bg3)
                 .show(ui, |ui| {
-                    ui.label(RichText::new(format!("{} wants to connect", g.client)).strong());
+                    crate::widgets::leave_room(ui, 0.0, |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("{} wants to connect", g.client)).strong(),
+                            )
+                            .truncate(),
+                        )
+                    });
                     ui.label(format!(
                         "Requested: {}",
                         g.requested
@@ -96,13 +103,18 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                         );
                     }
                     if c.live {
-                        ui.label(
-                            RichText::new(format!(
-                                "connected {} s, {} command(s), idle {} s",
-                                c.connected_for, c.commands, c.idle_for
-                            ))
-                            .color(theme.colors.dim),
-                        );
+                        crate::widgets::leave_room(ui, 0.0, |ui| {
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!(
+                                        "connected {} s, {} command(s), idle {} s",
+                                        c.connected_for, c.commands, c.idle_for
+                                    ))
+                                    .color(theme.colors.dim),
+                                )
+                                .truncate(),
+                            )
+                        });
                     } else {
                         ui.label(
                             RichText::new("disconnected")
@@ -149,18 +161,21 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             }
         });
         for e in mine.iter().rev().take(5) {
-            ui.label(
-                RichText::new(format!(
-                    "   {}  {}",
-                    e.txn,
-                    e.summary.clone().unwrap_or_else(|| e
-                        .commands
-                        .first()
-                        .map(|c| c.command.clone())
-                        .unwrap_or_default())
-                ))
-                .size(11.0)
-                .color(theme.colors.dim),
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!(
+                        "   {}  {}",
+                        e.txn,
+                        e.summary.clone().unwrap_or_else(|| e
+                            .commands
+                            .first()
+                            .map(|c| c.command.clone())
+                            .unwrap_or_default())
+                    ))
+                    .size(11.0)
+                    .color(theme.colors.dim),
+                )
+                .truncate(),
             );
         }
     }
@@ -168,7 +183,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         ui.add_space(10.0);
         section_label(ui, "AGENT IS POINTING AT", &theme);
         for p in &core.agent_select {
-            ui.label(p.to_string());
+            ui.add(egui::Label::new(p.to_string()).truncate());
         }
     }
 }

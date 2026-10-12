@@ -190,3 +190,87 @@ pub fn playhead(p: &Painter, x: f32, top: f32, bottom: f32, theme: &Theme, reduc
         if reduce { 0.0 } else { 0.8 },
     );
 }
+
+/// Lays `text` out on one row no wider than `max_w`: text that fits is returned as laid out by
+/// [`Painter::layout_no_wrap`] (identical to what `Painter::text` draws); longer text is cut
+/// and ends in "…". Returns the galley and whether it was shortened. egui caches galleys, so
+/// the fits-already case costs one cache lookup.
+pub fn fit_galley(
+    p: &Painter,
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    max_w: f32,
+) -> (std::sync::Arc<egui::Galley>, bool) {
+    let plain = p.layout_no_wrap(text.to_owned(), font.clone(), colour);
+    if plain.size().x <= max_w.max(0.0) + 0.01 {
+        return (plain, false);
+    }
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, colour);
+    job.wrap = egui::text::TextWrapping {
+        max_width: max_w.max(0.0),
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('\u{2026}'),
+    };
+    (p.layout_job(job), true)
+}
+
+/// As [`Painter::text`] but never wider than `max_w`: too-long text is shortened with "…".
+/// Returns the rect drawn and whether the text was truncated (show the full text on hover).
+pub fn text_fit(
+    p: &Painter,
+    pos: Pos2,
+    align: Align2,
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    max_w: f32,
+) -> (Rect, bool) {
+    let (galley, cut) = fit_galley(p, text, font, colour, max_w);
+    let rect = align.anchor_size(pos, galley.size());
+    p.galley(rect.min, galley, colour);
+    (rect, cut)
+}
+
+/// [`text_fit`] on an interactive area: when the text was shortened, hovering `resp` shows the
+/// full text (tooltip and the hint bar).
+pub fn text_fit_on(
+    p: &Painter,
+    resp: &egui::Response,
+    (pos, align): (Pos2, Align2),
+    text: &str,
+    font: FontId,
+    colour: Color32,
+    max_w: f32,
+) -> Rect {
+    let (rect, cut) = text_fit(p, pos, align, text, font, colour, max_w);
+    if cut {
+        use crate::hint::HintExt;
+        let _ = resp.clone().on_hover_text(text).hint(text, "", "");
+    }
+    rect
+}
+
+/// `text` shortened with "…" to fit `max_w` at `font` (for places that need a `String`, such as
+/// window titles). Text that fits comes back unchanged.
+pub fn fit_str(p: &Painter, text: &str, font: FontId, max_w: f32) -> String {
+    let (g, cut) = fit_galley(p, text, font, Color32::TRANSPARENT, max_w);
+    if cut {
+        g.text().to_owned()
+    } else {
+        text.to_owned()
+    }
+}
+
+/// `text` cut to at most `max` characters, ending in "…" when it was cut. For widgets that
+/// measure their text whole (badges) and so cannot be given a width.
+pub fn ellipsize(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        let mut t: String = text.chars().take(max.saturating_sub(1)).collect();
+        t.push('\u{2026}');
+        t
+    }
+}

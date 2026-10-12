@@ -130,7 +130,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 if reverted {
                     rt = rt.strikethrough().color(theme.colors.dim);
                 }
-                ui.label(rt);
+                // the Undo/Redo button and the time after it keep their room
+                crate::widgets::leave_room(ui, 130.0, |ui| ui.add(egui::Label::new(rt).truncate()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if is_live_do
                         && btn(ui, "Undo")
