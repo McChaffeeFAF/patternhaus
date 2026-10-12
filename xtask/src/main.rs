@@ -92,7 +92,7 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("ph-app", &["*"]),
 ];
 
-const USAGE: &str = "usage: cargo xtask <check-layers|check-provenance|check|golden [--update]|perf [--report|--update]|notices [--check]>";
+const USAGE: &str = "usage: cargo xtask <check-layers|check-provenance|check|golden [--update]|perf [--report|--update]|notices [--check]|flp-corpus [dir...]>";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -109,6 +109,7 @@ fn main() -> ExitCode {
         "golden" => golden(&root, flag("--update")),
         "perf" => perf(&root, flag("--report"), flag("--update")),
         "notices" => notices(&root, flag("--check")),
+        "flp-corpus" => flp_corpus(&root, &args[1..]),
         _ => Err(vec![USAGE.into()]),
     };
     match result {
@@ -222,5 +223,41 @@ fn check_provenance(root: &Path) -> Result<(), Vec<String>> {
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+/// `cargo xtask flp-corpus <dir>...`: local only (never CI). Imports every `.flp` under the
+/// folders, read-only, and prints aggregate numbers diffed against an independent reading
+/// (see `tools/flp-probe/src/corpus.rs`). With no folders, `PH_FLP_CORPUS` (a `;`-separated
+/// list) is used. Nothing from the projects is copied or committed.
+fn flp_corpus(root: &Path, dirs: &[String]) -> Result<(), Vec<String>> {
+    let dirs: Vec<String> = if dirs.is_empty() {
+        std::env::var("PH_FLP_CORPUS")
+            .map(|v| {
+                v.split(';')
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        dirs.to_vec()
+    };
+    if dirs.is_empty() {
+        return Err(vec![
+            "usage: cargo xtask flp-corpus <dir>... (or set PH_FLP_CORPUS)".into(),
+        ]);
+    }
+    let status =
+        std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            .current_dir(root)
+            .args(["run", "-q", "--release", "-p", "flp-probe", "--", "corpus"])
+            .args(&dirs)
+            .status()
+            .map_err(|e| vec![e.to_string()])?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(vec![format!("flp-probe corpus failed: {status}")])
     }
 }

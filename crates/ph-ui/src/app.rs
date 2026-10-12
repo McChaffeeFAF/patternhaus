@@ -237,6 +237,7 @@ impl PhApp {
                 }
                 AfterPrompt::NewProject => self.core.send(mapping::project_new(None)),
                 AfterPrompt::OpenProject { path } => self.core.send(mapping::file_open(&path)),
+                AfterPrompt::ImportFlp { path } => self.core.send(mapping::import_flp(&path)),
             }
         }
     }
@@ -838,6 +839,7 @@ impl PhApp {
                     AfterPrompt::Quit => "Quit Patternhaus",
                     AfterPrompt::NewProject => "New project",
                     AfterPrompt::OpenProject { .. } => "Open project",
+                    AfterPrompt::ImportFlp { .. } => "Import FL Studio project",
                 };
                 modal(ctx, title, |ui| {
                     ui.label(format!(

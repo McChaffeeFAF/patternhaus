@@ -1268,6 +1268,10 @@ dependencies = [
 [[package]]
 name = "flp-probe"
 version = "0.1.0"
+dependencies = [
+ "ph-core",
+ "ph-formats",
+]
 
 [[package]]
 name = "fnv"

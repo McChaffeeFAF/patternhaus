@@ -1,6 +1,5 @@
 //! M2 command families whose implementation needs devices, DSP or plugin SDKs: `plugin.*`
-//! (T3), `record.*` and `midi.*` (T8), `slicer.*` (T1, T6), `editor.*` (T6) and
-//! `file.import_flp` (T5).
+//! (T3), `record.*` and `midi.*` (T8), `slicer.*` (T1, T6), `editor.*` (T6).
 //!
 //! Their names, scopes and parameter schemas are fixed here so agents, the coverage guard
 //! and the parallel tracks agree on them; each returns `CmdError::Unavailable` naming its
@@ -249,17 +248,6 @@ pub fn register(r: &mut Registry) {
         "the audio editor",
         "T6"
     );
-    // ---- FL Studio projects (M2/T5)
-    stub!(
-        r,
-        "file.import_flp",
-        "Open an FL Studio project (.flp) as a new Patternhaus project, with an import report.",
-        Scope::Full,
-        DESTRUCTIVE,
-        ImportFlp,
-        "FLP import",
-        "T5"
-    );
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -458,11 +446,4 @@ struct EditorApply {
     /// Gain in dB for `gain`, target peak in dBFS for `normalize`.
     #[serde(default)]
     amount: Option<f64>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct ImportFlp {
-    /// The .flp file. Agents may only name files inside the allowed folders.
-    path: String,
 }

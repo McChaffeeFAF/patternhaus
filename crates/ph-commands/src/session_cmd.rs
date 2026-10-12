@@ -6,7 +6,7 @@
 //! - `history.*` read and extend the session's history log;
 //! - `channel.solo` and `mixer.solo` change session-local view state (solo is not a model
 //!   field, so it has no patches);
-//! - `file.open` replaces the whole project and starts a new history.
+//! - `file.open` and `file.import_flp` replace the whole project and start a new history.
 //!
 //! They are registered in the [`Registry`] like every other command, with a params schema,
 //! a scope and the destructive flag, so listing, describing, scope checks and `confirm` all
@@ -29,6 +29,7 @@ const SESSION_COMMANDS: &[&str] = &[
     "channel.solo",
     "mixer.solo",
     "file.open",
+    "file.import_flp",
 ];
 
 /// Every session-handled command id (the registry must have an entry for each).
@@ -98,6 +99,7 @@ pub(crate) fn run(
         "channel.solo" => builtin::solo_channel(s, params),
         "mixer.solo" => builtin::solo_insert(s, params),
         "file.open" => builtin::open_project(s, host, &caller.author, params),
+        "file.import_flp" => builtin::import_flp_project(s, host, &caller.author, params),
         other => Err(CmdError::Other(format!("{other} is not a session command"))),
     }?;
     Ok(Executed {
