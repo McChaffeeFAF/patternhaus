@@ -10,11 +10,16 @@
 //!   project) are registered here like any other, so they have a schema and a scope, but the
 //!   session runs them; see `session_cmd`.
 
+mod audio;
+mod automation;
 #[cfg(test)]
 mod behaviour;
 mod channel;
 mod file;
 pub(crate) mod history;
+#[cfg(test)]
+mod m2_behaviour;
+mod m2_stubs;
 mod mixer;
 mod note;
 mod pattern;
@@ -49,4 +54,7 @@ pub fn register_builtin(r: &mut Registry) {
     history::register(r);
     query::register(r);
     sample::register(r);
+    audio::register(r);
+    automation::register(r);
+    m2_stubs::register(r);
 }

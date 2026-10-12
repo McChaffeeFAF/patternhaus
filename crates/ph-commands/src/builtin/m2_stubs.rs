@@ -1,0 +1,468 @@
+//! M2 command families whose implementation needs devices, DSP or plugin SDKs: `plugin.*`
+//! (T3), `record.*` and `midi.*` (T8), `slicer.*` (T1, T6), `editor.*` (T6) and
+//! `file.import_flp` (T5).
+//!
+//! Their names, scopes and parameter schemas are fixed here so agents, the coverage guard
+//! and the parallel tracks agree on them; each returns `CmdError::Unavailable` naming its
+//! track until that track replaces the stub with the real handler (same id, same params).
+
+#![allow(dead_code)] // the parameters are read by the tracks that replace these stubs
+
+use super::util::*;
+use crate::*;
+use ph_core::*;
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+macro_rules! stub {
+    ($r:ident, $id:literal, $summary:literal, $scope:expr, $flags:expr, $params:ty, $feature:literal, $track:literal) => {{
+        fn handler(_: &mut CommandCtx<'_>, _: $params) -> CmdResult<CommandOutput> {
+            unavailable($id, $feature, $track)
+        }
+        $r.register(typed($id, $summary, $scope, $flags, handler));
+    }};
+}
+
+pub fn register(r: &mut Registry) {
+    // ---- plugins (M2/T3)
+    stub!(
+        r,
+        "plugin.scan",
+        "Scan plugin folders for CLAP and VST3 plugins and update the plugin list.",
+        Scope::Full,
+        READ,
+        Scan,
+        "plugin hosting",
+        "T3"
+    );
+    stub!(
+        r,
+        "plugin.list",
+        "List scanned plugins with their format, kind and status (ok, isolate, blocked).",
+        Scope::Read,
+        READ,
+        NoParams,
+        "plugin hosting",
+        "T3"
+    );
+    stub!(
+        r,
+        "plugin.add_instrument",
+        "Add a channel playing a plugin instrument.",
+        Scope::Full,
+        MUTATES,
+        AddInstrument,
+        "plugin hosting",
+        "T3"
+    );
+    stub!(
+        r,
+        "plugin.add_effect",
+        "Add a plugin effect to a mixer insert.",
+        Scope::Full,
+        MUTATES,
+        AddEffect,
+        "plugin hosting",
+        "T3"
+    );
+    stub!(
+        r,
+        "plugin.set_param",
+        "Set a plugin parameter by the plugin's own parameter id.",
+        Scope::Full,
+        MUTATES,
+        SetParam,
+        "plugin hosting",
+        "T3"
+    );
+    stub!(
+        r,
+        "plugin.open_editor",
+        "Open a plugin's own editor window.",
+        Scope::Full,
+        READ,
+        PluginRef,
+        "plugin hosting",
+        "T3"
+    );
+    stub!(
+        r,
+        "plugin.close_editor",
+        "Close a plugin's editor window.",
+        Scope::Full,
+        READ,
+        PluginRef,
+        "plugin hosting",
+        "T3"
+    );
+    // ---- recording (M2/T8)
+    stub!(
+        r,
+        "record.list_inputs",
+        "List the audio inputs that can be recorded, with their monitoring latency.",
+        Scope::Read,
+        READ,
+        NoParams,
+        "audio input recording",
+        "T8"
+    );
+    stub!(
+        r,
+        "record.arm",
+        "Arm an audio input to record onto a playlist track or into a Sampler channel.",
+        Scope::Compose,
+        READ,
+        Arm,
+        "audio input recording",
+        "T8"
+    );
+    stub!(
+        r,
+        "record.disarm",
+        "Disarm an audio input.",
+        Scope::Compose,
+        READ,
+        InputOnly,
+        "audio input recording",
+        "T8"
+    );
+    stub!(
+        r,
+        "record.set_monitor",
+        "Hear an armed input while recording, or stop hearing it.",
+        Scope::Compose,
+        READ,
+        Monitor,
+        "audio input recording",
+        "T8"
+    );
+    stub!(
+        r,
+        "record.start",
+        "Start recording every armed input (with count-in and punch range if given).",
+        Scope::Compose,
+        READ,
+        Start,
+        "audio input recording",
+        "T8"
+    );
+    stub!(
+        r,
+        "record.stop",
+        "Stop recording and add each take to the project as an audio clip.",
+        Scope::Compose,
+        MUTATES,
+        NoParams,
+        "audio input recording",
+        "T8"
+    );
+    // ---- MIDI controllers (M2/T8)
+    stub!(
+        r,
+        "midi.list_inputs",
+        "List MIDI input devices.",
+        Scope::Read,
+        READ,
+        NoParams,
+        "MIDI input",
+        "T8"
+    );
+    stub!(
+        r,
+        "midi.learn",
+        "Map the next controller moved on a MIDI device to a parameter.",
+        Scope::Full,
+        READ,
+        Learn,
+        "MIDI learn",
+        "T8"
+    );
+    stub!(
+        r,
+        "midi.map",
+        "Map a MIDI controller (CC) to a parameter (saved per user).",
+        Scope::Full,
+        READ,
+        Map,
+        "MIDI learn",
+        "T8"
+    );
+    stub!(
+        r,
+        "midi.unmap",
+        "Remove a MIDI controller mapping.",
+        Scope::Full,
+        READ,
+        Unmap,
+        "MIDI learn",
+        "T8"
+    );
+    stub!(
+        r,
+        "midi.list_mappings",
+        "List the MIDI controller mappings.",
+        Scope::Read,
+        READ,
+        NoParams,
+        "MIDI learn",
+        "T8"
+    );
+    // ---- slicer
+    stub!(
+        r,
+        "slicer.detect",
+        "Find the transients of a sample and return slice points.",
+        Scope::Compose,
+        READ,
+        Detect,
+        "transient detection",
+        "T1"
+    );
+    stub!(
+        r,
+        "slicer.make_instrument",
+        "Build a sliced Sampler channel from a sample, one slice per key, optionally with a pattern that replays the loop.",
+        Scope::Compose,
+        MUTATES,
+        MakeInstrument,
+        "the slicer",
+        "T6"
+    );
+    // ---- audio editor (M2/T6)
+    stub!(
+        r,
+        "editor.open",
+        "Open a sample in the audio editor.",
+        Scope::Compose,
+        READ,
+        EditorOpen,
+        "the audio editor",
+        "T6"
+    );
+    stub!(
+        r,
+        "editor.apply",
+        "Apply an edit to a sample; the result is a new file and registry entry, the original is never overwritten.",
+        Scope::Compose,
+        MUTATES,
+        EditorApply,
+        "the audio editor",
+        "T6"
+    );
+    // ---- FL Studio projects (M2/T5)
+    stub!(
+        r,
+        "file.import_flp",
+        "Open an FL Studio project (.flp) as a new Patternhaus project, with an import report.",
+        Scope::Full,
+        DESTRUCTIVE,
+        ImportFlp,
+        "FLP import",
+        "T5"
+    );
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Scan {
+    /// Folders or plugin files to scan; empty = the standard plugin folders.
+    #[serde(default)]
+    paths: Vec<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AddInstrument {
+    /// `clap` or `vst3`.
+    format: PluginFormat,
+    /// The plugin's id from plugin.list.
+    plugin: String,
+    /// Channel name; defaults to the plugin's name.
+    #[serde(default)]
+    name: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct AddEffect {
+    /// Mixer insert, 0 = master.
+    insert: u32,
+    /// `clap` or `vst3`.
+    format: PluginFormat,
+    /// The plugin's id from plugin.list.
+    plugin: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PluginRef {
+    /// A channel playing a plugin instrument; or give `insert` and `slot`.
+    #[serde(default)]
+    channel: Option<ChannelId>,
+    /// Mixer insert of a plugin effect.
+    #[serde(default)]
+    insert: Option<u32>,
+    /// Effect slot in that insert.
+    #[serde(default)]
+    slot: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SetParam {
+    /// A channel playing a plugin instrument; or give `insert` and `slot`.
+    #[serde(default)]
+    channel: Option<ChannelId>,
+    /// Mixer insert of a plugin effect.
+    #[serde(default)]
+    insert: Option<u32>,
+    /// Effect slot in that insert.
+    #[serde(default)]
+    slot: Option<u32>,
+    /// The plugin's own parameter id (see query.node_params).
+    param: String,
+    /// Plain value in the parameter's range.
+    value: f64,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct InputOnly {
+    /// Audio input id from record.list_inputs.
+    input: u32,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Arm {
+    /// Audio input id from record.list_inputs.
+    input: u32,
+    /// Record onto this playlist track as a new audio clip; or give `channel`.
+    #[serde(default)]
+    track: Option<u32>,
+    /// Record into this Sampler channel (replaces its sample).
+    #[serde(default)]
+    channel: Option<ChannelId>,
+    /// Hear the input while armed (default true).
+    #[serde(default)]
+    monitor: Option<bool>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Monitor {
+    /// Audio input id from record.list_inputs.
+    input: u32,
+    /// True to hear the input.
+    on: bool,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Start {
+    /// Bars of count-in before recording (default 0).
+    #[serde(default)]
+    count_in_bars: u32,
+    /// Punch range in ticks: record only inside it.
+    #[serde(default)]
+    punch: Option<(Tick, Tick)>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Learn {
+    /// The parameter to map (see automation.add_clip for the form).
+    target: ParamPath,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Map {
+    /// MIDI CC number 0..=127.
+    controller: u8,
+    /// The parameter it drives.
+    target: ParamPath,
+    /// Only this MIDI input device; omit for any.
+    #[serde(default)]
+    device: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Unmap {
+    /// MIDI CC number 0..=127.
+    controller: u8,
+    /// Only this MIDI input device's mapping; omit for any.
+    #[serde(default)]
+    device: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Detect {
+    /// Sample registry id.
+    sample: SampleId,
+    /// 0..=1, higher finds more transients (default 0.5).
+    #[serde(default)]
+    sensitivity: Option<f32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct MakeInstrument {
+    /// Sample registry id.
+    sample: SampleId,
+    /// Slice start points in frames of the file; omit to detect them.
+    #[serde(default)]
+    slices: Option<Vec<u64>>,
+    /// Also write a pattern that replays the original loop.
+    #[serde(default)]
+    write_pattern: bool,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct EditorOpen {
+    /// Sample registry id.
+    sample: SampleId,
+}
+
+/// An audio editor operation.
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum EditorOp {
+    Trim,
+    Cut,
+    Silence,
+    Normalize,
+    FadeIn,
+    FadeOut,
+    Reverse,
+    Gain,
+    Declick,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct EditorApply {
+    /// Sample registry id.
+    sample: SampleId,
+    /// trim, cut, silence, normalize, fade_in, fade_out, reverse, gain or declick.
+    operation: EditorOp,
+    /// Selection start in frames; omit for the whole file.
+    #[serde(default)]
+    start: Option<u64>,
+    /// Selection end in frames (exclusive); omit for the whole file.
+    #[serde(default)]
+    end: Option<u64>,
+    /// Gain in dB for `gain`, target peak in dBFS for `normalize`.
+    #[serde(default)]
+    amount: Option<f64>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ImportFlp {
+    /// The .flp file. Agents may only name files inside the allowed folders.
+    path: String,
+}

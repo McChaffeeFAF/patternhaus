@@ -188,3 +188,59 @@ fn points_of(p: &Project) -> Vec<(ClipId, PointId)> {
         .flat_map(|(c, a)| a.points.keys().map(move |p| (c, *p)))
         .collect()
 }
+
+/// The error of a command whose implementation is a later M2 track.
+pub fn unavailable<T>(command: &str, feature: &str, track: &str) -> CmdResult<T> {
+    Err(CmdError::Unavailable {
+        command: command.into(),
+        feature: feature.into(),
+        track: track.into(),
+    })
+}
+
+/// Seconds since the Unix epoch, for provenance.
+pub fn now_unix() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// The registry entry for asset reference `reference`: the existing one, or a new one whose
+/// format the host reads. `from` is the path it was imported from, if it was.
+pub fn register_sample(
+    ed: &mut Edit,
+    host: &dyn Host,
+    reference: &str,
+    from: Option<&str>,
+) -> CmdResult<SampleId> {
+    if let Some(e) = ed.project().sample_by_path(reference) {
+        return Ok(e.id);
+    }
+    let info = host.sample_info(reference)?;
+    let name = from
+        .and_then(|f| std::path::Path::new(f).file_name())
+        .or_else(|| std::path::Path::new(reference).file_name())
+        .map_or_else(
+            || reference.to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+    Ok(ed.add_sample(SampleEntry {
+        id: SampleId(0),
+        path: reference.into(),
+        name,
+        frames: info.frames,
+        sample_rate: info.sample_rate,
+        channels: info.channels,
+        bpm: None,
+        root_key: info.root_key,
+        analysis: SampleAnalysis::default(),
+        provenance: Provenance {
+            origin: match from {
+                Some(f) => Origin::Imported { from: f.into() },
+                None => Origin::Unknown,
+            },
+            at: now_unix(),
+        },
+    })?)
+}

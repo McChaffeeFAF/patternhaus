@@ -39,6 +39,14 @@ pub trait Host {
         Err(CmdError::Host("this host cannot import files".into()))
     }
 
+    /// Reads an audio file's format (M2: for the sample registry). `reference` is an asset
+    /// reference as the engine resolves it (`samples/<file>`, `factory:<path>`, an allowed
+    /// absolute path). Additive default: hosts that cannot read audio refuse.
+    fn sample_info(&self, reference: &str) -> CmdResult<SampleInfo> {
+        let _ = reference;
+        Err(CmdError::Host("this host cannot read audio files".into()))
+    }
+
     /// Ask the UI to show something (`ui.*` commands). Headless hosts may ignore it.
     fn ui(&mut self, request: UiRequest) -> CmdResult<()>;
 
@@ -49,6 +57,16 @@ pub trait Host {
     fn set_project_dir(&mut self, dir: &std::path::Path) {
         let _ = dir;
     }
+}
+
+/// An audio file's format, from [`Host::sample_info`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SampleInfo {
+    pub frames: u64,
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// Root key stored in the file (WAV `smpl`), if any.
+    pub root_key: Option<u8>,
 }
 
 /// What [`Host::import_file`] brings into the project folder.

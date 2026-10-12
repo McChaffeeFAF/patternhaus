@@ -1,5 +1,7 @@
 //! Property tests for per-author undo (AGENTS.md: property tests for anything history- or
-//! merge-related). Two authors make random interleaved edits through real commands.
+//! merge-related). Two authors make random interleaved edits through real commands, over
+//! M1 objects and the M2 ones: audio clips, automation clips and points, and the sample
+//! registry (seeded with two samples, since the null host cannot import).
 
 use crate::*;
 use ph_core::*;
@@ -22,7 +24,7 @@ struct Op {
 fn op() -> impl Strategy<Value = Op> {
     (
         any::<bool>(),
-        0u8..17,
+        0u8..30,
         any::<u16>(),
         any::<u16>(),
         any::<u16>(),
@@ -45,8 +47,24 @@ struct Rig {
 
 impl Rig {
     fn new() -> Self {
+        let mut ed = Edit::new(&Project::empty("p"));
+        for name in ["loop", "vox"] {
+            ed.add_sample(SampleEntry {
+                id: SampleId(0),
+                path: format!("samples/{name}.wav"),
+                name: format!("{name}.wav"),
+                frames: 96_000,
+                sample_rate: 48_000,
+                channels: 2,
+                bpm: None,
+                root_key: None,
+                analysis: Default::default(),
+                provenance: Default::default(),
+            })
+            .unwrap();
+        }
         Self {
-            s: Session::new(Arc::new(Registry::with_builtins()), Project::empty("p")),
+            s: Session::new(Arc::new(Registry::with_builtins()), ed.finish().0),
             h: NullHost::default(),
             human: Caller::human(),
             agent: Caller::agent("claude", Grant::full()),
@@ -63,6 +81,29 @@ impl Rig {
 
     fn patterns(&self) -> Vec<u32> {
         self.s.project().pattern_order.iter().map(|c| c.0).collect()
+    }
+
+    fn clips(&self, kind: &str) -> Vec<u32> {
+        let p = self.s.project();
+        p.clips
+            .values()
+            .filter(|c| kind.is_empty() || c.kind_name() == kind)
+            .map(|c| c.id.0)
+            .collect()
+    }
+
+    fn samples(&self) -> Vec<u32> {
+        self.s.project().samples.keys().map(|s| s.0).collect()
+    }
+
+    fn all_points(&self) -> Vec<(u32, u32)> {
+        let mut v = Vec::new();
+        for c in self.s.project().clips.values() {
+            if let Some(a) = c.automation() {
+                v.extend(a.points.keys().map(|p| (c.id.0, p.0)));
+            }
+        }
+        v
     }
 
     fn all_notes(&self) -> Vec<(u32, u32, u32)> {
@@ -169,8 +210,111 @@ impl Rig {
                 Some(p) => ("pattern.move", json!({ "pattern": p, "index": op.b % 4 })),
                 None => return,
             },
-            _ => match Self::pick(&self.patterns(), op.a) {
+            16 => match Self::pick(&self.patterns(), op.a) {
                 Some(p) => ("pattern.remove", json!({ "pattern": p })),
+                None => return,
+            },
+            // ---- M2 objects
+            17 => match Self::pick(&self.samples(), op.a) {
+                Some(s) => (
+                    "audio.add_clip",
+                    json!({ "track": op.b % 4, "sample": s, "start": (op.c % 8) as u64 * 960,
+                            "length": 960 + (op.a % 4) as u64 * 960 }),
+                ),
+                None => return,
+            },
+            18 => match Self::pick(&self.clips("audio"), op.a) {
+                Some(c) => (
+                    "audio.set_fade",
+                    json!({ "clip": c, "fade_in": { "length": (op.b % 4) as u64 * 60 },
+                            "fade_out": { "length": (op.c % 4) as u64 * 60, "curve": "exp" } }),
+                ),
+                None => return,
+            },
+            19 => match Self::pick(&self.clips("audio"), op.a) {
+                Some(c) => (
+                    "audio.set_gain",
+                    json!({ "clip": c, "gain_db": (op.b % 25) as f32 - 12.0 }),
+                ),
+                None => return,
+            },
+            20 => (
+                "automation.add_clip",
+                json!({ "target": if op.a.is_multiple_of(2) { "tempo" } else { "insert/1/volume" },
+                        "track": op.b % 4, "start": (op.c % 8) as u64 * 960, "length": 3840,
+                        "points": [{ "tick": 0, "value": if op.a.is_multiple_of(2) { 120.0 } else { 0.5 } }] }),
+            ),
+            21 => match Self::pick(&self.clips("automation"), op.a) {
+                Some(c) => {
+                    let tempo = self
+                        .s
+                        .project()
+                        .clip(ClipId(c))
+                        .unwrap()
+                        .automation()
+                        .unwrap()
+                        .target
+                        == ParamPath::Tempo;
+                    let v = (op.c % 101) as f64 / 100.0;
+                    (
+                        "automation.add_point",
+                        json!({ "clip": c, "tick": (op.b % 16) as u64 * 240,
+                                "value": if tempo { 60.0 + 100.0 * v } else { v } }),
+                    )
+                }
+                None => return,
+            },
+            22 => match Self::pick(&self.all_points(), op.a) {
+                Some((c, p)) => (
+                    "automation.move_point",
+                    json!({ "clip": c, "point": p, "tick": (op.b % 16) as u64 * 240 }),
+                ),
+                None => return,
+            },
+            23 => match Self::pick(&self.all_points(), op.a) {
+                Some((c, p)) => (
+                    "automation.set_curve",
+                    json!({ "clip": c, "point": p,
+                            "curve": (["linear", "hold", "smooth", "s_curve"][op.b as usize % 4]),
+                            "tension": (op.c % 21) as f32 / 10.0 - 1.0 }),
+                ),
+                None => return,
+            },
+            24 => match Self::pick(&self.all_points(), op.a) {
+                Some((c, p)) => (
+                    "automation.remove_points",
+                    json!({ "clip": c, "points": [p] }),
+                ),
+                None => return,
+            },
+            25 => match Self::pick(&self.clips(""), op.a) {
+                Some(c) => ("playlist.remove_clip", json!({ "clip": c })),
+                None => return,
+            },
+            26 => match Self::pick(&self.samples(), op.a) {
+                Some(s) => (
+                    "sample.set_bpm",
+                    json!({ "sample": s, "bpm": if op.b.is_multiple_of(3) { None } else { Some(60 + op.b % 120) } }),
+                ),
+                None => return,
+            },
+            27 => match Self::pick(&self.clips(""), op.a) {
+                Some(c) => (
+                    "playlist.move_clip",
+                    json!({ "clip": c, "start": (op.b % 8) as u64 * 960, "track": op.c % 4 }),
+                ),
+                None => return,
+            },
+            28 => match Self::pick(&self.clips("audio"), op.a) {
+                Some(c) => (
+                    "audio.set_stretch",
+                    json!({ "clip": c, "mode": (["resample", "stretch", "slice"][op.b as usize % 3]),
+                            "tempo_sync": op.c.is_multiple_of(2) }),
+                ),
+                None => return,
+            },
+            _ => match Self::pick(&self.samples(), op.a) {
+                Some(s) => ("sample.remove", json!({ "sample": s })),
                 None => return,
             },
         };
@@ -179,22 +323,45 @@ impl Rig {
     }
 }
 
-/// Who last changed each top-level field of each object, from the history so far. A pseudo
-/// field `<exists>` tracks creation and deletion.
+/// Who last changed each field of each object, from the history so far. Nested objects are
+/// followed down to their leaves (JSON pointers such as `/fade_out/curve`), the same
+/// granularity as the undo merge; arrays and scalars are leaves. A pseudo field `<exists>`
+/// tracks creation and deletion.
 fn last_writers(history: &[HistoryEntry]) -> BTreeMap<(ObjectPath, String), Author> {
+    fn diff(ptr: &str, b: &Value, a: &Value, out: &mut Vec<String>) {
+        match (b, a) {
+            (Value::Object(b), Value::Object(a)) => {
+                for k in b.keys().chain(a.keys()) {
+                    let (vb, va) = (b.get(k), a.get(k));
+                    let p = format!("{ptr}/{k}");
+                    match (vb, va) {
+                        (Some(x), Some(y)) => diff(&p, x, y, out),
+                        _ if vb != va => out.push(p),
+                        _ => {}
+                    }
+                }
+            }
+            _ if b != a => out.push(ptr.to_string()),
+            _ => {}
+        }
+    }
     let mut last = BTreeMap::new();
     for e in history {
         for p in e.patches.iter() {
             match (&p.before, &p.after) {
-                (Some(Value::Object(b)), Some(Value::Object(a))) => {
-                    for k in b.keys().chain(a.keys()) {
-                        if b.get(k) != a.get(k) {
-                            last.insert((p.path, k.clone()), e.author.clone());
-                        }
+                (Some(b), Some(a)) => {
+                    let mut changed = Vec::new();
+                    diff("", b, a, &mut changed);
+                    for k in changed {
+                        // a write supersedes earlier writes to the same region: its
+                        // ancestors and descendants
+                        last.retain(|(path, key): &(ObjectPath, String), _| {
+                            *path != p.path
+                                || !(key.starts_with(&format!("{k}/"))
+                                    || k.starts_with(&format!("{key}/")))
+                        });
+                        last.insert((p.path, k), e.author.clone());
                     }
-                }
-                (Some(b), Some(a)) if b != a => {
-                    last.insert((p.path, String::new()), e.author.clone());
                 }
                 _ => {
                     if p.before.is_some() != p.after.is_some() {
@@ -210,8 +377,7 @@ fn last_writers(history: &[HistoryEntry]) -> BTreeMap<(ObjectPath, String), Auth
 fn field(v: &Option<Value>, key: &str) -> Option<Value> {
     match key {
         "<exists>" => Some(Value::Bool(v.is_some())),
-        "" => v.clone(),
-        k => v.as_ref().and_then(|v| v.get(k)).cloned(),
+        k => v.as_ref().and_then(|v| v.pointer(k)).cloned(),
     }
 }
 
@@ -271,6 +437,12 @@ proptest! {
                         .after
                         .as_ref()
                         .is_some_and(|v| v["pattern"] == json!(x.0)),
+                    // M2: a point keeps its automation clip alive, an audio clip its sample
+                    (ObjectPath::Clip(x), ObjectPath::Point(c, _)) => x == c,
+                    (ObjectPath::Sample(x), ObjectPath::Clip(_)) => p
+                        .after
+                        .as_ref()
+                        .is_some_and(|v| v["kind"] == "audio" && v["sample"] == json!(x.0)),
                     _ => false,
                 })
             })
@@ -291,6 +463,14 @@ proptest! {
         prop_assert!(after.channels.keys().all(|c| listed.contains(c)) && listed.len() == after.channels.len());
         let listed: std::collections::BTreeSet<_> = after.pattern_order.iter().collect();
         prop_assert!(after.patterns.keys().all(|c| listed.contains(c)) && listed.len() == after.patterns.len());
+
+        // M2 invariants: audio clips play registered samples; points sit in automation
+        // clips (the model enforces both; this checks undo never bypasses it).
+        for c in after.clips.values() {
+            if let Some(a) = c.audio() {
+                prop_assert!(after.samples.contains_key(&a.sample), "clip {} lost its sample", c.id);
+            }
+        }
 
         // 3. Anything the human put in an order list is still there.
         for (order_path, ids) in [

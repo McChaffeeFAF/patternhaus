@@ -120,6 +120,13 @@ pub enum CmdError {
     UndoConflict(Vec<UndoConflict>),
     #[error("{0}")]
     Host(String),
+    /// The command's contract exists but its implementation is a later M2 track.
+    #[error("{command} is not available until M2/{track} ({feature})")]
+    Unavailable {
+        command: String,
+        feature: String,
+        track: String,
+    },
     #[error("{0}")]
     Other(String),
 }

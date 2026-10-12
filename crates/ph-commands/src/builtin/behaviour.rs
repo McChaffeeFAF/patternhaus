@@ -1446,7 +1446,12 @@ fn undo_modes_through_commands() {
 
 #[test]
 fn every_command_has_a_behaviour_test() {
-    let sources = [include_str!("behaviour.rs"), include_str!("tests.rs")].join("\n");
+    let sources = [
+        include_str!("behaviour.rs"),
+        include_str!("tests.rs"),
+        include_str!("m2_behaviour.rs"),
+    ]
+    .join("\n");
     let untested: Vec<_> = Registry::with_builtins()
         .list("")
         .iter()
