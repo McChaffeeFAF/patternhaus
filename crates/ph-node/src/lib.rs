@@ -11,8 +11,33 @@
 //! allocate, free, lock, block, do I/O, or panic. Everything that needs memory happens in
 //! [`Processor::activate`] (called off the audio thread). Debug and CI builds run the engine
 //! under `assert_no_alloc` to enforce this.
+//!
+//! # Events (contract, M2/T0)
+//!
+//! Events arrive in [`ProcessIo::events`], sorted by frame; at one frame the engine orders
+//! them `AllNotesOff`, `NoteOff`, `Cc`/`PitchBend`, `NoteOn`, `Param`, `NoteExpression`, so a
+//! bend or controller sent with a note applies before it starts and an expression applies to
+//! the note it names. Handling an event is real-time code: no allocation, locks or panics.
+//! A processor ignores event kinds it has no use for.
+//!
+//! Units: velocities and controller values are normalised 0..=1, pitch bend -1..=1, fine
+//! pitch in cents, note-expression units per [`NoteExpressionKind`].
+//!
+//! # Parameter automation (contract, M2/T0)
+//!
+//! Automation reaches a processor only as [`EventKind::Param`] events with plain values (the
+//! parameter's own unit, clamped by the processor). The engine sends one at every
+//! automation point and at least every [`AUTOMATION_INTERVAL`] frames between points, each
+//! carrying the exact curve value at its frame; the processor smooths between them as it
+//! does for any parameter change. There is no separate ramp event: every processor already
+//! handles `Param`, and a 32-frame staircase under the processor's own smoothing is
+//! inaudible.
 
 use serde::{Deserialize, Serialize};
+
+/// Longest gap, in frames, between two `Param` events the engine sends for an automated
+/// parameter (see the crate docs).
+pub const AUTOMATION_INTERVAL: u32 = 32;
 
 /// Index into a processor's parameter list (position in [`NodeDescriptor::params`]).
 /// Real-time code uses this; saved projects and agents use [`ParamInfo::id`].
@@ -152,6 +177,40 @@ pub enum EventKind {
     AllNotesOff,
     /// Sample-accurate parameter change. The processor smooths if it needs to.
     Param { id: ParamId, value: f64 },
+    /// A MIDI-style controller change (M2). `controller` is the MIDI CC number 0..=127
+    /// (1 = mod wheel, 64 = sustain pedal, ...); `value` is normalised 0.0..=1.0 (the MIDI
+    /// value / 127; 14-bit pairs are combined by the sender).
+    Cc { controller: u8, value: f32 },
+    /// Channel pitch bend (M2), normalised -1.0..=1.0 (MIDI: `(v - 8192) / 8192`, clamped).
+    /// The range in semitones is the instrument's own (Haus Synth: `bend_range`).
+    PitchBend { value: f32 },
+    /// Per-note expression (M2, CLAP note expressions) for the voice its `NoteOn` started
+    /// with `note_id`. Unknown or finished ids are ignored. Absolute, not cumulative: each
+    /// event sets the current value of `kind` for that note.
+    NoteExpression {
+        note_id: u32,
+        kind: NoteExpressionKind,
+        value: f32,
+    },
+}
+
+/// What a [`EventKind::NoteExpression`] changes, and its unit.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteExpressionKind {
+    /// Linear gain 0.0..=4.0; 1.0 = unchanged.
+    Volume,
+    /// -1.0 (left) ..= 1.0 (right), added to the note's own pan. (CLAP uses 0..1; a CLAP
+    /// host adapter converts.)
+    Pan,
+    /// Relative tuning in semitones, -120.0..=120.0.
+    Tuning,
+    /// 0.0..=1.0.
+    Vibrato,
+    /// 0.0..=1.0 (MPE timbre, CC 74).
+    Brightness,
+    /// 0.0..=1.0 (polyphonic aftertouch).
+    Pressure,
 }
 
 /// Audio buffers for one block. Channel slices are exactly `ProcessContext::frames` long.
@@ -208,7 +267,10 @@ pub trait Processor: Send {
         Vec::new()
     }
 
-    fn load_state(&mut self, _state: &[u8]) -> Result<(), String> {
+    /// Restores [`Processor::save_state`] output. Off the audio thread. `assets` resolves
+    /// any sample references the state names (M2: every implementor gets the resolver, so a
+    /// state can switch samples, not only confirm the current one).
+    fn load_state(&mut self, _state: &[u8], _assets: &dyn AssetResolver) -> Result<(), String> {
         Ok(())
     }
 }

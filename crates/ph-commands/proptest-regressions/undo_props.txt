@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 013a2ccf58347f4dcfda0d03bb546b6e069ad4c4b0593d9501f5d86e17a6459d # shrinks to ops = [Op { agent: false, kind: 17, a: 0, b: 0, c: 0 }, Op { agent: true, kind: 18, a: 0, b: 0, c: 20 }, Op { agent: false, kind: 18, a: 0, b: 0, c: 205 }]
+cc a4727a7804e682783ab1c26f1704ab3c40551f2881cbe72bf8b62294b77e581f # shrinks to ops = [Op { agent: false, kind: 26, a: 2952, b: 3631, c: 0 }, Op { agent: true, kind: 26, a: 33686, b: 1267, c: 0 }]

@@ -28,12 +28,18 @@ pub struct Project {
     /// Positional playlist track headers. Fixed length ([`PLAYLIST_TRACKS`]).
     pub tracks: Arc<Vec<PlaylistTrack>>,
     pub clips: Arc<BTreeMap<ClipId, Clip>>,
+    /// The sample registry (M2): every audio file audio clips can play, with its metadata.
+    /// Absent in format 1 files; omitted when empty.
+    #[serde(default, skip_serializing_if = "is_empty_map")]
+    pub samples: Arc<BTreeMap<SampleId, SampleEntry>>,
     /// Next free ids. Ids are never reused, so references held by agents stay unambiguous.
     /// Not part of undo: undoing a creation does not free its id.
     pub next_ids: NextIds,
 }
 
-pub const FORMAT_VERSION: u32 = 1;
+/// Version 2 (M2) adds audio and automation clips, the sample registry and automation
+/// points; every addition has a serde default, so the 1 → 2 migration only bumps the number.
+pub const FORMAT_VERSION: u32 = 2;
 pub const MIXER_INSERTS: usize = 32;
 pub const PLAYLIST_TRACKS: usize = 64;
 
@@ -53,6 +59,20 @@ pub struct NextIds {
     pub pattern: u32,
     pub clip: u32,
     pub note: u32,
+    /// Added in format 2 (absent = 0, omitted while 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sample: u32,
+    /// Added in format 2 (absent = 0, omitted while 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub point: u32,
+}
+
+fn is_zero(v: &u32) -> bool {
+    *v == 0
+}
+
+fn is_empty_map<K, V>(m: &Arc<BTreeMap<K, V>>) -> bool {
+    m.is_empty()
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -97,12 +117,20 @@ pub enum InstrumentSpec {
         #[serde(default)]
         params: BTreeMap<String, f64>,
     },
-    /// External plugin (M2). `state` is the plugin's opaque state, base64-encoded.
+    /// External plugin (M2, `ph-plugin-host`).
     Plugin {
         format: PluginFormat,
         /// CLAP id or VST3 class id.
         plugin_id: String,
+        /// The plugin's saved state: a project-relative file reference, `plugins/<file>`
+        /// (DESIGN §10: large opaque blobs live next to `project.json`, not in it).
+        /// `None` = the plugin's defaults. (M1 could not host plugins, so no saved project
+        /// holds another form.)
         state: Option<String>,
+        /// Parameter values by the plugin's own parameter id (as text), applied after the
+        /// state. Added in format 2; omitted when empty.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        params: BTreeMap<String, f64>,
     },
 }
 
@@ -204,10 +232,14 @@ pub enum EffectSpec {
         #[serde(default)]
         params: BTreeMap<String, f64>,
     },
+    /// External plugin effect (M2). `state` and `params` as for
+    /// [`InstrumentSpec::Plugin`].
     Plugin {
         format: PluginFormat,
         plugin_id: String,
         state: Option<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        params: BTreeMap<String, f64>,
     },
 }
 
@@ -218,16 +250,146 @@ pub struct PlaylistTrack {
     pub muted: bool,
 }
 
+/// A playlist clip: a pattern, audio or automation clip placed on a track.
+///
+/// `ObjectPath::Clip` covers every kind. Saved form: the [`ClipKind`] fields sit between
+/// `track` and `start`; a pattern clip has exactly its format 1 fields (no `kind` key), the
+/// others carry `"kind": "audio"` or `"kind": "automation"` and their fields.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Clip {
     pub id: ClipId,
     /// Playlist track index.
     pub track: u32,
-    pub pattern: PatternId,
+    #[serde(flatten)]
+    pub kind: ClipKind,
+    /// Song position of the clip's left edge, in ticks.
     pub start: Tick,
+    /// In ticks, > 0.
     pub length: Tick,
-    /// Offset into the pattern where the clip begins playing.
+    /// Where in its source the clip begins playing, in ticks: into the pattern (pattern
+    /// clips) or into the point timeline (automation clips). Always 0 for audio clips,
+    /// whose source position is [`AudioClip::source_offset`], in frames.
     pub offset: Tick,
+}
+
+/// What a clip plays.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClipKind {
+    /// A pattern: the format 1 clip, and the kind assumed when `kind` is absent.
+    Pattern {
+        pattern: PatternId,
+    },
+    Audio(AudioClip),
+    Automation(AutomationClip),
+}
+
+impl Clip {
+    /// The pattern, for a pattern clip.
+    pub fn pattern(&self) -> Option<PatternId> {
+        match self.kind {
+            ClipKind::Pattern { pattern } => Some(pattern),
+            _ => None,
+        }
+    }
+
+    pub fn audio(&self) -> Option<&AudioClip> {
+        match &self.kind {
+            ClipKind::Audio(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    pub fn automation(&self) -> Option<&AutomationClip> {
+        match &self.kind {
+            ClipKind::Automation(a) => Some(a),
+            _ => None,
+        }
+    }
+
+    /// `pattern`, `audio` or `automation`.
+    pub fn kind_name(&self) -> &'static str {
+        match self.kind {
+            ClipKind::Pattern { .. } => "pattern",
+            ClipKind::Audio(_) => "audio",
+            ClipKind::Automation(_) => "automation",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct PatternRef {
+    pattern: PatternId,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum TaggedRef<'a> {
+    Audio(&'a AudioClip),
+    Automation(&'a AutomationClip),
+}
+
+/// Schema only: deserialising goes through `serde_json::Value` (see below), because an
+/// internally tagged enum would buffer the points map and lose its integer keys.
+#[derive(JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[allow(dead_code)]
+enum Tagged {
+    Audio(AudioClip),
+    Automation(AutomationClip),
+}
+
+impl Serialize for ClipKind {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ClipKind::Pattern { pattern } => PatternRef { pattern: *pattern }.serialize(s),
+            ClipKind::Audio(a) => TaggedRef::Audio(a).serialize(s),
+            ClipKind::Automation(a) => TaggedRef::Automation(a).serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ClipKind {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        use serde_json::Value;
+        let mut map = serde_json::Map::<String, Value>::deserialize(d)?;
+        let pattern = match map.get("kind") {
+            None => true,
+            Some(k) => k.as_str() == Some("pattern"),
+        };
+        if pattern {
+            map.remove("kind");
+            let r: PatternRef =
+                serde_json::from_value(Value::Object(map)).map_err(D::Error::custom)?;
+            return Ok(ClipKind::Pattern { pattern: r.pattern });
+        }
+        let kind = map.remove("kind");
+        let value = Value::Object(map);
+        match kind.as_ref().and_then(Value::as_str) {
+            Some("audio") => serde_json::from_value(value).map(ClipKind::Audio),
+            Some("automation") => serde_json::from_value(value).map(ClipKind::Automation),
+            _ => {
+                return Err(D::Error::custom(format!(
+                    "unknown clip kind {}, expected pattern, audio or automation",
+                    kind.unwrap_or_default()
+                )));
+            }
+        }
+        .map_err(D::Error::custom)
+    }
+}
+
+impl JsonSchema for ClipKind {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "ClipKind".into()
+    }
+
+    fn json_schema(g: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let pattern = g.subschema_for::<PatternRef>();
+        let tagged = g.subschema_for::<Tagged>();
+        schemars::json_schema!({ "anyOf": [pattern, tagged] })
+    }
 }
 
 const DEFAULT_COLORS: [Color; 8] = [
@@ -288,6 +450,7 @@ impl Project {
             mixer: Arc::new(mixer),
             tracks: Arc::new(tracks),
             clips: Default::default(),
+            samples: Default::default(),
             next_ids: NextIds::default(),
         }
     }
@@ -311,6 +474,39 @@ impl Project {
 
     pub fn clip(&self, id: ClipId) -> ModelResult<&Clip> {
         self.clips.get(&id).ok_or(ModelError::NoClip(id))
+    }
+
+    pub fn sample(&self, id: SampleId) -> ModelResult<&SampleEntry> {
+        self.samples.get(&id).ok_or(ModelError::NoSample(id))
+    }
+
+    /// The registry entry for an asset reference, if registered.
+    pub fn sample_by_path(&self, path: &str) -> Option<&SampleEntry> {
+        self.samples.values().find(|e| e.path == path)
+    }
+
+    /// An automation point.
+    pub fn point(&self, clip: ClipId, id: PointId) -> ModelResult<&AutomationPoint> {
+        self.clip(clip)?
+            .automation()
+            .ok_or_else(|| ModelError::Invalid(format!("clip {clip} is not an automation clip")))?
+            .points
+            .get(&id)
+            .ok_or(ModelError::NoPoint(id))
+    }
+
+    /// What a clip plays, for labels and summaries: the pattern's name, the sample's name,
+    /// or `automation of <target>`.
+    pub fn clip_label(&self, clip: &Clip) -> String {
+        match &clip.kind {
+            ClipKind::Pattern { pattern } => self
+                .pattern(*pattern)
+                .map_or_else(|_| format!("pattern {pattern}"), |x| x.name.clone()),
+            ClipKind::Audio(a) => self
+                .sample(a.sample)
+                .map_or_else(|_| format!("sample {}", a.sample), |e| e.name.clone()),
+            ClipKind::Automation(a) => format!("automation of {}", a.target),
+        }
     }
 
     /// Channels in rack order.

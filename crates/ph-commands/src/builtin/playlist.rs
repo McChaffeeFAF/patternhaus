@@ -104,8 +104,7 @@ struct ClipOnly {
 }
 
 fn remove_clip(ctx: &mut CommandCtx<'_>, p: ClipOnly) -> CmdResult<CommandOutput> {
-    let pat = ctx.project.clip(p.clip)?.pattern;
-    let name = ctx.project.pattern(pat)?.name.clone();
+    let name = clip_label(ctx.project, ctx.project.clip(p.clip)?);
     let mut ed = Edit::new(ctx.project);
     ed.remove_clip(p.clip)?;
     Ok(CommandOutput::from_edit(

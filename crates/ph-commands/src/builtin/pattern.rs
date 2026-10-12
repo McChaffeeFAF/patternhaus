@@ -100,7 +100,7 @@ fn remove(ctx: &mut CommandCtx<'_>, p: PatternOnly) -> CmdResult<CommandOutput> 
         .project
         .clips
         .values()
-        .filter(|c| c.pattern == p.pattern)
+        .filter(|c| c.pattern() == Some(p.pattern))
         .count();
     let mut ed = Edit::new(ctx.project);
     ed.remove_pattern(p.pattern)?;

@@ -1161,6 +1161,16 @@ impl Processor for Synth {
                 EventKind::NoteOff { note_id, .. } => self.note_off(note_id),
                 EventKind::AllNotesOff => self.all_off(),
                 EventKind::Param { id, value } => self.set_param(id, value),
+                // M2: the mod wheel and the bend are real events; the params stay for old
+                // projects and automation.
+                EventKind::Cc {
+                    controller: 1,
+                    value,
+                } => self.set_param(ParamId(MOD_WHEEL as u32), value as f64),
+                EventKind::PitchBend { value } => {
+                    self.set_param(ParamId(PITCH_BEND as u32), value as f64)
+                }
+                EventKind::Cc { .. } | EventKind::NoteExpression { .. } => {}
             }
         }
         if pos < n {

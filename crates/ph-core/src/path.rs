@@ -8,7 +8,8 @@ use std::str::FromStr;
 /// and change events all speak in object paths.
 ///
 /// String form (what agents see): `settings`, `channel/3`, `channel_order`, `pattern/2`,
-/// `pattern_order`, `note/<pattern>/<channel>/<note>`, `insert/4`, `track/0`, `clip/7`.
+/// `pattern_order`, `note/<pattern>/<channel>/<note>`, `insert/4`, `track/0`, `clip/7`,
+/// `sample/2` and `point/<clip>/<point>` (format 2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ObjectPath {
     /// Value: [`ProjectSettings`]. Always present.
@@ -27,8 +28,12 @@ pub enum ObjectPath {
     Insert(InsertId),
     /// Value: [`PlaylistTrack`]. Always present (positional).
     Track(u32),
-    /// Value: [`Clip`].
+    /// Value: [`Clip`], of any kind. An automation clip's value never carries its points.
     Clip(ClipId),
+    /// Value: [`SampleEntry`] (the sample registry).
+    Sample(SampleId),
+    /// Value: [`AutomationPoint`] of an automation clip.
+    Point(ClipId, PointId),
 }
 
 impl ObjectPath {
@@ -62,6 +67,8 @@ impl fmt::Display for ObjectPath {
             ObjectPath::Insert(i) => write!(f, "insert/{i}"),
             ObjectPath::Track(t) => write!(f, "track/{t}"),
             ObjectPath::Clip(c) => write!(f, "clip/{c}"),
+            ObjectPath::Sample(s) => write!(f, "sample/{s}"),
+            ObjectPath::Point(c, p) => write!(f, "point/{c}/{p}"),
         }
     }
 }
@@ -87,6 +94,8 @@ impl FromStr for ObjectPath {
             ("insert", 2) => ObjectPath::Insert(InsertId(num(1)?)),
             ("track", 2) => ObjectPath::Track(num(1)?),
             ("clip", 2) => ObjectPath::Clip(ClipId(num(1)?)),
+            ("sample", 2) => ObjectPath::Sample(SampleId(num(1)?)),
+            ("point", 3) => ObjectPath::Point(ClipId(num(1)?), PointId(num(2)?)),
             _ => return Err(bad()),
         };
         Ok(path)
@@ -114,8 +123,8 @@ impl JsonSchema for ObjectPath {
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
             "type": "string",
-            "description": "Object path: settings | channel/<id> | channel_order | pattern/<id> | pattern_order | note/<pattern>/<channel>/<note> | insert/<n> | track/<n> | clip/<id>",
-            "pattern": "^(settings|channel_order|pattern_order|(channel|pattern|insert|track|clip)/\\d+|note/\\d+/\\d+/\\d+)$"
+            "description": "Object path: settings | channel/<id> | channel_order | pattern/<id> | pattern_order | note/<pattern>/<channel>/<note> | insert/<n> | track/<n> | clip/<id> | sample/<id> | point/<clip>/<point>",
+            "pattern": "^(settings|channel_order|pattern_order|(channel|pattern|insert|track|clip|sample)/\\d+|point/\\d+/\\d+|note/\\d+/\\d+/\\d+)$"
         })
     }
 }

@@ -36,6 +36,11 @@ pub fn channel_name(p: &Project, id: ChannelId) -> CmdResult<String> {
     Ok(p.channel(id)?.name.clone())
 }
 
+/// What a clip plays, for summaries (see [`Project::clip_label`]).
+pub fn clip_label(p: &Project, clip: &Clip) -> String {
+    p.clip_label(clip)
+}
+
 pub fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
@@ -87,9 +92,20 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
             }
         }
     }
+    for (cid, pid) in points_of(&cur) {
+        let path = ObjectPath::Point(cid, pid);
+        if get(target, path).is_none() {
+            ed.put(path, None)?;
+        }
+    }
     for id in cur.clips.keys() {
         if !target.clips.contains_key(id) {
             ed.put(ObjectPath::Clip(*id), None)?;
+        }
+    }
+    for id in cur.samples.keys() {
+        if !target.samples.contains_key(id) {
+            ed.put(ObjectPath::Sample(*id), None)?;
         }
     }
     let keep_c: Vec<ChannelId> = cur
@@ -149,9 +165,82 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
             }
         }
     }
+    for id in target.samples.keys() {
+        let path = ObjectPath::Sample(*id);
+        ed.put(path, get(target, path))?;
+    }
     for id in target.clips.keys() {
         let path = ObjectPath::Clip(*id);
         ed.put(path, get(target, path))?;
     }
+    for (cid, pid) in points_of(target) {
+        let path = ObjectPath::Point(cid, pid);
+        ed.put(path, get(target, path))?;
+    }
     Ok(())
+}
+
+/// Every automation point, as (clip, point).
+fn points_of(p: &Project) -> Vec<(ClipId, PointId)> {
+    p.clips
+        .values()
+        .filter_map(|c| c.automation().map(|a| (c.id, a)))
+        .flat_map(|(c, a)| a.points.keys().map(move |p| (c, *p)))
+        .collect()
+}
+
+/// The error of a command whose implementation is a later M2 track.
+pub fn unavailable<T>(command: &str, feature: &str, track: &str) -> CmdResult<T> {
+    Err(CmdError::Unavailable {
+        command: command.into(),
+        feature: feature.into(),
+        track: track.into(),
+    })
+}
+
+/// Seconds since the Unix epoch, for provenance.
+pub fn now_unix() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// The registry entry for asset reference `reference`: the existing one, or a new one whose
+/// format the host reads. `from` is the path it was imported from, if it was.
+pub fn register_sample(
+    ed: &mut Edit,
+    host: &dyn Host,
+    reference: &str,
+    from: Option<&str>,
+) -> CmdResult<SampleId> {
+    if let Some(e) = ed.project().sample_by_path(reference) {
+        return Ok(e.id);
+    }
+    let info = host.sample_info(reference)?;
+    let name = from
+        .and_then(|f| std::path::Path::new(f).file_name())
+        .or_else(|| std::path::Path::new(reference).file_name())
+        .map_or_else(
+            || reference.to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+    Ok(ed.add_sample(SampleEntry {
+        id: SampleId(0),
+        path: reference.into(),
+        name,
+        frames: info.frames,
+        sample_rate: info.sample_rate,
+        channels: info.channels,
+        bpm: None,
+        root_key: info.root_key,
+        analysis: SampleAnalysis::default(),
+        provenance: Provenance {
+            origin: match from {
+                Some(f) => Origin::Imported { from: f.into() },
+                None => Origin::Unknown,
+            },
+            at: now_unix(),
+        },
+    })?)
 }

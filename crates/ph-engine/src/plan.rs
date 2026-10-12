@@ -977,10 +977,14 @@ pub(crate) fn compile(
         .map(|ch| {
             let mut v = Vec::new();
             for clip in &clips {
-                let Some(pat) = project.patterns.get(&clip.pattern) else {
+                // audio and automation clips are not note sources (M2/T1, T7)
+                let Some(pid) = clip.pattern() else {
                     continue;
                 };
-                let plen = pattern_len.get(&clip.pattern).copied().unwrap_or(0);
+                let Some(pat) = project.patterns.get(&pid) else {
+                    continue;
+                };
+                let plen = pattern_len.get(&pid).copied().unwrap_or(0);
                 let win_end = clip.start + clip.length;
                 for n in pat.notes.get(&ch.id).into_iter().flat_map(|m| m.values()) {
                     if n.muted

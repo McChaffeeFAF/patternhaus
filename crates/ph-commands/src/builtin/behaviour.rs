@@ -1224,7 +1224,7 @@ fn query_commands() {
     let q = |r: &mut Rig, c: &str, p: Value| r.run(c, p).result;
     let all = q(&mut r, "query.project", json!({}));
     assert_eq!(all["settings"]["title"], "Test");
-    assert_eq!(all["format_version"], 1);
+    assert_eq!(all["format_version"], FORMAT_VERSION);
     let chs = q(&mut r, "query.channels", json!({}));
     assert_eq!(chs["channels"][0]["name"], "Lead");
     let pats = q(&mut r, "query.patterns", json!({}));
@@ -1446,7 +1446,12 @@ fn undo_modes_through_commands() {
 
 #[test]
 fn every_command_has_a_behaviour_test() {
-    let sources = [include_str!("behaviour.rs"), include_str!("tests.rs")].join("\n");
+    let sources = [
+        include_str!("behaviour.rs"),
+        include_str!("tests.rs"),
+        include_str!("m2_behaviour.rs"),
+    ]
+    .join("\n");
     let untested: Vec<_> = Registry::with_builtins()
         .list("")
         .iter()

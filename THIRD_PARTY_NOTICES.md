@@ -10,7 +10,7 @@ the unmodified symphonia decoders. The bundled fonts are listed in the last sect
 
 ## Overview
 
-- MIT License (325 crates)
+- MIT License (326 crates)
 - Apache License 2.0 (16 crates)
 - Mozilla Public License 2.0 (10 crates)
 - BSD 3-Clause "New" or "Revised" License (4 crates)
@@ -5023,6 +5023,7 @@ Used by:
 - [ph-formats 0.1.0](https://github.com/McChaffeeFAF/patternhaus)
 - [ph-instruments 0.1.0](https://github.com/McChaffeeFAF/patternhaus)
 - [ph-node 0.1.0](https://github.com/McChaffeeFAF/patternhaus)
+- [ph-plugin-host 0.1.0](https://github.com/McChaffeeFAF/patternhaus)
 - [ph-ui 0.1.0](https://github.com/McChaffeeFAF/patternhaus)
 - [accesskit 0.24.1](https://github.com/AccessKit/accesskit)
 - [block2 0.5.1](https://github.com/madsmtm/objc2)

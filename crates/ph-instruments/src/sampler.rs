@@ -451,6 +451,9 @@ impl Processor for Sampler {
                 EventKind::NoteOff { note_id, .. } => self.note_off(note_id),
                 EventKind::AllNotesOff => self.all_off(),
                 EventKind::Param { id, value } => self.set_param(id, value),
+                EventKind::Cc { .. }
+                | EventKind::PitchBend { .. }
+                | EventKind::NoteExpression { .. } => {}
             }
         }
         if pos < n {
@@ -486,18 +489,24 @@ impl Processor for Sampler {
         self.reference.clone().unwrap_or_default().into_bytes()
     }
 
-    /// The sample itself comes from the project's `InstrumentSpec` (resolved in
-    /// [`crate::create`]); a saved state is accepted when it names the same sample.
-    fn load_state(&mut self, state: &[u8]) -> Result<(), String> {
+    /// The state is the sample reference. The same reference is a no-op; another one is
+    /// resolved through `assets` and replaces the sample (voices stop); an empty state
+    /// unloads it. On error the current sample is kept.
+    fn load_state(&mut self, state: &[u8], assets: &dyn AssetResolver) -> Result<(), String> {
         let r = std::str::from_utf8(state).map_err(|e| e.to_string())?;
-        if r.is_empty() || Some(r) == self.reference.as_deref() {
-            Ok(())
-        } else {
-            Err(format!(
-                "sampler state names `{r}`; change samples through the instrument spec \
-                 (load_state has no asset resolver)"
-            ))
+        if Some(r) == self.reference.as_deref() || (r.is_empty() && self.reference.is_none()) {
+            return Ok(());
         }
+        let sample = if r.is_empty() {
+            None
+        } else {
+            Some(assets.sample(r)?)
+        };
+        self.all_off();
+        self.sample = sample;
+        self.reference = (!r.is_empty()).then(|| r.to_string());
+        self.update_region();
+        Ok(())
     }
 }
 

@@ -17,7 +17,9 @@
 #![cfg_attr(loom, allow(dead_code))]
 
 pub mod assets;
+pub mod audio_clips;
 mod audition;
+pub mod automation;
 pub mod catalog;
 mod control;
 mod device;
@@ -26,6 +28,7 @@ mod loom_models;
 mod offline;
 mod plan;
 mod pool;
+pub mod record;
 mod rt;
 mod runtime;
 mod sched;
@@ -58,6 +61,12 @@ pub enum EngineError {
     Plan(String),
     #[error("asset error: {0}")]
     Asset(String),
+    /// A feature whose contract exists but whose implementation is a later M2 track.
+    #[error("{feature} is not available until M2/{track}")]
+    Unavailable {
+        feature: &'static str,
+        track: &'static str,
+    },
 }
 
 pub type EngineResult<T> = Result<T, EngineError>;
@@ -567,6 +576,39 @@ impl Engine {
     }
 
     /// Stops the audition with a short fade.
+    /// Audio inputs the device offers (M2/T8; empty until then).
+    pub fn inputs(&self) -> Vec<record::InputInfo> {
+        Vec::new()
+    }
+
+    /// Arms `input` to record into `target` (M2/T8).
+    pub fn arm(&self, input: record::InputId, target: record::RecordTarget) -> EngineResult<()> {
+        let _ = (input, target);
+        Err(record_unavailable())
+    }
+
+    /// Disarms `input`. A no-op for inputs that are not armed.
+    pub fn disarm(&self, input: record::InputId) {
+        let _ = input;
+    }
+
+    /// Hear an armed input through its target (M2/T8).
+    pub fn set_monitor(&self, input: record::InputId, on: bool) -> EngineResult<()> {
+        let _ = (input, on);
+        Err(record_unavailable())
+    }
+
+    /// Starts recording every armed input at the current position (M2/T8).
+    pub fn record_start(&self) -> EngineResult<()> {
+        Err(record_unavailable())
+    }
+
+    /// Stops recording and hands back one take per armed input (M2/T8). The caller writes
+    /// them to `samples/` and adds them to the project through commands.
+    pub fn record_stop(&self) -> EngineResult<Vec<record::RecordedTake>> {
+        Err(record_unavailable())
+    }
+
     pub fn stop_audition(&self) {
         let port = self.lock().audition.clone();
         port.post(Box::new(audition::Voice::silence()));
@@ -597,6 +639,13 @@ impl Engine {
         )?;
         *g = inner;
         Ok(())
+    }
+}
+
+fn record_unavailable() -> EngineError {
+    EngineError::Unavailable {
+        feature: "audio input recording",
+        track: "T8",
     }
 }
 
@@ -663,6 +712,20 @@ pub fn project_warnings(project: &Project, assets: &dyn AssetResolver) -> Vec<St
                 ));
             }
         }
+    }
+    // M2 objects whose playback arrives in later tracks
+    let tempo = tempo::TempoMap::constant(project.settings.bpm, 48_000);
+    let (plans, warnings) = audio_clips::plan_audio_clips(project, &tempo);
+    out.extend(warnings);
+    if !plans.is_empty() {
+        out.push(format!(
+            "{} audio clip(s) play silence until M2/T1 (audio clip playback)",
+            plans.len()
+        ));
+    }
+    let automation = automation::AutomationEvaluator::new(project);
+    if automation.targets().next().is_some() {
+        out.push("automation clips are not applied until M2/T7 (automation playback)".into());
     }
     out
 }

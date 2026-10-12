@@ -1,7 +1,7 @@
 //! The project folder: `project.json` plus `samples/`, `renders/` and `history/`.
 
 use crate::{FormatError, FormatResult};
-use ph_core::{FORMAT_VERSION, MIXER_INSERTS, PLAYLIST_TRACKS, Project};
+use ph_core::{ClipKind, FORMAT_VERSION, MIXER_INSERTS, PLAYLIST_TRACKS, Project};
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
@@ -91,10 +91,34 @@ pub fn read_history_log(dir: &Path) -> FormatResult<Vec<Value>> {
 /// One migration step: upgrades the JSON of version `n` to version `n + 1` in place.
 type Migration = fn(&mut Value) -> FormatResult<()>;
 
-/// `MIGRATIONS[n - 1]` upgrades version `n` to `n + 1`. Version 1 is the first schema, so the
-/// list is empty until the model changes; add a step here and bump `FORMAT_VERSION`
-/// together, and add a fixture of the old version to the tests.
-const MIGRATIONS: &[Migration] = &[];
+/// `MIGRATIONS[n - 1]` upgrades version `n` to `n + 1`. Add a step here and bump
+/// `FORMAT_VERSION` together, and add a fixture of the old version to the tests
+/// (`tests/fixtures/`).
+const MIGRATIONS: &[Migration] = &[v1_to_v2];
+
+/// 1 → 2 (M2): audio and automation clips, the sample registry (`samples`), automation
+/// points and the `sample`/`point` id counters were added, all with serde defaults, and a
+/// clip without `kind` is a pattern clip. So a version 1 file is already a valid version 2
+/// file: nothing to rewrite. Checked, so a damaged file fails here with a clear message.
+fn v1_to_v2(value: &mut Value) -> FormatResult<()> {
+    let clips = value.get("clips").and_then(Value::as_object);
+    if let Some(c) = clips
+        .into_iter()
+        .flat_map(|m| m.values())
+        .find(|c| c.get("kind").is_some())
+    {
+        return Err(FormatError::Invalid(format!(
+            "a version 1 project cannot hold {} clips",
+            c["kind"]
+        )));
+    }
+    if value.get("samples").is_some() {
+        return Err(FormatError::Invalid(
+            "a version 1 project cannot have a sample registry".into(),
+        ));
+    }
+    Ok(())
+}
 
 /// Upgrades `value` (a parsed `project.json`) to [`FORMAT_VERSION`].
 pub fn migrate(value: &mut Value) -> FormatResult<()> {
@@ -158,8 +182,22 @@ pub fn validate(p: &Project) -> FormatResult<()> {
             }
         }
     }
-    for c in p.clips.values() {
-        if !p.patterns.contains_key(&c.pattern) || c.track as usize >= p.tracks.len() {
+    let mut paths = std::collections::BTreeSet::new();
+    for (id, e) in p.samples.iter() {
+        if e.id != *id || !paths.insert(e.path.as_str()) {
+            return bad(format!("sample {id} is malformed or registered twice"));
+        }
+    }
+    for (id, c) in p.clips.iter() {
+        let source_ok = match &c.kind {
+            ClipKind::Pattern { pattern } => p.patterns.contains_key(pattern),
+            ClipKind::Audio(a) => {
+                a.validate()?;
+                p.samples.contains_key(&a.sample) && c.offset == 0
+            }
+            ClipKind::Automation(a) => a.points.iter().all(|(k, pt)| pt.id == *k),
+        };
+        if c.id != *id || !source_ok || c.track as usize >= p.tracks.len() || c.length == 0 {
             return bad(format!("clip {} points outside the project", c.id));
         }
     }

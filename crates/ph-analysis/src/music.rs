@@ -117,10 +117,14 @@ pub fn song_notes(project: &Project) -> Vec<SongNote> {
         {
             continue;
         }
-        let Some(p) = project.patterns.get(&clip.pattern) else {
+        // audio and automation clips carry no notes
+        let Some(pid) = clip.pattern() else {
             continue;
         };
-        let plen = project.pattern_length(clip.pattern).unwrap_or(0);
+        let Some(p) = project.patterns.get(&pid) else {
+            continue;
+        };
+        let plen = project.pattern_length(pid).unwrap_or(0);
         let win_end = clip.start + clip.length;
         for (ch, m) in &p.notes {
             if project.channels.get(ch).is_none_or(|c| c.muted) {

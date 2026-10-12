@@ -1,6 +1,7 @@
-//! `sample.import`: bring audio files into the project as Sampler channels (dropping files
-//! from the OS). The copy into `samples/` is a filesystem side effect, so it goes through
-//! [`Host::import_file`]; the channels are an ordinary undoable edit.
+//! `sample.*`: the sample registry (M2) and `sample.import`, which brings audio files into
+//! the project as Sampler channels (dropping files from the OS). The copy into `samples/` is
+//! a filesystem side effect, so it goes through [`Host::import_file`]; the channels and the
+//! registry entries are an ordinary undoable edit.
 
 use super::util::*;
 use crate::*;
@@ -18,6 +19,137 @@ pub fn register(r: &mut Registry) {
         MUTATES,
         import,
     ));
+    r.register(typed(
+        "sample.list",
+        "List the project's sample registry: every audio file audio clips can play, with its format, tempo and origin.",
+        Scope::Read,
+        READ,
+        list,
+    ));
+    r.register(typed(
+        "sample.set_bpm",
+        "Set or clear a sample's tempo (used by tempo-synced audio clips and fit to tempo).",
+        Scope::Compose,
+        MUTATES,
+        set_bpm,
+    ));
+    r.register(typed(
+        "sample.set_root_key",
+        "Set or clear the key a sample is pitched at.",
+        Scope::Compose,
+        MUTATES,
+        set_root_key,
+    ));
+    r.register(typed(
+        "sample.remove",
+        "Remove a sample from the registry (only while no audio clip uses it; the file stays).",
+        Scope::Compose,
+        MUTATES,
+        remove,
+    ));
+    r.register(typed(
+        "sample.detect_bpm",
+        "Detect a sample's tempo by onset analysis and store it (unless the user set one).",
+        Scope::Compose,
+        MUTATES,
+        detect_bpm,
+    ));
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SampleOnly {
+    /// Sample registry id (see sample.list).
+    sample: SampleId,
+}
+
+fn list(ctx: &mut CommandCtx<'_>, _: NoParams) -> CmdResult<CommandOutput> {
+    let samples: Vec<_> = ctx
+        .project
+        .samples
+        .values()
+        .map(|e| {
+            let used = ctx
+                .project
+                .clips
+                .values()
+                .filter(|c| c.audio().is_some_and(|a| a.sample == e.id))
+                .count();
+            json!({
+                "id": e.id, "path": e.path, "name": e.name, "seconds": e.seconds(),
+                "frames": e.frames, "sample_rate": e.sample_rate, "channels": e.channels,
+                "bpm": e.bpm, "root_key": e.root_key, "provenance": e.provenance,
+                "clips": used,
+            })
+        })
+        .collect();
+    Ok(CommandOutput::value(json!({ "samples": samples })))
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SetBpm {
+    /// Sample registry id (see sample.list).
+    sample: SampleId,
+    /// Tempo in BPM, 10..=999; null clears it.
+    bpm: Option<f64>,
+}
+
+fn set_bpm(ctx: &mut CommandCtx<'_>, p: SetBpm) -> CmdResult<CommandOutput> {
+    let name = ctx.project.sample(p.sample)?.name.clone();
+    let mut ed = Edit::new(ctx.project);
+    ed.set_sample_bpm(
+        p.sample,
+        p.bpm.map(|value| SampleBpm {
+            value,
+            source: BpmSource::User,
+        }),
+    )?;
+    let summary = match p.bpm {
+        Some(b) => format!("set {name} to {b} BPM"),
+        None => format!("cleared the tempo of {name}"),
+    };
+    Ok(CommandOutput::from_edit(
+        ed,
+        json!({ "sample": p.sample, "bpm": p.bpm }),
+        summary,
+    ))
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SetRootKey {
+    /// Sample registry id (see sample.list).
+    sample: SampleId,
+    /// MIDI key 0..=127 (60 = C4); null clears it.
+    key: Option<u8>,
+}
+
+fn set_root_key(ctx: &mut CommandCtx<'_>, p: SetRootKey) -> CmdResult<CommandOutput> {
+    let name = ctx.project.sample(p.sample)?.name.clone();
+    let mut ed = Edit::new(ctx.project);
+    ed.update_sample(p.sample, |e| e.root_key = p.key)?;
+    Ok(CommandOutput::from_edit(
+        ed,
+        json!({ "sample": p.sample, "key": p.key }),
+        format!("set the root key of {name}"),
+    ))
+}
+
+fn remove(ctx: &mut CommandCtx<'_>, p: SampleOnly) -> CmdResult<CommandOutput> {
+    let name = ctx.project.sample(p.sample)?.name.clone();
+    let mut ed = Edit::new(ctx.project);
+    ed.remove_sample(p.sample)?;
+    Ok(CommandOutput::from_edit(
+        ed,
+        json!({ "sample": p.sample }),
+        format!("removed {name} from the sample list"),
+    ))
+}
+
+fn detect_bpm(ctx: &mut CommandCtx<'_>, p: SampleOnly) -> CmdResult<CommandOutput> {
+    ctx.project.sample(p.sample)?;
+    unavailable("sample.detect_bpm", "BPM detection", "T1")
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -64,6 +196,13 @@ fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOutput> {
         return Err(CmdError::Host(why.join("; ")));
     }
     let mut ed = Edit::new(ctx.project);
+    // M2: every imported file is in the sample registry (when the host can read it)
+    let mut samples = Vec::new();
+    for (source, reference) in &done {
+        if let Ok(id) = register_sample(&mut ed, &*ctx.host, reference, Some(source)) {
+            samples.push(id);
+        }
+    }
     let mut ids = Vec::new();
     let summary = if let Some(ch) = target {
         let (source, reference) = &done[0];
@@ -113,7 +252,7 @@ fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOutput> {
         .collect();
     Ok(CommandOutput::from_edit(
         ed,
-        json!({ "channels": ids, "references": references, "skipped": skipped }),
+        json!({ "channels": ids, "references": references, "samples": samples, "skipped": skipped }),
         summary,
     ))
 }

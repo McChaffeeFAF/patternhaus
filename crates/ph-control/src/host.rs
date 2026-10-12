@@ -278,6 +278,19 @@ impl Host for EngineHost {
         Ok(format!("samples/{final_name}"))
     }
 
+    fn sample_info(&self, reference: &str) -> CmdResult<SampleInfo> {
+        let d = self
+            .assets
+            .sample(reference)
+            .map_err(|e| CmdError::Host(format!("cannot read {reference}: {e}")))?;
+        Ok(SampleInfo {
+            frames: d.frames() as u64,
+            sample_rate: d.sample_rate.round() as u32,
+            channels: d.channels.len() as u16,
+            root_key: d.root_key,
+        })
+    }
+
     fn ui(&mut self, request: UiRequest) -> CmdResult<()> {
         // A closed receiver just means no UI is attached (headless).
         let _ = self.ui.send(request);

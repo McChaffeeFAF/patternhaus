@@ -336,3 +336,62 @@ fn factory() {
     );
     let _ = Arc::new(0);
 }
+
+/// M2: the Haus Synth's bend and mod wheel follow `PitchBend` and `Cc 1` events, exactly as
+/// the `pitch_bend` / `mod_wheel` params do (which stay for old projects and automation).
+#[test]
+fn synth_follows_pitch_bend_and_mod_wheel_events() {
+    let bend = (0, EventKind::PitchBend { value: 1.0 });
+    let mut s = util::synth_with(&[("osc1_wave", 3.0), ("f1_on", 0.0), ("bend_range", 2.0)]);
+    let out = play(s.as_mut(), 1 << 16, &[bend, on(0, 1, 69)], Quality::Live);
+    let f = dominant_hz(&out[0][1 << 15..]);
+    let want = 440.0 * 2f64.powf(2.0 / 12.0);
+    assert!((f / want - 1.0).abs() < 1e-4, "{f} Hz");
+    let mut p = util::synth_with(&[
+        ("osc1_wave", 3.0),
+        ("f1_on", 0.0),
+        ("bend_range", 2.0),
+        ("pitch_bend", 1.0),
+    ]);
+    assert_eq!(
+        out,
+        play(p.as_mut(), 1 << 16, &[on(0, 1, 69)], Quality::Live)
+    );
+
+    let cc = |controller, value| (0, EventKind::Cc { controller, value });
+    let mut s = util::synth_with(&[]);
+    play(s.as_mut(), 256, &[cc(1, 0.5), cc(7, 0.1)], Quality::Live);
+    let id = |s: &dyn Processor, n: &str| s.descriptor().param_id(n).unwrap();
+    assert_eq!(s.param(id(s.as_ref(), "mod_wheel")), 0.5);
+    assert_eq!(s.param(id(s.as_ref(), "volume")), {
+        let d = util::synth_with(&[]);
+        d.param(id(d.as_ref(), "volume"))
+    });
+}
+
+/// M2: `load_state` gets the asset resolver, so a sampler state can switch samples.
+#[test]
+fn sampler_load_state_switches_samples_through_the_resolver() {
+    let res = util::MapResolver(HashMap::from([
+        ("factory:test".to_string(), util::test_sample()),
+        (
+            "factory:sine".to_string(),
+            util::sine_sample(440.0, SR, 0.5),
+        ),
+    ]));
+    let spec = InstrumentSpec::Sampler {
+        sample: Some("factory:test".into()),
+        root_key: 60,
+        params: BTreeMap::new(),
+    };
+    let mut p = ph_instruments::create(&spec, &res).unwrap();
+    p.load_state(b"factory:test", &res).unwrap();
+    p.load_state(b"factory:sine", &res).unwrap();
+    assert_eq!(p.save_state(), b"factory:sine");
+    let out = play(p.as_mut(), 1 << 14, &[on(0, 1, 60)], Quality::Live);
+    assert!((dominant_hz(&out[0][..1 << 13]) / 440.0 - 1.0).abs() < 1e-3);
+    assert!(p.load_state(b"factory:missing", &res).is_err());
+    assert_eq!(p.save_state(), b"factory:sine", "kept on error");
+    p.load_state(b"", &res).unwrap();
+    assert!(p.save_state().is_empty());
+}

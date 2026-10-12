@@ -97,7 +97,24 @@ pub fn get(project: &Project, path: ObjectPath) -> Option<Value> {
             .map(to_value),
         ObjectPath::Insert(i) => project.mixer.get(i.0 as usize).map(to_value),
         ObjectPath::Track(t) => project.tracks.get(t as usize).map(to_value),
-        ObjectPath::Clip(id) => project.clips.get(&id).map(to_value),
+        ObjectPath::Clip(id) => project.clips.get(&id).map(|c| match &c.kind {
+            // points are their own objects; a clip's value never carries them
+            ClipKind::Automation(a) if !a.points.is_empty() => {
+                let mut c = c.clone();
+                if let ClipKind::Automation(a) = &mut c.kind {
+                    a.points.clear();
+                }
+                to_value(&c)
+            }
+            _ => to_value(c),
+        }),
+        ObjectPath::Sample(id) => project.samples.get(&id).map(to_value),
+        ObjectPath::Point(c, p) => project
+            .clips
+            .get(&c)
+            .and_then(|c| c.automation())
+            .and_then(|a| a.points.get(&p))
+            .map(to_value),
     }
 }
 
@@ -197,7 +214,7 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                 if project.pattern_order.contains(&id) {
                     return invalid("remove it from pattern_order first".into());
                 }
-                if project.clips.values().any(|c| c.pattern == id) {
+                if project.clips.values().any(|c| c.pattern() == Some(id)) {
                     return invalid("pattern still has playlist clips".into());
                 }
                 Arc::make_mut(&mut project.patterns).remove(&id);
@@ -260,12 +277,9 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
         }
         ObjectPath::Clip(id) => match value {
             Some(v) => {
-                let c: Clip = from_value(path, v)?;
+                let mut c: Clip = from_value(path, v)?;
                 if c.id != id {
                     return invalid(format!("value has id {}", c.id));
-                }
-                if !project.patterns.contains_key(&c.pattern) {
-                    return Err(ModelError::NoPattern(c.pattern));
                 }
                 if c.track as usize >= project.tracks.len() {
                     return Err(ModelError::NoTrack(c.track as usize));
@@ -273,13 +287,111 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                 if c.length == 0 {
                     return invalid("clip length must be > 0".into());
                 }
+                let old_points = project
+                    .clips
+                    .get(&id)
+                    .and_then(|c| c.automation())
+                    .map(|a| a.points.clone())
+                    .unwrap_or_default();
+                match &mut c.kind {
+                    ClipKind::Pattern { pattern } => {
+                        if !project.patterns.contains_key(pattern) {
+                            return Err(ModelError::NoPattern(*pattern));
+                        }
+                    }
+                    ClipKind::Audio(a) => {
+                        if !project.samples.contains_key(&a.sample) {
+                            return Err(ModelError::NoSample(a.sample));
+                        }
+                        a.validate()?;
+                        if c.offset != 0 {
+                            return invalid(
+                                "an audio clip's offset is always 0 (use source_offset)".into(),
+                            );
+                        }
+                        if a.fade_in.length + a.fade_out.length > c.length {
+                            return invalid("fades are longer than the clip".into());
+                        }
+                    }
+                    ClipKind::Automation(a) => {
+                        if !a.points.is_empty() {
+                            return invalid(
+                                "points are separate objects (point/<clip>/<id>)".into(),
+                            );
+                        }
+                        a.points = old_points.clone();
+                    }
+                }
+                if !old_points.is_empty() && c.automation().is_none() {
+                    return invalid("the automation clip still has points".into());
+                }
                 Arc::make_mut(&mut project.clips).insert(id, c);
                 project.next_ids.clip = project.next_ids.clip.max(id.0 + 1);
             }
             None => {
+                if project
+                    .clips
+                    .get(&id)
+                    .and_then(|c| c.automation())
+                    .is_some_and(|a| !a.points.is_empty())
+                {
+                    return invalid("the automation clip still has points".into());
+                }
                 Arc::make_mut(&mut project.clips).remove(&id);
             }
         },
+        ObjectPath::Sample(id) => match value {
+            Some(v) => {
+                let e: SampleEntry = from_value(path, v)?;
+                if e.id != id {
+                    return invalid(format!("value has id {}", e.id));
+                }
+                validate_sample(&e)?;
+                if let Some(other) = project
+                    .samples
+                    .values()
+                    .find(|o| o.id != id && o.path == e.path)
+                {
+                    return invalid(format!(
+                        "{} is already registered as sample {}",
+                        e.path, other.id
+                    ));
+                }
+                Arc::make_mut(&mut project.samples).insert(id, e);
+                project.next_ids.sample = project.next_ids.sample.max(id.0 + 1);
+            }
+            None => {
+                if let Some(c) = project
+                    .clips
+                    .values()
+                    .find(|c| c.audio().is_some_and(|a| a.sample == id))
+                {
+                    return invalid(format!("sample is still used by clip {}", c.id));
+                }
+                Arc::make_mut(&mut project.samples).remove(&id);
+            }
+        },
+        ObjectPath::Point(cid, pid) => {
+            let clips = Arc::make_mut(&mut project.clips);
+            let clip = clips.get_mut(&cid).ok_or(ModelError::NoClip(cid))?;
+            let ClipKind::Automation(a) = &mut clip.kind else {
+                return invalid(format!("clip {cid} is not an automation clip"));
+            };
+            match value {
+                Some(v) => {
+                    let p: AutomationPoint = from_value(path, v)?;
+                    if p.id != pid {
+                        return invalid(format!("value has id {}", p.id));
+                    }
+                    validate_point(&p)?;
+                    a.points.insert(pid, p);
+                    project.next_ids.point = project.next_ids.point.max(pid.0 + 1);
+                }
+                None => {
+                    a.points.remove(&pid);
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -532,14 +644,14 @@ impl Edit {
             .work
             .clips
             .values()
-            .filter(|c| c.pattern == id)
+            .filter(|c| c.pattern() == Some(id))
             .map(|c| c.id)
             .collect();
         for (c, n) in notes {
             self.put(ObjectPath::Note(id, c, n), None)?;
         }
         for c in clips {
-            self.put(ObjectPath::Clip(c), None)?;
+            self.remove_clip(c)?;
         }
         let order: Vec<PatternId> = self
             .work
@@ -654,7 +766,7 @@ impl Edit {
         let clip = Clip {
             id,
             track,
-            pattern,
+            kind: ClipKind::Pattern { pattern },
             start,
             length,
             offset: 0,
@@ -663,15 +775,174 @@ impl Edit {
         Ok(id)
     }
 
+    /// Places an audio clip playing registry entry `clip.sample`.
+    pub fn add_audio_clip(
+        &mut self,
+        track: u32,
+        start: Tick,
+        length: Tick,
+        clip: AudioClip,
+    ) -> ModelResult<ClipId> {
+        self.work.sample(clip.sample)?;
+        let id = ClipId(self.work.next_ids.clip);
+        let c = Clip {
+            id,
+            track,
+            kind: ClipKind::Audio(clip),
+            start,
+            length,
+            offset: 0,
+        };
+        self.put_typed(ObjectPath::Clip(id), Some(&c))?;
+        Ok(id)
+    }
+
+    /// Places an empty automation clip for `target` (add points with [`Edit::add_point`]).
+    pub fn add_automation_clip(
+        &mut self,
+        track: u32,
+        start: Tick,
+        length: Tick,
+        target: ParamPath,
+    ) -> ModelResult<ClipId> {
+        let id = ClipId(self.work.next_ids.clip);
+        let c = Clip {
+            id,
+            track,
+            kind: ClipKind::Automation(AutomationClip::new(target)),
+            start,
+            length,
+            offset: 0,
+        };
+        self.put_typed(ObjectPath::Clip(id), Some(&c))?;
+        Ok(id)
+    }
+
+    /// Changes a clip of any kind. An automation clip's points are not part of the clip's
+    /// value: changes `f` makes to them are ignored (use the point helpers).
     pub fn update_clip(&mut self, id: ClipId, f: impl FnOnce(&mut Clip)) -> ModelResult<()> {
         let mut c = self.work.clip(id)?.clone();
         f(&mut c);
         c.id = id;
+        if let ClipKind::Automation(a) = &mut c.kind {
+            a.points.clear();
+        }
         self.put_typed(ObjectPath::Clip(id), Some(&c))
     }
 
+    /// Removes a clip of any kind (an automation clip's points first).
     pub fn remove_clip(&mut self, id: ClipId) -> ModelResult<()> {
-        self.work.clip(id)?;
+        let clip = self.work.clip(id)?;
+        let points: Vec<PointId> = clip
+            .automation()
+            .map(|a| a.points.keys().copied().collect())
+            .unwrap_or_default();
+        for p in points {
+            self.put(ObjectPath::Point(id, p), None)?;
+        }
         self.put(ObjectPath::Clip(id), None)
+    }
+
+    // ---------------------------------------------------------------- automation points
+
+    /// Adds a point to an automation clip. `tick` is relative to the clip's source.
+    pub fn add_point(
+        &mut self,
+        clip: ClipId,
+        tick: Tick,
+        value: f64,
+        curve: CurveKind,
+        tension: f32,
+    ) -> ModelResult<PointId> {
+        let id = PointId(self.work.next_ids.point);
+        let p = AutomationPoint {
+            id,
+            tick,
+            value,
+            curve,
+            tension,
+        };
+        self.put_typed(ObjectPath::Point(clip, id), Some(&p))?;
+        Ok(id)
+    }
+
+    pub fn update_point(
+        &mut self,
+        clip: ClipId,
+        id: PointId,
+        f: impl FnOnce(&mut AutomationPoint),
+    ) -> ModelResult<()> {
+        let mut p = self.work.point(clip, id)?.clone();
+        f(&mut p);
+        p.id = id;
+        self.put_typed(ObjectPath::Point(clip, id), Some(&p))
+    }
+
+    /// Moves a point in time and, optionally, to a new value.
+    pub fn move_point(
+        &mut self,
+        clip: ClipId,
+        id: PointId,
+        tick: Tick,
+        value: Option<f64>,
+    ) -> ModelResult<()> {
+        self.update_point(clip, id, |p| {
+            p.tick = tick;
+            if let Some(v) = value {
+                p.value = v;
+            }
+        })
+    }
+
+    /// Sets the shape of the segment that starts at this point.
+    pub fn set_point_curve(
+        &mut self,
+        clip: ClipId,
+        id: PointId,
+        curve: CurveKind,
+        tension: f32,
+    ) -> ModelResult<()> {
+        self.update_point(clip, id, |p| {
+            p.curve = curve;
+            p.tension = tension;
+        })
+    }
+
+    pub fn remove_point(&mut self, clip: ClipId, id: PointId) -> ModelResult<()> {
+        self.work.point(clip, id)?;
+        self.put(ObjectPath::Point(clip, id), None)
+    }
+
+    // ---------------------------------------------------------------- sample registry
+
+    /// Registers an audio file; `entry.id` is replaced by a fresh id, which is returned.
+    /// Fails if `entry.path` is already registered (see [`Project::sample_by_path`]).
+    pub fn add_sample(&mut self, mut entry: SampleEntry) -> ModelResult<SampleId> {
+        let id = SampleId(self.work.next_ids.sample);
+        entry.id = id;
+        self.put_typed(ObjectPath::Sample(id), Some(&entry))?;
+        Ok(id)
+    }
+
+    pub fn update_sample(
+        &mut self,
+        id: SampleId,
+        f: impl FnOnce(&mut SampleEntry),
+    ) -> ModelResult<()> {
+        let mut e = self.work.sample(id)?.clone();
+        f(&mut e);
+        e.id = id;
+        self.put_typed(ObjectPath::Sample(id), Some(&e))
+    }
+
+    /// Sets or clears a sample's tempo.
+    pub fn set_sample_bpm(&mut self, id: SampleId, bpm: Option<SampleBpm>) -> ModelResult<()> {
+        self.update_sample(id, |e| e.bpm = bpm)
+    }
+
+    /// Unregisters a sample. Fails while an audio clip uses it.
+    pub fn remove_sample(&mut self, id: SampleId) -> ModelResult<()> {
+        self.work.sample(id)?;
+        self.put(ObjectPath::Sample(id), None)
     }
 }
