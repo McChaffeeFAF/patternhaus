@@ -1207,9 +1207,15 @@ fn file_import_flp_defaults_to_the_projects_folder_and_never_overwrites() {
     assert!(!r.dir().join("song (Patternhaus)").exists());
     // importing again never overwrites: numbered folders
     let again = r.confirmed("file.import_flp", params.clone());
-    assert_eq!(again.result["path"], json!(projects.path().join("song (2)")));
+    assert_eq!(
+        again.result["path"],
+        json!(projects.path().join("song (2)"))
+    );
     let third = r.confirmed("file.import_flp", params);
-    assert_eq!(third.result["path"], json!(projects.path().join("song (3)")));
+    assert_eq!(
+        third.result["path"],
+        json!(projects.path().join("song (3)"))
+    );
     assert!(dir.join("project.json").is_file(), "the first is untouched");
     // not an FL file, and a missing file, are errors that change nothing
     std::fs::write(r.dir().join("bad.flp"), b"not a project at all").unwrap();

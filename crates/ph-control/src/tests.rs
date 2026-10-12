@@ -605,11 +605,12 @@ fn agent_flp_import_is_confined_to_the_projects_folder() {
     assert!(out.result["placement_note"].is_null());
     // next to the file would be a read-only library folder: the projects folder is used,
     // and the report says so
-    let out = confirmed(json!({ "path": near.to_string_lossy(), "placement": "next_to_flp" }))
-        .unwrap();
+    let out =
+        confirmed(json!({ "path": near.to_string_lossy(), "placement": "next_to_flp" })).unwrap();
     assert_eq!(out.result["path"], json!(projects.path().join("near (2)")));
     assert!(out.result["placement_note"].is_string());
-    let report = std::fs::read_to_string(projects.path().join("near (2)/import-report.md")).unwrap();
+    let report =
+        std::fs::read_to_string(projects.path().join("near (2)/import-report.md")).unwrap();
     assert!(report.contains("## Placement"), "{report}");
     assert!(!library.path().join("near (Patternhaus)").exists());
 }

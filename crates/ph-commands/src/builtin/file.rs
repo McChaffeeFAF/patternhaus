@@ -506,11 +506,7 @@ pub(crate) fn import_flp_project(
     })
 }
 
-fn write_import(
-    dir: &Path,
-    imp: &ph_formats::flp::FlpImport,
-    note: Option<&str>,
-) -> CmdResult<()> {
+fn write_import(dir: &Path, imp: &ph_formats::flp::FlpImport, note: Option<&str>) -> CmdResult<()> {
     let host_err = |p: &Path, e: std::io::Error| CmdError::Host(format!("{}: {e}", p.display()));
     ph_formats::save_project(&imp.project, dir).map_err(|e| CmdError::Host(e.to_string()))?;
     for f in &imp.files {
@@ -523,11 +519,13 @@ fn write_import(
     let report = dir.join("import-report.md");
     let mut text = imp.report.to_markdown(&imp.project.settings.title);
     if let Some(n) = note {
-        text.push_str(&format!("
+        text.push_str(&format!(
+            "
 ## Placement
 
 {n}
-"));
+"
+        ));
     }
     std::fs::write(&report, text).map_err(|e| host_err(&report, e))
 }
