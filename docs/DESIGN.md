@@ -364,6 +364,7 @@ The aim is a professional first impression, at FL-level density and polish, in o
 - **Imports:** channels, patterns and notes, playlist, mixer routing, automation, and third-party plugin states.
 - **Native FL plugins:** mapped to the closest Patternhaus equivalent where one exists, otherwise a labelled placeholder that keeps the original data.
 - **Import report:** lists everything that was approximated or skipped.
+- **Placement:** `file.import_flp` writes a new folder `<name> (Patternhaus)/` beside the `.flp` (numbered when it exists) and opens it; plugin states go to `plugins/*.flpstate`, the report to `import-report.md`.
 - **Corpus:** the owner's projects are a local-only test corpus.
 
 ## 11. Platforms and audio/MIDI I/O
