@@ -357,7 +357,7 @@ fn value_at_holds_outside_jumps_on_shared_ticks_and_never_overshoots() {
     let d = pt(3, 300, 0.9, CurveKind::Smooth, 0.0);
     let e = pt(4, 400, 0.1, CurveKind::Linear, 0.0);
     let pts = [&a, &b, &c, &d, &e];
-    assert_eq!(value_at(&[], 5.0), None);
+    assert_eq!(value_at::<AutomationPoint>(&[], 5.0), None);
     assert_eq!(value_at(&pts, 0.0), Some(0.0));
     assert_eq!(value_at(&pts, 150.0), Some(0.5));
     // two points on tick 200: the later id is the value leaving

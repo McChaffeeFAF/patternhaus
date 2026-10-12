@@ -225,18 +225,21 @@ impl AutomationClip {
 }
 
 /// The value of an ordered point list (see [`AutomationClip::points_in_order`]) at `tick`.
-/// Allocation-free, so the engine can call it on prepared slices.
-pub fn value_at(points: &[&AutomationPoint], tick: f64) -> Option<f64> {
-    let first = points.first()?;
+/// Takes points or references to points. Allocation-free, so the engine can call it on
+/// prepared slices on the audio thread.
+pub fn value_at<P: std::borrow::Borrow<AutomationPoint>>(points: &[P], tick: f64) -> Option<f64> {
+    let at = |i: usize| points[i].borrow();
+    let first = points.first()?.borrow();
     if tick < first.tick as f64 {
         return Some(first.value);
     }
     // last point at or before `tick` (the later id on a shared tick)
-    let i = points.partition_point(|p| p.tick as f64 <= tick) - 1;
-    let a = points[i];
-    let Some(b) = points.get(i + 1) else {
+    let i = points.partition_point(|p| p.borrow().tick as f64 <= tick) - 1;
+    let a = at(i);
+    if i + 1 >= points.len() {
         return Some(a.value);
-    };
+    }
+    let b = at(i + 1);
     let span = (b.tick - a.tick) as f64;
     let t = if span > 0.0 {
         (tick - a.tick as f64) / span
@@ -246,8 +249,8 @@ pub fn value_at(points: &[&AutomationPoint], tick: f64) -> Option<f64> {
     let s = match a.curve {
         CurveKind::Smooth => {
             // monotone cubic Hermite (Fritsch–Carlson) on the neighbouring slopes
-            let prev = i.checked_sub(1).map(|j| points[j]);
-            let next = points.get(i + 2).copied();
+            let prev = i.checked_sub(1).map(at);
+            let next = (i + 2 < points.len()).then(|| at(i + 2));
             return Some(smooth(prev, a, b, next, t));
         }
         k => k.shape(a.tension, t),
