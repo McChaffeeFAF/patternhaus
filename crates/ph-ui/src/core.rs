@@ -119,7 +119,13 @@ pub enum RenameTarget {
 pub enum AfterPrompt {
     Quit,
     NewProject,
-    OpenProject { path: String },
+    OpenProject {
+        path: String,
+    },
+    /// Import an FL Studio project (`.flp`) as a new project.
+    ImportFlp {
+        path: String,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -834,7 +840,10 @@ impl AppCore {
                 },
             );
             // Destructive commands bound to a key still ask: the dialogs own the confirm.
-            if b.command == "project.new" || b.command == "file.open" {
+            if b.command == "project.new"
+                || b.command == "file.open"
+                || b.command == "file.import_flp"
+            {
                 r.confirm = true;
             }
             self.send(r);

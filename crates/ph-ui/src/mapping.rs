@@ -415,6 +415,10 @@ pub fn file_save_as(path: &str) -> Request {
 pub fn file_open(path: &str) -> Request {
     confirmed(req("file.open", json!({ "path": path })))
 }
+/// Destructive (replaces the project): the UI asks about unsaved changes first, then sends `confirm`.
+pub fn import_flp(path: &str) -> Request {
+    confirmed(req("file.import_flp", json!({ "path": path })))
+}
 /// Copy audio files into the project and add Sampler channels, or replace one channel's sample.
 pub fn sample_import(paths: &[String], channel: Option<ChannelId>) -> Request {
     req(

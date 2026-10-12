@@ -6,7 +6,7 @@
 //! - **hovering** highlights the target panel or row with the accent edge and glow, and the
 //!   hint bar says what will happen;
 //! - **dropping** sends commands as the human, never touching the project or the filesystem
-//!   itself: `sample.import`, `file.import_midi`, or `file.open` (through the Save / Don't
+//!   itself: `sample.import`, `file.import_midi`, or `file.open` (or `file.import_flp` for an FL Studio project) (through the Save / Don't
 //!   save / Cancel question). A folder becomes a library folder, remembered in settings.
 //!
 //! The panels record where they were drawn this frame ([`DropZone`]); the zone under the pointer
@@ -50,6 +50,8 @@ pub struct DropHover {
 pub enum Item {
     Audio(PathBuf),
     Midi(PathBuf),
+    /// An FL Studio project file (`.flp`): imported as a new project.
+    Flp(PathBuf),
     /// A plain folder: becomes a library folder.
     Folder(PathBuf),
     /// A project folder (the path is the folder).
@@ -84,13 +86,15 @@ pub fn classify(path: &Path) -> Item {
         Item::Audio(path.to_path_buf())
     } else if ext == "mid" || ext == "midi" {
         Item::Midi(path.to_path_buf())
+    } else if ext == "flp" {
+        Item::Flp(path.to_path_buf())
     } else if LATER_EXT.contains(&ext.as_str()) {
         Item::Skip(
             name,
             "that audio format is not supported yet (use WAV, AIFF, FLAC, MP3 or OGG)",
         )
     } else {
-        Item::Skip(name, "not an audio, MIDI or project file")
+        Item::Skip(name, "not an audio, MIDI, FL Studio or project file")
     }
 }
 
@@ -99,6 +103,7 @@ pub fn classify(path: &Path) -> Item {
 pub struct Plan {
     pub audio: Vec<PathBuf>,
     pub midi: Vec<PathBuf>,
+    pub flp: Vec<PathBuf>,
     pub folders: Vec<PathBuf>,
     pub projects: Vec<PathBuf>,
     pub skipped: Vec<(String, &'static str)>,
@@ -111,6 +116,7 @@ impl Plan {
             match classify(p) {
                 Item::Audio(p) => plan.audio.push(p),
                 Item::Midi(p) => plan.midi.push(p),
+                Item::Flp(p) => plan.flp.push(p),
                 Item::Folder(p) => plan.folders.push(p),
                 Item::Project(p) => plan.projects.push(p),
                 Item::Skip(n, why) => plan.skipped.push((n, why)),
@@ -173,6 +179,14 @@ pub fn describe(core: &AppCore, plan: &Plan, pos: Option<Pos2>) -> Option<DropHo
         parts.push(format!("Drop to open project {}", folder_name(p)));
         if plan.projects.len() + plan.audio.len() + plan.midi.len() + plan.folders.len() > 1 {
             parts.push("only the first project is opened".into());
+        }
+    } else if let Some(p) = plan.flp.first() {
+        parts.push(format!(
+            "FL Studio: drop to import {} as a new project",
+            folder_name(p)
+        ));
+        if plan.flp.len() + plan.audio.len() + plan.midi.len() + plan.folders.len() > 1 {
+            parts.push("only the first FL Studio project is imported".into());
         }
     } else {
         if !plan.audio.is_empty() {
@@ -333,6 +347,24 @@ pub fn execute(core: &mut AppCore, plan: Plan, zone: Option<DropZone>) {
                 }
             ),
         );
+    }
+    if plan.projects.is_empty()
+        && let Some(file) = plan.flp.first()
+    {
+        let others = plan.flp.len() - 1 + plan.audio.len() + plan.midi.len() + plan.folders.len();
+        if others > 0 {
+            core.toast(
+                ToastKind::Warn,
+                format!(
+                    "Importing {} only; the other {others} dropped items were ignored",
+                    folder_name(file)
+                ),
+            );
+        }
+        core.ask_or_do(AfterPrompt::ImportFlp {
+            path: file.to_string_lossy().into_owned(),
+        });
+        return;
     }
     if let Some(dir) = plan.projects.first() {
         let others =

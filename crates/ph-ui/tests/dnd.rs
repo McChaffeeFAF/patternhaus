@@ -388,7 +388,7 @@ fn unsupported_files_are_skipped_with_a_notice_naming_them() {
         "notes.txt",
         "pack.zip",
         "song.m4a",
-        "not an audio, MIDI or project file",
+        "not an audio, MIDI, FL Studio or project file",
     ] {
         assert!(text.contains(want), "{text}");
     }
@@ -455,4 +455,47 @@ fn hovering_highlights_the_target_and_leaving_clears_it() {
     r.frames(3);
     assert!(r.app().core.drop_hover.is_none());
     assert_eq!(r.hint(), "");
+}
+
+#[test]
+fn an_flp_file_is_imported_as_a_new_project_asking_first_when_unsaved() {
+    let mut r = start();
+    let flp = r.file("song.flp", &ph_formats::flp::build::sample_project());
+    let pos = Pos2::new(800.0, 500.0);
+    r.hover(&[&flp], pos);
+    assert_eq!(
+        r.hint(),
+        "FL Studio: drop to import song.flp as a new project"
+    );
+    r.app().core.dirty = true;
+    r.drop_at(&[&flp], pos);
+    match &r.app().core.dialog {
+        Some(Dialog::Unsaved {
+            then: AfterPrompt::ImportFlp { path },
+        }) => assert_eq!(Path::new(path), flp),
+        d => panic!("expected the unsaved-changes question, got {d:?}"),
+    }
+    assert_eq!(r.app().core.project.settings.title, "Drop test");
+    // Don't save: it imports, beside the file
+    r.app().core.dialog = None;
+    r.app().core.ready.push(AfterPrompt::ImportFlp {
+        path: flp.to_string_lossy().into_owned(),
+    });
+    r.settle();
+    assert_eq!(r.app().core.project.settings.title, "Synthetic song");
+    assert_eq!(r.app().core.project.channels.len(), 3);
+    assert!(
+        r.drops
+            .path()
+            .join("song (Patternhaus)/import-report.md")
+            .is_file()
+    );
+
+    // a clean project imports at once
+    let mut r = start();
+    let flp = r.file("again.flp", &ph_formats::flp::build::sample_project());
+    r.app().core.dirty = false;
+    r.drop_at(&[&flp], pos);
+    assert!(r.app().core.dialog.is_none());
+    assert_eq!(r.app().core.project.settings.title, "Synthetic song");
 }
