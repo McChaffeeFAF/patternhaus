@@ -2829,6 +2829,7 @@ version = "0.1.0"
 dependencies = [
  "assert_no_alloc",
  "criterion",
+ "ph-analysis",
  "ph-core",
  "ph-dsp",
  "ph-node",

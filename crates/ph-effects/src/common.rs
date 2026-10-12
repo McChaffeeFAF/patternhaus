@@ -42,7 +42,6 @@ impl Params {
     pub fn on(&self, i: usize) -> bool {
         self.v[i] >= 0.5
     }
-
     pub fn len(&self) -> usize {
         self.v.len()
     }
@@ -143,4 +142,165 @@ impl SilenceTracker {
 /// Map `"eq"` or `"ph.fx.eq"` to the short name.
 pub(crate) fn short_name(name: &str) -> &str {
     name.strip_prefix("ph.fx.").unwrap_or(name)
+}
+
+/// Implements [`ph_node::Processor`] for an effect struct with fields `p: Params` and
+/// `silence: SilenceTracker` and the inherent methods `on_activate(&mut self, &ActivateInfo)`,
+/// `on_reset(&mut self)`, `apply(&mut self, usize)` (a parameter changed),
+/// `render(&mut self, &mut ProcessIo, usize, usize)`, `latency_samples(&self)` and
+/// `tail_samples(&self)`. Events are applied sample-accurately between rendered segments.
+macro_rules! impl_processor {
+    ($t:ty $(; $($extra:item)*)?) => {
+        impl ::ph_node::Processor for $t {
+            fn descriptor(&self) -> &::ph_node::NodeDescriptor {
+                &self.p.desc
+            }
+
+            fn activate(&mut self, info: &::ph_node::ActivateInfo) {
+                self.on_activate(info);
+                self.on_reset();
+                self.silence.reset();
+            }
+
+            fn process(
+                &mut self,
+                ctx: &::ph_node::ProcessContext,
+                io: &mut ::ph_node::ProcessIo<'_, '_>,
+            ) -> ::ph_node::ProcessStatus {
+                let n = ctx.frames;
+                let mut pos = 0;
+                for ev in io.events {
+                    let f = (ev.frame as usize).min(n);
+                    if f > pos {
+                        self.render(io, pos, f);
+                        pos = f;
+                    }
+                    if let ::ph_node::EventKind::Param { id, value } = ev.kind {
+                        ::ph_node::Processor::set_param(self, id, value);
+                    }
+                }
+                if pos < n {
+                    self.render(io, pos, n);
+                }
+                let tail = ::ph_node::Processor::tail(self);
+                if self.silence.update(io, n, tail) {
+                    ::ph_node::ProcessStatus::Sleep
+                } else {
+                    ::ph_node::ProcessStatus::Continue
+                }
+            }
+
+            fn set_param(&mut self, id: ::ph_node::ParamId, value: f64) {
+                if let Some(i) = self.p.set(id, value) {
+                    self.apply(i);
+                }
+            }
+
+            fn param(&self, id: ::ph_node::ParamId) -> f64 {
+                self.p.get(id)
+            }
+
+            fn reset(&mut self) {
+                self.on_reset();
+                self.silence.reset();
+            }
+
+            fn latency(&self) -> u32 {
+                self.latency_samples()
+            }
+
+            fn tail(&self) -> u32 {
+                self.tail_samples()
+            }
+
+            $($($extra)*)?
+        }
+    };
+}
+pub(crate) use impl_processor;
+
+/// Complex radix-2 FFT in `f32` with precomputed twiddles (allocation-free transforms).
+pub(crate) struct Fft {
+    n: usize,
+    rev: Vec<u32>,
+    wr: Vec<f32>,
+    wi: Vec<f32>,
+}
+
+impl Fft {
+    pub fn new(n: usize) -> Self {
+        assert!(n.is_power_of_two() && n >= 2);
+        let bits = n.trailing_zeros();
+        let rev = (0..n as u32)
+            .map(|i| i.reverse_bits() >> (32 - bits))
+            .collect();
+        let half = n / 2;
+        let ang = |k: usize| -2.0 * std::f64::consts::PI * k as f64 / n as f64;
+        Self {
+            n,
+            rev,
+            wr: (0..half).map(|k| ang(k).cos() as f32).collect(),
+            wi: (0..half).map(|k| ang(k).sin() as f32).collect(),
+        }
+    }
+
+    fn run(&self, re: &mut [f32], im: &mut [f32], sign: f32) {
+        let n = self.n;
+        for i in 0..n {
+            let j = self.rev[i] as usize;
+            if i < j {
+                re.swap(i, j);
+                im.swap(i, j);
+            }
+        }
+        let mut len = 2;
+        while len <= n {
+            let half = len / 2;
+            let step = n / len;
+            for start in (0..n).step_by(len) {
+                for k in 0..half {
+                    let (cr, ci) = (self.wr[k * step], sign * self.wi[k * step]);
+                    let (a, b) = (start + k, start + k + half);
+                    let tr = re[b] * cr - im[b] * ci;
+                    let ti = re[b] * ci + im[b] * cr;
+                    re[b] = re[a] - tr;
+                    im[b] = im[a] - ti;
+                    re[a] += tr;
+                    im[a] += ti;
+                }
+            }
+            len <<= 1;
+        }
+    }
+
+    pub fn forward(&self, re: &mut [f32], im: &mut [f32]) {
+        self.run(re, im, 1.0);
+    }
+
+    /// Inverse transform, scaled by `1/n`.
+    pub fn inverse(&self, re: &mut [f32], im: &mut [f32]) {
+        self.run(re, im, -1.0);
+        let s = 1.0 / self.n as f32;
+        for v in re.iter_mut().chain(im.iter_mut()) {
+            *v *= s;
+        }
+    }
+}
+
+/// Smoothed linear mix: `dry * (1 - m) + wet * m`.
+#[inline]
+pub(crate) fn crossfade(dry: f32, wet: f32, m: f32) -> f32 {
+    dry * (1.0 - m) + wet * m
+}
+
+/// Mark a continuous parameter as taking whole values only (counts, stage numbers).
+pub(crate) fn whole(mut p: ParamInfo) -> ParamInfo {
+    p.stepped = true;
+    p
+}
+
+/// Wrap a phase in turns to `0..1`.
+#[inline]
+pub(crate) fn wrap01(t: f64) -> f64 {
+    t - t.floor()
 }

@@ -15,6 +15,7 @@ ph-dsp.workspace = true
 [dev-dependencies]
 assert_no_alloc.workspace = true
 criterion.workspace = true
+ph-analysis.workspace = true
 
 [[bench]]
 name = "effects"

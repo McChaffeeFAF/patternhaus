@@ -200,3 +200,19 @@ fn files_are_small_and_finite() {
         assert!(s.x.len() as f64 / 48_000.0 <= 3.5, "{} too long", s.path);
     }
 }
+
+#[test]
+fn impulse_responses_decay_and_are_present() {
+    for name in ["room", "hall", "plate", "spring"] {
+        let s = get(&format!("ir/{name}"));
+        let n = s.x.len();
+        let energy = |a: usize, b: usize| s.x[a..b].iter().map(|v| v * v).sum::<f64>();
+        // the first quarter holds far more energy than the last quarter (a decaying tail)
+        assert!(
+            energy(0, n / 4) > 20.0 * energy(3 * n / 4, n),
+            "{name} does not decay"
+        );
+        assert!(n as f64 / 48_000.0 >= 0.5, "{name} too short");
+    }
+    assert!(get("ir/room").x.len() < get("ir/hall").x.len());
+}

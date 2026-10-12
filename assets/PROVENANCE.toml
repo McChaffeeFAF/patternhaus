@@ -198,6 +198,26 @@ license = "CC0-1.0"
 generator = "soundgen clave 32f491428572b17e"
 
 [[file]]
+path = "samples/ir/room.wav"
+license = "CC0-1.0"
+generator = "soundgen reverb_ir 530bca7d599d8995"
+
+[[file]]
+path = "samples/ir/hall.wav"
+license = "CC0-1.0"
+generator = "soundgen reverb_ir 6335d7c9cd4798ee"
+
+[[file]]
+path = "samples/ir/plate.wav"
+license = "CC0-1.0"
+generator = "soundgen reverb_ir 1d5fce6c46fa24e4"
+
+[[file]]
+path = "samples/ir/spring.wav"
+license = "CC0-1.0"
+generator = "soundgen reverb_ir 8709a88fcf284b66"
+
+[[file]]
 path = "README.md"
 license = "CC0-1.0"
 source = "hand-authored, Patternhaus contributors"

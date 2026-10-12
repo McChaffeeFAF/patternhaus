@@ -56,6 +56,12 @@ impl AssetResolver for NoAssets {
     }
 }
 
+/// Live measurements of the most recently activated analyser effect (`ph.fx.analyzer`), for
+/// the UI's analyser window. `None` until one has been activated. Reading is lock-free.
+pub fn analyzer_feed() -> Option<Arc<ph_effects::analyzer::Feed>> {
+    ph_effects::analyzer::latest_feed()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +90,18 @@ mod tests {
         .unwrap();
         assert!(sampler.param_id("root_key").is_some() || !sampler.params.is_empty());
         assert!(synth_presets().contains(&"bass/sub"));
+    }
+
+    #[test]
+    fn convolution_loads_every_factory_impulse_response() {
+        let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+        let resolver = crate::assets::FileResolver::new().with_assets_dir(assets);
+        for name in ["room", "hall", "plate", "spring"] {
+            let mut p = ph_effects::builtin("convolution").unwrap();
+            let reference = format!("factory:ir/{name}");
+            p.load_state(reference.as_bytes(), &resolver).unwrap();
+            assert_eq!(p.save_state(), reference.as_bytes());
+            assert!(p.tail() > 20000, "{name}");
+        }
     }
 }
