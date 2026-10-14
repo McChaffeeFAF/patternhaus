@@ -2968,6 +2968,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ph-test-vst3"
+version = "0.1.0"
+dependencies = [
+ "vst3",
+]
+
+[[package]]
 name = "ph-ui"
 version = "0.1.0"
 dependencies = [

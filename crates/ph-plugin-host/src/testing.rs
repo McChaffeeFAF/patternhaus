@@ -28,7 +28,18 @@ pub struct TestPlugins {
     pub clap: PathBuf,
     /// The scan helper executable.
     pub scan_helper: PathBuf,
+    /// A folder holding only `ph-test-vst3.vst3` (the VST3 test plugins), where the VST3 host
+    /// can load it (`None` on macOS, whose bundle loading is not implemented yet).
+    pub vst3_dir: Option<PathBuf>,
+    /// The `.vst3` file (Windows) or bundle (Linux).
+    pub vst3: Option<PathBuf>,
 }
+
+/// Names of the VST3 test plugins (`test-plugins/ph-test-vst3`).
+pub const VST3_SYNTH_NAME: &str = "PH Test Synth VST3";
+pub const VST3_GAIN_NAME: &str = "PH Test Gain VST3";
+/// Latency of the VST3 test gain.
+pub const VST3_GAIN_LATENCY: u32 = 16;
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -48,13 +59,13 @@ fn target_dir() -> PathBuf {
     }
 }
 
-fn dylib_name() -> &'static str {
+fn dylib_name(crate_name: &str) -> String {
     if cfg!(windows) {
-        "ph_test_plugins.dll"
+        format!("{crate_name}.dll")
     } else if cfg!(target_os = "macos") {
-        "libph_test_plugins.dylib"
+        format!("lib{crate_name}.dylib")
     } else {
-        "libph_test_plugins.so"
+        format!("lib{crate_name}.so")
     }
 }
 
@@ -76,6 +87,8 @@ fn build() -> TestPlugins {
             "-p",
             "ph-test-plugins",
             "-p",
+            "ph-test-vst3",
+            "-p",
             "ph-plugin-host",
             "--lib",
             "--bin",
@@ -92,7 +105,7 @@ fn build() -> TestPlugins {
         String::from_utf8_lossy(&out.stderr)
     );
     let bin = target.join("debug");
-    let dylib = bin.join(dylib_name());
+    let dylib = bin.join(dylib_name("ph_test_plugins"));
     let dir = target.join("plugins");
     let _ = std::fs::create_dir_all(&dir);
     let clap = dir.join("ph-test-plugins.clap");
@@ -114,10 +127,34 @@ fn build() -> TestPlugins {
     } else {
         "ph-plugin-scan"
     };
+    // the VST3 module: a plain .vst3 DLL on Windows, a bundle on Linux
+    let vst3_dir = target.join("vst3");
+    let vst3_dll = bin.join(dylib_name("ph_test_vst3"));
+    let vst3 = if cfg!(windows) {
+        let _ = std::fs::create_dir_all(&vst3_dir);
+        let p = vst3_dir.join("ph-test-vst3.vst3");
+        copy_if_changed(&vst3_dll, &p);
+        Some(p)
+    } else if cfg!(target_os = "macos") {
+        None
+    } else {
+        let p = vst3_dir.join("ph-test-vst3.vst3");
+        let arch = if cfg!(target_arch = "aarch64") {
+            "aarch64-linux"
+        } else {
+            "x86_64-linux"
+        };
+        let inner = p.join("Contents").join(arch);
+        std::fs::create_dir_all(&inner).expect("bundle folder");
+        copy_if_changed(&vst3_dll, &inner.join("ph-test-vst3.so"));
+        Some(p)
+    };
     TestPlugins {
         dir,
         clap,
         scan_helper: bin.join(exe),
+        vst3_dir: vst3.as_ref().map(|_| vst3_dir),
+        vst3,
     }
 }
 
