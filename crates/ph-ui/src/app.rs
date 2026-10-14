@@ -1134,7 +1134,8 @@ impl PhApp {
                                     t.text.clone(),
                                     egui::TextStyle::Body.resolve(ui.style()),
                                     ui.visuals().text_color(),
-                                    ui.available_width(),
+                                    // capped: an Area's first (sizing) pass has unbounded width
+                                    ui.available_width().min(360.0),
                                 );
                                 job.wrap.break_anywhere = true;
                                 ui.label(job);
