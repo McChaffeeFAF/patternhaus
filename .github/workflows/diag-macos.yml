@@ -1,0 +1,14 @@
+name: diag-macos
+on:
+  push:
+    branches: [diag/macos-noalloc]
+jobs:
+  engine:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: engine lib tests, one at a time
+        env:
+          RUST_BACKTRACE: "1"
+        run: cargo test -p ph-engine --lib -- --test-threads=1 tests::rt_safety tests::audio_oracle tests::stretch_quality tests::oracle 2>&1
