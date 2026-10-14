@@ -235,7 +235,14 @@ pub fn big_project() -> Project {
 
 /// Waits until every command the UI sent has been answered and its snapshot arrived.
 pub fn settle(app: &mut PhApp) {
-    pump_until(app, 400, |a| a.core.dispatch.in_flight() == 0);
-    // one more round for the Change stream
+    // bounds are generous: a loaded machine (parallel builds) delays the session thread
+    pump_until(app, 5000, |a| a.core.dispatch.in_flight() == 0);
+    // the Change stream: wait until the UI's snapshot is the session's project
+    if let Ok(target) = app.core.studio.session.project() {
+        pump_until(app, 5000, |a| {
+            std::sync::Arc::ptr_eq(&a.core.project, &target) || *a.core.project == *target
+        });
+    }
+    // one more round for what follows a change (flashes, follow-up reads)
     pump_until(app, 60, |_| false);
 }

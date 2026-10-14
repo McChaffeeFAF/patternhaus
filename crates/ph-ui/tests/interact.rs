@@ -18,7 +18,7 @@ fn start() -> (H, Ids, tempfile::TempDir) {
     let (fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let mut app = fx.app;
-    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
     app.core.sel.pattern = Some(ids.beat);
     app.core.sel.channel = Some(ids.kick);
     app.core.fix_selection();
@@ -54,7 +54,7 @@ fn click(h: &mut H, pos: Pos2) {
     h.step();
     button(h, pos, PointerButton::Primary, true);
     button(h, pos, PointerButton::Primary, false);
-    frames(h, 6);
+    after_input(h);
 }
 
 fn drag(h: &mut H, from: Pos2, to: Pos2, b: PointerButton) {
@@ -68,7 +68,7 @@ fn drag(h: &mut H, from: Pos2, to: Pos2, b: PointerButton) {
         h.step();
     }
     button(h, to, b, false);
-    frames(h, 6);
+    after_input(h);
 }
 
 fn step_centre(h: &H, ch: ChannelId, step: u32) -> Pos2 {
@@ -262,7 +262,7 @@ fn drag_path(h: &mut H, path: &[Pos2], m: Modifiers) {
     }
     mouse(h, *path.last().unwrap(), PointerButton::Primary, false, m);
     h.event(Event::ModifiersChanged(Modifiers::NONE));
-    frames(h, 6);
+    after_input(h);
 }
 
 fn roll(h: &mut H, ids: &Ids) -> impl Fn(f64, f64) -> Pos2 + use<> {
@@ -418,4 +418,12 @@ fn the_toolbar_has_slice_and_mute_tools() {
     h.get_by_label("Mute").click();
     frames(&mut h, 3);
     assert_eq!(h.state().core.roll.tool, ph_ui::piano_roll::Tool::Mute);
+}
+
+/// After a gesture: a few frames for the UI to send its commands, then wait for the session
+/// to answer and the snapshot to arrive (bounded by time, so a loaded machine still passes).
+fn after_input(h: &mut H) {
+    frames(h, 6);
+    settle(h.state_mut());
+    frames(h, 2);
 }

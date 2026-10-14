@@ -11,7 +11,7 @@ fn save_reopen_and_export_wav_through_ui_requests() {
     let (mut fx, ids) = fixture(true);
     let _ids = ids.unwrap();
     let app = &mut fx.app;
-    pump_until(app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(app, 5000, |a| a.core.project.channels.len() == 4);
     let before = app.core.project.clone();
 
     // Ctrl+S (file.save into the project folder)
@@ -74,7 +74,7 @@ fn playing_feeds_position_and_meters_to_the_ui() {
     let (mut fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let app = &mut fx.app;
-    pump_until(app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(app, 5000, |a| a.core.project.channels.len() == 4);
     app.core.sel.pattern = Some(ids.beat);
     app.core.fix_selection();
     app.core.send(mapping::set_mode_pattern(Some(ids.beat)));
