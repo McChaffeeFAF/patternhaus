@@ -5,13 +5,18 @@
 //! saturator, limiter, EQ). The engine runs on the simulated device, so the figure is the
 //! engine's own processing time ÷ buffer duration (the DSP load meter).
 //!
+//! M2 criterion 7 (audio part, M2/T1): the same project plus 8 tempo-synced audio clips in
+//! Stretch mode on 8 playlist tracks, at time ratios from 0.75 to 1.33, playing all the way
+//! through; the slower half of the sources are long enough (over 10 s) to stream from
+//! "disk" through the prefetch thread.
+//!
 //! `cargo bench -p ph-engine` prints the DSP load (all cores, and one thread), then runs
 //! the criterion benchmarks.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use ph_core::*;
 use ph_engine::{Engine, EngineConfig, TransportCommand};
-use ph_node::{AssetResolver, SampleData};
+use ph_node::{AssetResolver, SampleData, SampleStream, StreamError};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -19,11 +24,108 @@ use std::time::Instant;
 const SR: u32 = 48_000;
 const BUFFER: u32 = 256;
 
-struct NoAssets;
-impl AssetResolver for NoAssets {
+/// Sample BPMs of the 8 audio clips' sources (the project runs at 120).
+const LOOP_BPMS: [f64; 8] = [90.0, 96.0, 100.0, 108.0, 112.0, 128.0, 140.0, 160.0];
+
+/// Generated loop `gen:loop/<bpm>`: 16 beats at that tempo, stereo, a chord with a decaying
+/// noise burst on every beat. Pure function of the frame, so it can also be streamed.
+fn loop_frame(bpm: f64, ch: usize, i: u64) -> f32 {
+    let t = i as f64 / SR as f64;
+    let beat = (t * bpm / 60.0).fract() * 60.0 / bpm;
+    let tau = std::f64::consts::TAU;
+    let detune = if ch == 0 { 1.0 } else { 1.003 };
+    let chord: f64 = [220.0, 277.18, 329.63]
+        .iter()
+        .map(|f| (tau * f * t * detune).sin())
+        .sum();
+    let h = (i.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 40) as f64 / (1u64 << 24) as f64 - 0.5;
+    (0.1 * chord + 0.6 * h * (-beat * 30.0).exp()) as f32
+}
+
+fn loop_bpm(r: &str) -> Option<f64> {
+    r.strip_prefix("gen:loop/")?.parse().ok()
+}
+
+fn loop_frames(bpm: f64) -> u64 {
+    (16.0 * 60.0 / bpm * SR as f64).round() as u64
+}
+
+struct BenchAssets;
+impl AssetResolver for BenchAssets {
     fn sample(&self, r: &str) -> Result<Arc<SampleData>, String> {
-        Err(format!("no sample `{r}`"))
+        let bpm = loop_bpm(r).ok_or_else(|| format!("no sample `{r}`"))?;
+        let n = loop_frames(bpm);
+        Ok(Arc::new(SampleData {
+            sample_rate: SR as f64,
+            channels: (0..2)
+                .map(|c| (0..n).map(|i| loop_frame(bpm, c, i)).collect())
+                .collect(),
+            loop_range: None,
+            root_key: None,
+        }))
     }
+    fn stream(&self, r: &str) -> Option<Result<Box<dyn SampleStream>, String>> {
+        let bpm = loop_bpm(r)?;
+        Some(Ok(Box::new(LoopStream(bpm))))
+    }
+}
+
+struct LoopStream(f64);
+impl SampleStream for LoopStream {
+    fn frames(&self) -> u64 {
+        loop_frames(self.0)
+    }
+    fn sample_rate(&self) -> f64 {
+        SR as f64
+    }
+    fn channels(&self) -> usize {
+        2
+    }
+    fn read(&mut self, start: u64, out: &mut [&mut [f32]]) -> Result<usize, StreamError> {
+        let n = out.iter().map(|c| c.len()).min().unwrap_or(0);
+        let frames = self.frames();
+        for (c, o) in out.iter_mut().enumerate() {
+            for (k, v) in o.iter_mut().enumerate().take(n) {
+                let i = start + k as u64;
+                *v = if i < frames {
+                    loop_frame(self.0, c, i)
+                } else {
+                    0.0
+                };
+            }
+        }
+        Ok(n.min(frames.saturating_sub(start) as usize))
+    }
+}
+
+/// The reference project plus 8 stretched, tempo-synced audio clips (M2 criterion 7).
+fn audio_project() -> Project {
+    let mut e = Edit::new(&reference_project());
+    for (k, bpm) in LOOP_BPMS.iter().enumerate() {
+        let s = e
+            .add_sample(SampleEntry {
+                id: SampleId(0),
+                path: format!("gen:loop/{bpm}"),
+                name: format!("loop {bpm}"),
+                frames: loop_frames(*bpm),
+                sample_rate: SR,
+                channels: 2,
+                bpm: Some(SampleBpm {
+                    value: *bpm,
+                    source: BpmSource::User,
+                }),
+                root_key: None,
+                analysis: Default::default(),
+                provenance: Default::default(),
+            })
+            .unwrap();
+        let mut a = AudioClip::new(s);
+        a.tempo_sync = true;
+        a.stretch = StretchMode::Stretch;
+        a.gain_db = -12.0;
+        e.add_audio_clip(1 + k as u32, 0, 16 * PPQ, a).unwrap();
+    }
+    e.finish().0
 }
 
 fn reference_project() -> Project {
@@ -95,7 +197,7 @@ fn reference_project() -> Project {
     e.finish().0
 }
 
-fn engine(threads: usize) -> (Engine, ph_engine::SimulatedDevice) {
+fn engine(threads: usize, audio: bool) -> (Engine, ph_engine::SimulatedDevice) {
     let (engine, mut dev) = Engine::start_simulated(
         EngineConfig {
             sample_rate: SR,
@@ -103,10 +205,15 @@ fn engine(threads: usize) -> (Engine, ph_engine::SimulatedDevice) {
             threads,
             ..EngineConfig::default()
         },
-        Arc::new(NoAssets),
+        Arc::new(BenchAssets),
     )
     .unwrap();
-    engine.set_project(Arc::new(reference_project())).unwrap();
+    let project = if audio {
+        audio_project()
+    } else {
+        reference_project()
+    };
+    engine.set_project(Arc::new(project)).unwrap();
     engine.transport(TransportCommand::Play);
     // warm up: voices sounding, caches hot
     for _ in 0..200 {
@@ -116,9 +223,9 @@ fn engine(threads: usize) -> (Engine, ph_engine::SimulatedDevice) {
 }
 
 /// Block times over `blocks` callbacks, in seconds.
-fn block_times(threads: usize, blocks: usize) -> Vec<f64> {
-    let (_engine, mut dev) = engine(threads);
-    (0..blocks)
+fn block_times(threads: usize, blocks: usize, audio: bool) -> Vec<f64> {
+    let (engine, mut dev) = engine(threads, audio);
+    let times = (0..blocks)
         .map(|_| {
             let t = Instant::now();
             let b = dev.pull(BUFFER as usize);
@@ -126,7 +233,11 @@ fn block_times(threads: usize, blocks: usize) -> Vec<f64> {
             std::hint::black_box(&b);
             dt
         })
-        .collect()
+        .collect();
+    let st = engine.stats();
+    assert!(st.warnings.is_empty(), "{:?}", st.warnings);
+    assert_eq!(st.underruns, 0, "streaming fell behind");
+    times
 }
 
 /// Mean, median and worst DSP load (block time / buffer duration).
@@ -145,12 +256,17 @@ fn loads(times: &[f64]) -> (f64, f64, f64) {
 /// reported figure is the median of the runs, which keeps one noisy run from deciding.
 fn perf_json(path: &str) {
     let mut fields = Vec::new();
-    for (label, threads) in [("all_cores", 0usize), ("one_thread", 1)] {
+    for (label, threads, audio) in [
+        ("all_cores", 0usize, false),
+        ("one_thread", 1, false),
+        ("audio_all_cores", 0, true),
+        ("audio_one_thread", 1, true),
+    ] {
         let mut means = Vec::new();
         let mut medians = Vec::new();
         let mut worsts = Vec::new();
         for _ in 0..5 {
-            let (mean, median, worst) = loads(&block_times(threads, 2000));
+            let (mean, median, worst) = loads(&block_times(threads, 2000, audio));
             means.push(mean);
             medians.push(median);
             worsts.push(worst);
@@ -189,17 +305,28 @@ fn bench(c: &mut Criterion) {
         perf_json(&path);
         return;
     }
-    for (label, threads) in [("all cores", 0usize), ("one thread", 1)] {
-        let (mean, _, worst) = loads(&block_times(threads, 2000));
+    for (label, threads, audio) in [
+        ("all cores", 0usize, false),
+        ("one thread", 1, false),
+        ("all cores, + 8 stretched audio clips", 0, true),
+        ("one thread, + 8 stretched audio clips", 1, true),
+    ] {
+        let (mean, median, worst) = loads(&block_times(threads, 2000, audio));
         println!(
-            "reference project, 48 kHz / {BUFFER} frames, {label}: DSP load {:.1}% mean, {:.1}% worst block",
+            "reference project, 48 kHz / {BUFFER} frames, {label}: DSP load {:.1}% mean, {:.1}% median, {:.1}% worst block",
             mean * 100.0,
+            median * 100.0,
             worst * 100.0
         );
     }
     let mut g = c.benchmark_group("reference_project_block_256");
-    for (label, threads) in [("all_cores", 0usize), ("one_thread", 1)] {
-        let (_engine, mut dev) = engine(threads);
+    for (label, threads, audio) in [
+        ("all_cores", 0usize, false),
+        ("one_thread", 1, false),
+        ("audio_all_cores", 0, true),
+        ("audio_one_thread", 1, true),
+    ] {
+        let (_engine, mut dev) = engine(threads, audio);
         g.bench_function(label, |b| b.iter(|| dev.pull(BUFFER as usize)));
     }
     g.finish();

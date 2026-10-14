@@ -50,14 +50,16 @@ void operator delete[](void *p, std::size_t) noexcept { std::free(p); }
 
 extern "C" {
 
-// preset: 0 = presetDefault, 1 = presetCheaper. Returns null on failure.
-void *ph_stretch_new(int channels, float sample_rate, int preset, unsigned seed) {
+// preset: 0 = presetDefault, 1 = presetCheaper. split: spread each spectrum's work over
+// the following interval (one interval more output latency, no CPU bursts). Returns null on
+// failure.
+void *ph_stretch_new(int channels, float sample_rate, int preset, unsigned seed, int split) {
     try {
         Stretch *s = new Stretch(long(seed));
         if (preset == 1) {
-            s->presetCheaper(channels, sample_rate);
+            s->presetCheaper(channels, sample_rate, split != 0);
         } else {
-            s->presetDefault(channels, sample_rate);
+            s->presetDefault(channels, sample_rate, split != 0);
         }
         return s;
     } catch (...) {

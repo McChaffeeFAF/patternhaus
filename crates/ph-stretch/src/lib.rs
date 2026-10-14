@@ -30,7 +30,13 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 
 unsafe extern "C" {
-    fn ph_stretch_new(channels: i32, sample_rate: f32, preset: i32, seed: u32) -> *mut c_void;
+    fn ph_stretch_new(
+        channels: i32,
+        sample_rate: f32,
+        preset: i32,
+        seed: u32,
+        split: i32,
+    ) -> *mut c_void;
     fn ph_stretch_free(h: *mut c_void);
     fn ph_stretch_reset(h: *mut c_void);
     fn ph_stretch_input_latency(h: *const c_void) -> i32;
@@ -75,6 +81,19 @@ impl Stretch {
     /// Creates and configures an instance. Allocates: never on the audio thread. `None` when
     /// the arguments are out of range or the C++ side fails.
     pub fn new(channels: usize, sample_rate: f64, preset: Preset, seed: u32) -> Option<Self> {
+        Self::with_split(channels, sample_rate, preset, seed, false)
+    }
+
+    /// [`Stretch::new`] with Signalsmith's split computation: each spectrum's work is spread
+    /// over the following interval instead of landing in one call, for one interval more
+    /// output latency. What a real-time caller wants.
+    pub fn with_split(
+        channels: usize,
+        sample_rate: f64,
+        preset: Preset,
+        seed: u32,
+        split: bool,
+    ) -> Option<Self> {
         if channels == 0 || channels > MAX_CHANNELS || sample_rate.is_nan() || sample_rate <= 1000.0
         {
             return None;
@@ -84,7 +103,8 @@ impl Stretch {
             Preset::Cheaper => 1,
         };
         // SAFETY: plain values in, an owned pointer (or null) out.
-        let h = unsafe { ph_stretch_new(channels as i32, sample_rate as f32, p, seed) };
+        let h =
+            unsafe { ph_stretch_new(channels as i32, sample_rate as f32, p, seed, split as i32) };
         NonNull::new(h).map(|h| Self { h, channels })
     }
 

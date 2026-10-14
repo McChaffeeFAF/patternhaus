@@ -10,6 +10,7 @@ mod oracle;
 mod routing;
 mod rt_miri;
 mod rt_safety;
+mod stretch_quality;
 mod timing;
 mod transport;
 

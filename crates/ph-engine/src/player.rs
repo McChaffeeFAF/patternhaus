@@ -687,8 +687,12 @@ pub(crate) fn build_track(
             stream_sources.push(s.clone());
         }
     }
-    // a configured stretcher tells the warm-up lead
-    let preset = ph_stretch::Preset::Default;
+    // a configured stretcher tells the warm-up lead. Live playback uses Signalsmith's
+    // cheaper preset (about half the CPU); renders at high quality the default one.
+    let preset = match quality {
+        Quality::Live => ph_stretch::Preset::Cheaper,
+        Quality::High => ph_stretch::Preset::Default,
+    };
     let make_stretcher = |seed: u32| -> Box<dyn Stretcher> {
         let mut st: Box<dyn Stretcher> = Box::new(SignalsmithStretcher::new(preset, seed));
         st.configure(stretch_channels.max(1), sr, QUANTUM);

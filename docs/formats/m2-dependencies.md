@@ -31,6 +31,14 @@ Rubber Band is GPL and stays out (M2 milestone, "Stretch engine").
   the Signalsmith API (`configure` ≈ `presetDefault`, `reset`, `input_latency`,
   `output_latency`, `set_transpose` ≈ `setTransposeSemitones`, `process`).
 
+**T1 outcome (2026-10-13).** T1 took the thin binding: `crates/ph-stretch` vendors
+`signalsmith-stretch.h` (1.3.1) and Signalsmith Linear's `fft.h`/`stft.h`, as shipped in the
+`signalsmith-stretch` 0.1.3 crate, with their MIT licence texts, and compiles its own
+`extern "C"` wrapper with `cc`. No bindgen, so build machines need a C++14 compiler but not
+libclang (this machine has no LLVM, which settled it). One line is patched (the spectral-peak
+reserve, so `process` never reallocates). The licences are listed in `about.hbs`; no new
+crates.io dependency.
+
 **T3, plugins.**
 - Both host crates are permissively licensed; nothing GPL is pulled in.
 - ASIO stays a separate GPLv3 build (M1); plugin hosting does not change that.

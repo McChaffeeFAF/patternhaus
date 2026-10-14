@@ -63,4 +63,15 @@ Sources for the *Behaves* column:
 | UI | History panel: per-author undo, undo of one transaction, conflict dialog | `history.undo` `history.undo_author` `history.undo_txn` (mode `stop` / `skip` / `force`) | differs: per-author (DESIGN §3) |
 | UI | Agent activity: flash and badge on agent edits, `ui.select` highlight, grant prompt hook | `ui.open_panel` `ui.close_panel` `ui.select` `ui.show_piano_roll` `ui.notify`; `AgentDirectory` hook | differs: no FL counterpart (agent interface, DESIGN §5) |
 
+## M2: Make a Song
+
+| Area | Feature | Wired | Behaves |
+|---|---|---|---|
+| Playlist | Audio clips play with pattern clips in song mode: trim either edge, slip, split, clip gain, fade in/out with curve shapes, reverse, pitch (semitones and cents), track mute | `audio.add_clip` `audio.set_range` `audio.split` `audio.set_gain` `audio.set_fade` `audio.set_reverse` `audio.set_pitch` `playlist.*`; engine audio-track node (`ph_engine::player`) | 2026-10-13: engine tests (offsets, fades per curve, reverse, pitch, mute, seek and loop inside clips, live = offline). Differs: fade shapes are four fixed curves (linear, exp, log, S), not FL's tension knob; owner check pending |
+| Playlist | Time-stretch modes: resample (pitch follows speed), stretch (pitch kept), slice (re-time at transients) | `audio.set_stretch`; Signalsmith Stretch (MIT) via `ph-stretch` | 2026-10-13: objective stretch tests (M2.md, "Stretch quality (T1)"). Differs: three modes, not FL's list of stretch algorithms; owner listening sign-off pending |
+| Playlist | Tempo-synced audio follows the project tempo, including tempo automation | `audio.set_stretch { tempo_sync }`; `tempo` automation clips build the engine's tempo map | 2026-10-13: engine tests (clicks land on the beats through a tempo change); owner check pending |
+| Playlist | Detect a sample's tempo; fit a clip to the project tempo in one step | `sample.detect_bpm` `audio.fit_to_tempo` `sample.set_bpm` | 2026-10-13: generated test set (M2.md, BPM detection). A tempo the user set is never overwritten. Owner check pending against FL's tempo detection on the same loops |
+| Slicer | Detect transients (sensitivity) for slicing | `slicer.detect` | 2026-10-13: generated material tests; the slice instrument itself is M2/T6. Owner check pending |
+| Audio | Long audio files stream from disk | engine prefetch thread (`ph_engine::stream`), `EngineStats.underruns` | n/a: engine internals (DESIGN §4), no user-facing FL setting is mirrored |
+
 [notes]: ../formats/fl-behaviour-notes.md

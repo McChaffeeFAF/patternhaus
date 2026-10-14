@@ -434,13 +434,8 @@ pub(crate) mod tests {
             ));
         }
         let names = ["four on the floor", "backbeat", "breakbeat", "half-time"];
-        println!(
-            "{}",
-            lines.join(
-                "
-"
-            )
-        );
+        let report = lines.join("\n");
+        println!("{report}");
         for (k, (ex, oc, n)) in by_kind.iter().enumerate() {
             println!("{:<18} exact {ex}/{n}, octave {oc}/{n}", names[k]);
         }
@@ -450,28 +445,21 @@ pub(crate) mod tests {
             "all: exact (within 1%) {exact}/{}, octave errors {octave}, worst error {max_err_pct:.3}%",
             set.len()
         );
-        let report = lines.join(
-            "
-",
-        );
         assert_eq!(
             exact + octave,
             set.len(),
-            "a reading off by more than an octave
-{report}"
+            "a reading off by more than an octave\n{report}"
         );
         for k in [0, 1] {
             assert_eq!(
                 by_kind[k].0, by_kind[k].2,
-                "{}: wrong octave
-{report}",
+                "{}: wrong octave\n{report}",
                 names[k]
             );
         }
         assert!(
             exact * 100 >= set.len() * 65,
-            "{exact}/{} exact
-{report}",
+            "{exact}/{} exact\n{report}",
             set.len()
         );
     }

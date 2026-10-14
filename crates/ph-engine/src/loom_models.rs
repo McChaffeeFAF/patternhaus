@@ -217,26 +217,25 @@ fn handoff_never_uses_a_retracted_job() {
 }
 
 /// Stream cache slot (seqlock): the prefetch thread replaces block 1 with block 2 while the
-/// audio thread copies. A copy that reports success holds exactly one block's samples, never
-/// a mix; once the writer is done, block 2 is readable.
+/// audio thread copies. A copy that reports success holds exactly that block's samples,
+/// never a mix of old and new; once the writer is done, block 2 is readable and block 1 is
+/// gone. (One frame per block keeps the model small; the protocol does not depend on it.)
 #[test]
 fn stream_slot_seqlock() {
     loom::model(|| {
-        let slot = Arc::new(Slot::new(2));
-        slot.write(1, &[1.0, 1.0], &[-1.0, -1.0]);
+        let slot = Arc::new(Slot::new(1));
+        slot.write(1, &[1.0], &[-1.0]);
         let s2 = slot.clone();
-        let writer = thread::spawn(move || s2.write(2, &[2.0, 2.0], &[-2.0, -2.0]));
-        for k in [1u64, 2] {
-            let (mut l, mut r) = ([0.0f32; 2], [0.0f32; 2]);
-            if slot.copy(k, 0, 2, [&mut l, &mut r], 0) {
-                assert_eq!(l, [k as f32; 2], "torn read of block {k}");
-                assert_eq!(r, [-(k as f32); 2], "torn read of block {k}");
-            }
+        let writer = thread::spawn(move || s2.write(2, &[2.0], &[-2.0]));
+        let (mut l, mut r) = ([0.0f32; 1], [0.0f32; 1]);
+        if slot.copy(2, 0, 1, [&mut l, &mut r], 0) {
+            assert_eq!((l, r), ([2.0], [-2.0]), "torn read of the new block");
+        } else if slot.copy(1, 0, 1, [&mut l, &mut r], 0) {
+            assert_eq!((l, r), ([1.0], [-1.0]), "torn read of the old block");
         }
         writer.join().unwrap();
-        let (mut l, mut r) = ([0.0f32; 2], [0.0f32; 2]);
-        assert!(slot.copy(2, 0, 2, [&mut l, &mut r], 0));
-        assert_eq!((l, r), ([2.0; 2], [-2.0; 2]));
-        assert!(!slot.copy(1, 0, 2, [&mut l, &mut r], 0), "block 1 is gone");
+        assert!(slot.copy(2, 0, 1, [&mut l, &mut r], 0));
+        assert_eq!((l, r), ([2.0], [-2.0]));
+        assert!(!slot.copy(1, 0, 1, [&mut l, &mut r], 0), "block 1 is gone");
     });
 }

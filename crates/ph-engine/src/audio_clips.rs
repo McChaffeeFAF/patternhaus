@@ -213,7 +213,8 @@ pub struct SignalsmithStretcher {
 
 impl SignalsmithStretcher {
     /// Unconfigured; [`Stretcher::configure`] allocates. `seed` drives the phase
-    /// randomisation Signalsmith uses for stretches slower than 0.5×.
+    /// randomisation Signalsmith uses for stretches slower than 0.5×. Configured with split
+    /// computation (each spectrum's work spread over an interval), for even real-time load.
     pub fn new(preset: ph_stretch::Preset, seed: u32) -> Self {
         Self {
             inner: None,
@@ -225,7 +226,8 @@ impl SignalsmithStretcher {
 
 impl Stretcher for SignalsmithStretcher {
     fn configure(&mut self, channels: usize, sample_rate: f64, _max_frames: usize) {
-        self.inner = ph_stretch::Stretch::new(channels, sample_rate, self.preset, self.seed);
+        self.inner =
+            ph_stretch::Stretch::with_split(channels, sample_rate, self.preset, self.seed, true);
     }
     fn reset(&mut self) {
         if let Some(s) = self.inner.as_mut() {
