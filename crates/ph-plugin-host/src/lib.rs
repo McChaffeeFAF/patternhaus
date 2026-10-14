@@ -29,7 +29,14 @@
 //! 5. Real-time rules hold until the fault; the fault path itself may allocate (the
 //!    panic already did) because it happens at most once per node.
 
+pub mod clap;
 pub mod fake;
+pub mod guard;
+mod main_thread;
+pub mod manager;
+pub mod scan;
+pub mod testing;
+pub mod vst3;
 
 use ph_node::*;
 use serde::{Deserialize, Serialize};
@@ -148,6 +155,33 @@ pub trait PluginInstance: Processor {
     fn editor(&mut self) -> Option<Box<dyn PluginEditor>> {
         None
     }
+
+    /// A thread-safe handle for everything but processing (M2/T3, added): state, current
+    /// parameter values, latency and the editor, usable from any thread while the instance
+    /// itself runs inside the engine. Format adapters return one; [`PluginNode::new`] adopts
+    /// its [`FaultHandle`], so a fault seen by either side kills both.
+    fn control(&self) -> Option<Arc<dyn PluginControl>> {
+        None
+    }
+}
+
+/// Off-audio-thread access to a live plugin (see [`PluginInstance::control`]). Every call is
+/// marshalled to the plugin's main thread and crash-guarded; after a fault every call fails
+/// with [`PluginError::Dead`].
+pub trait PluginControl: Send + Sync {
+    fn info(&self) -> &PluginInfo;
+    /// The fault handle shared with the instance (and its [`PluginNode`]).
+    fn fault(&self) -> Arc<FaultHandle>;
+    /// Current plain values of every parameter, in descriptor order.
+    fn param_values(&self) -> PluginResult<Vec<f64>>;
+    /// The plugin's own text for a value of the parameter at `index` (descriptor order).
+    fn param_text(&self, index: usize, value: f64) -> Option<String>;
+    /// The plugin's state, as [`Processor::save_state`] would return it.
+    fn save_state(&self) -> PluginResult<Vec<u8>>;
+    /// Latency in samples, as last reported by the plugin.
+    fn latency(&self) -> u32;
+    /// The plugin's own editor, if it has one.
+    fn editor(&self) -> Option<Box<dyn PluginEditor>>;
 }
 
 /// Size of an editor in logical pixels.
@@ -273,12 +307,18 @@ impl PluginNode {
     pub fn new(instance: Box<dyn PluginInstance>) -> Self {
         let desc = instance.descriptor().clone();
         let id = instance.info().id.clone();
+        let fault = instance.control().map(|c| c.fault()).unwrap_or_default();
         Self {
             inner: Some(instance),
             desc,
             id,
-            fault: Arc::new(FaultHandle::default()),
+            fault,
         }
+    }
+
+    /// The instance's control handle (see [`PluginInstance::control`]); `None` once dead.
+    pub fn control(&self) -> Option<Arc<dyn PluginControl>> {
+        self.live().and_then(|i| i.control())
     }
 
     /// For the host: whether and how this node died.
@@ -310,7 +350,7 @@ impl PluginNode {
         let inner = self.inner.as_deref_mut()?;
         match catch_unwind(AssertUnwindSafe(|| f(inner))) {
             Ok(r) => Some(r),
-            Err(payload) => {
+            Err(payload) => assert_no_alloc::permit_alloc(|| {
                 let message = payload
                     .downcast_ref::<&str>()
                     .map(|s| s.to_string())
@@ -327,7 +367,7 @@ impl PluginNode {
                     message,
                 });
                 None
-            }
+            }),
         }
     }
 }
@@ -385,6 +425,16 @@ impl Processor for PluginNode {
     fn load_state(&mut self, state: &[u8], assets: &dyn AssetResolver) -> Result<(), String> {
         self.call(PluginCall::LoadState, |p| p.load_state(state, assets))
             .unwrap_or_else(|| Err(PluginError::Dead.to_string()))
+    }
+}
+
+impl Drop for PluginNode {
+    fn drop(&mut self) {
+        // a faulted plugin is never called again, not even its destructor (contract rule 3);
+        // this also covers faults reported by the format adapter rather than caught here
+        if self.fault.is_dead() {
+            std::mem::forget(self.inner.take());
+        }
     }
 }
 
