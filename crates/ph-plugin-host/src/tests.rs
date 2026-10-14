@@ -177,3 +177,18 @@ fn infos_and_status_serialise_for_the_scan_cache() {
     );
     assert_eq!(PluginStatus::default(), PluginStatus::Ok);
 }
+
+#[test]
+fn state_files_round_trip_and_reject_garbage() {
+    let s = PluginState {
+        format: PluginFormat::Clap,
+        plugin_id: FAKE_ID.into(),
+        version: "1.0.0".into(),
+        data: b"line one\nbinary \x00\xff".to_vec(),
+    };
+    let bytes = s.to_file_bytes();
+    assert!(bytes.starts_with(b"PATTERNHAUS-PLUGIN-STATE 1\n{"));
+    assert_eq!(PluginState::from_file_bytes(&bytes).unwrap(), s);
+    assert!(PluginState::from_file_bytes(b"junk").is_err());
+    assert!(PluginState::from_file_bytes(&bytes[..bytes.len() - 1]).is_err());
+}

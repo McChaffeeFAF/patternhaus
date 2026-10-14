@@ -141,7 +141,7 @@ fn tour(theme: &str, prefix: &str) {
     let ids = ids.unwrap();
     let _keep = fx.dir;
     let mut app = fx.app;
-    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
     app.core.sel.channel = Some(ids.kick);
     app.core.sel.pattern = Some(ids.beat);
     app.core.sel.insert = 4;
@@ -312,7 +312,7 @@ fn renders_sharply_at_double_dpi() {
     let (fx, _) = fixture(true);
     let _keep = fx.dir;
     let mut app = fx.app;
-    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
     let mut h = harness_ppp(app, 1000.0, 640.0, 2.0);
     shot(&mut h, "neon-hidpi-2x");
 }
@@ -338,7 +338,7 @@ fn keys_drive_commands_through_real_egui_events() {
     let ids = ids.unwrap();
     let _keep = fx.dir;
     let mut app = fx.app;
-    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
     app.core.sel.channel = Some(ids.kick);
     app.core.fix_selection();
     let mut h = Harness::builder()

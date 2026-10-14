@@ -176,6 +176,9 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
                 &theme,
             );
         }
+        InstrumentSpec::Plugin { .. } => {
+            crate::plugin_ui::plugin_panel(ui, core, ph_commands::PluginTarget::Channel(ch.id));
+        }
         _ => {
             ui.label("No panel for this instrument type yet.");
         }

@@ -2,10 +2,12 @@
 
 use crate::EngineResult;
 use crate::plan::{CompileOptions, Plan, Settings, Shadow, compile};
+use crate::plugins::{LivePlugin, PluginSlot};
 use crate::rt::Mailbox;
 use crate::stats::StatsBoard;
 use ph_core::Project;
 use ph_node::AssetResolver;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Compiles snapshots against the plan the audio thread runs and posts them.
@@ -23,6 +25,8 @@ pub(crate) struct Controller {
     next_id: u64,
     pub opts: CompileOptions,
     pub board: Arc<StatsBoard>,
+    /// Plugin nodes of the most recently compiled plan (M2/T3).
+    pub plugins: BTreeMap<PluginSlot, LivePlugin>,
 }
 
 impl Controller {
@@ -35,6 +39,7 @@ impl Controller {
             next_id: 1,
             opts: CompileOptions::default(),
             board: Arc::new(StatsBoard::default()),
+            plugins: BTreeMap::new(),
         }
     }
 
@@ -53,6 +58,7 @@ impl Controller {
             self.next_id,
         )?;
         self.next_id += 1;
+        self.plugins = shadow.plugins.clone();
         self.installed = shadow;
         self.pending = None;
         self.board = plan.board.clone();
@@ -96,6 +102,7 @@ impl Controller {
         )?;
         self.next_id += 1;
         self.board = plan.board.clone();
+        self.plugins = shadow.plugins.clone();
         if let Some(stale) = self.mailbox.put(plan) {
             drop(stale);
         }

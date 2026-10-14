@@ -27,6 +27,7 @@ mod device;
 mod loom_models;
 mod offline;
 mod plan;
+pub mod plugins;
 mod pool;
 pub mod record;
 mod rt;
@@ -210,6 +211,10 @@ struct Inner {
     warnings: (usize, Vec<String>),
     /// Preview voices to and from the audio thread.
     audition: Arc<audition::Port>,
+    /// Plugin hosting (M2/T3), carried across reconfigures.
+    plugins: Option<plugins::PluginEnv>,
+    /// Plugin faults reported so far (M2/T3), oldest first.
+    faults: Vec<plugins::PluginFaultReport>,
 }
 
 /// Command ring capacity (transport, previews) between control and audio threads.
@@ -340,6 +345,8 @@ impl Engine {
             .recv()
             .map_err(|_| EngineError::Device("device thread ended unexpectedly".into()))?;
         Ok(Inner {
+            plugins: None,
+            faults: Vec::new(),
             sample_rate: handle.sample_rate,
             buffer_frames: handle.buffer_frames,
             warnings: (0, Vec::new()),
@@ -381,6 +388,8 @@ impl Engine {
             &status,
         )?;
         let inner = Inner {
+            plugins: None,
+            faults: Vec::new(),
             sample_rate: settings.sample_rate,
             buffer_frames: settings.max_frames as u32,
             warnings: (0, Vec::new()),
@@ -470,10 +479,12 @@ impl Engine {
         g.audition.collect();
         let ptr = Arc::as_ptr(&g.project) as usize;
         if g.warnings.0 != ptr {
-            let w = project_warnings(&g.project, &*g.assets);
+            let w = project_warnings_with(&g.project, &*g.assets, g.plugins.as_ref());
             g.warnings = (ptr, w);
         }
-        let warnings = g.warnings.1.clone();
+        Self::check_faults(&mut g);
+        let mut warnings = g.warnings.1.clone();
+        warnings.extend(g.faults.iter().map(|f| f.message()));
         let sh = &self.shared;
         let budget_us = g.buffer_frames as f32 / g.sample_rate.max(1) as f32 * 1e6;
         let nodes = g
@@ -630,15 +641,97 @@ impl Engine {
             position: self.shared.position.load(Relaxed),
             ..g.mirror.clone()
         };
-        let inner = Self::open_device(
+        let mut inner = Self::open_device(
             config,
             g.assets.clone(),
             self.shared.clone(),
             g.project.clone(),
             status,
         )?;
+        inner.faults = std::mem::take(&mut g.faults);
+        if let Some(env) = g.plugins.take() {
+            inner.plugins = Some(env.clone());
+            inner.ctl.opts.plugins = Some(env);
+            let project = inner.project.clone();
+            inner.ctl.submit_with(&project, &*inner.assets, true)?;
+        }
         *g = inner;
         Ok(())
+    }
+}
+
+impl Engine {
+    /// Enables plugin hosting (M2/T3): plugin instruments and effects compile through `env`
+    /// from now on (the running project is rebuilt so its plugins load). `None` turns it off.
+    pub fn set_plugins(&self, env: Option<plugins::PluginEnv>) -> EngineResult<()> {
+        let mut g = self.lock();
+        let inner = &mut *g;
+        inner.plugins = env.clone();
+        inner.ctl.opts.plugins = env;
+        inner.warnings = (0, Vec::new());
+        let project = inner.project.clone();
+        inner.ctl.submit_with(&project, &*inner.assets, true)
+    }
+
+    /// The plugin hosting the engine uses, if enabled.
+    pub fn plugin_env(&self) -> Option<plugins::PluginEnv> {
+        self.lock().plugins.clone()
+    }
+
+    /// Plugin nodes of the current plan, by where they sit.
+    pub fn plugins(&self) -> Vec<plugins::LivePlugin> {
+        self.lock().ctl.plugins.values().cloned().collect()
+    }
+
+    /// The plugin node at `slot`, if the current plan has one.
+    pub fn plugin(&self, slot: plugins::PluginSlot) -> Option<plugins::LivePlugin> {
+        self.lock().ctl.plugins.get(&slot).cloned()
+    }
+
+    /// Plugins that crashed so far, oldest first. A new fault is detected here (and by
+    /// [`Engine::stats`]): it is recorded once, and the plugin is marked *isolate* in the scan
+    /// cache so it is not loaded in-process again (DESIGN §6). The session keeps running; the
+    /// node plays silence.
+    pub fn plugin_faults(&self) -> Vec<plugins::PluginFaultReport> {
+        let mut g = self.lock();
+        Self::check_faults(&mut g);
+        g.faults.clone()
+    }
+
+    fn check_faults(g: &mut Inner) {
+        let mut new = Vec::new();
+        for lp in g.ctl.plugins.values() {
+            if let Some(fault) = lp.fault.fault()
+                && !g
+                    .faults
+                    .iter()
+                    .any(|f| f.slot == lp.slot && f.fault == fault && f.plugin.id == lp.info.id)
+            {
+                new.push(plugins::PluginFaultReport {
+                    slot: lp.slot,
+                    plugin: lp.info.clone(),
+                    fault,
+                });
+            }
+        }
+        for f in new {
+            if let Some(env) = &g.plugins {
+                env.host.mark_fault(f.plugin.format, &f.fault);
+            }
+            g.warnings = (0, Vec::new());
+            g.faults.push(f);
+        }
+    }
+
+    /// The live state of every plugin node that names a state file, as `plugins/<file>`
+    /// contents by reference. For saving the project and for offline renders of the live
+    /// session. Plugins that cannot save (crashed, no control) are left out.
+    pub fn plugin_states(&self) -> std::collections::BTreeMap<String, Vec<u8>> {
+        let live = self.plugins();
+        live.into_iter()
+            .filter(|p| !p.fault.is_dead())
+            .filter_map(|p| Some((p.state_ref.clone()?, p.state_file().ok()?)))
+            .collect()
     }
 }
 
@@ -690,12 +783,44 @@ pub fn render_offline(
     offline::render(project, settings, assets, worker_count(0))
 }
 
+/// [`render_offline`] with plugin hosting (M2/T3): plugin specs instantiate fresh instances
+/// through `plugins`, loading their states from the project folder, or from
+/// [`plugins::PluginEnv::with_states`] (e.g. [`Engine::plugin_states`], to render the live
+/// session's plugin settings).
+pub fn render_offline_with(
+    project: &Project,
+    settings: &RenderSettings,
+    assets: &dyn AssetResolver,
+    plugins: Option<&plugins::PluginEnv>,
+) -> EngineResult<AudioBuffer> {
+    offline::render_with(project, settings, assets, worker_count(0), plugins)
+}
+
 /// Instruments and effects of `project` that cannot be built (an unloadable sample, an
 /// unsupported or plugin-only instrument): the engine plays them as silence or a
 /// pass-through, so front ends and agents are told here. Off the audio thread only.
 pub fn project_warnings(project: &Project, assets: &dyn AssetResolver) -> Vec<String> {
+    project_warnings_with(project, assets, None)
+}
+
+/// [`project_warnings`] knowing which plugins can be loaded (M2/T3): a plugin spec warns only
+/// when its plugin was not scanned, is isolated or blocked, or hosting is off.
+pub fn project_warnings_with(
+    project: &Project,
+    assets: &dyn AssetResolver,
+    plugins: Option<&plugins::PluginEnv>,
+) -> Vec<String> {
     let mut out = Vec::new();
     for ch in project.channels_in_order() {
+        if let Some((format, id, _)) = plugins::instrument_plugin(&ch.instrument) {
+            if let Some(why) = plugins::unavailable(plugins, format, id) {
+                out.push(format!(
+                    "channel {:?} (id {}): {why}; it will play silence",
+                    ch.name, ch.id.0
+                ));
+            }
+            continue;
+        }
         if let Err(e) = ph_instruments::create(&ch.instrument, assets) {
             out.push(format!(
                 "channel {:?} (id {}): {e}; it will play silence",
@@ -705,6 +830,15 @@ pub fn project_warnings(project: &Project, assets: &dyn AssetResolver) -> Vec<St
     }
     for (i, ins) in project.mixer.iter().enumerate() {
         for (s, slot) in ins.effects.iter().enumerate() {
+            if let Some((format, id, _)) = plugins::effect_plugin(&slot.effect) {
+                if let Some(why) = plugins::unavailable(plugins, format, id) {
+                    out.push(format!(
+                        "insert {i} {:?}, effect slot {s}: {why}; the effect is skipped",
+                        ins.name
+                    ));
+                }
+                continue;
+            }
             if let Err(e) = ph_effects::create(&slot.effect) {
                 out.push(format!(
                     "insert {i} {:?}, effect slot {s}: {e}; the effect is skipped",

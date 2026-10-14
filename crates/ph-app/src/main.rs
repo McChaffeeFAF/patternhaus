@@ -154,6 +154,7 @@ fn main() -> eframe::Result {
                 projects_dir: ph_control::default_projects_dir(),
                 engine: engine_cfg.clone(),
                 audio,
+                plugins: ph_control::default_plugin_config(),
             };
             let mut notice = None;
             let studio = if args.silent {

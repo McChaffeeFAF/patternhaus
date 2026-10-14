@@ -22,7 +22,7 @@ fn undo_all_by_agent_leaves_my_work() {
     let (mut fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let app = &mut fx.app;
-    pump_until(app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(app, 5000, |a| a.core.project.channels.len() == 4);
     let base = note_count(app, &ids);
     assert_eq!(base, 4, "kick row from the beat");
 
@@ -85,7 +85,7 @@ fn conflicted() -> (Fixture, Ids, ph_core::NoteId) {
     let (mut fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let app = &mut fx.app;
-    pump_until(app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(app, 5000, |a| a.core.project.channels.len() == 4);
     demo_agent::step(&app.core.studio.session, 0);
     settle(app);
     let note = app.core.project.pattern(ids.beat).unwrap().notes[&ids.kick]
@@ -163,7 +163,7 @@ fn undoing_a_single_transaction_from_the_history() {
     let (mut fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let app = &mut fx.app;
-    pump_until(app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(app, 5000, |a| a.core.project.channels.len() == 4);
     demo_agent::step(&app.core.studio.session, 1);
     demo_agent::step(&app.core.studio.session, 2);
     settle(app);

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/*", "xtask"]
+members = ["crates/*", "tools/*", "test-plugins/*", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -44,6 +44,13 @@ toml = "1"
 ron = "0.12"
 # window handles for plugin editors (already in the tree through winit/wgpu)
 raw-window-handle = "0.6"
+# plugin hosting (M2/T3; licences in docs/formats/m2-dependencies.md)
+clack-host = "0.2"
+clack-extensions = { version = "0.2", features = ["clack-host", "audio-ports", "note-ports", "params", "state", "latency", "tail", "gui", "log", "thread-check", "raw-window-handle_06"] }
+clap-sys = "0.5"
+vst3 = "0.3"
+libloading = "0.8"
+cc = "1"
 
 [profile.dev]
 # DSP is unusably slow unoptimised; keep debug info but optimise a little, and dependencies fully.

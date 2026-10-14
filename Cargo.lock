@@ -576,6 +576,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "clack-common"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ca905d78f46117492bce49e64a765f8b3f5c71794486a1369242721860e2640"
+dependencies = [
+ "bitflags 2.13.2",
+ "clap-sys",
+]
+
+[[package]]
+name = "clack-extensions"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "733d43b7ebd76a65931e8de2aa077200add4902514f4bda941c99326c14937dd"
+dependencies = [
+ "bitflags 2.13.2",
+ "clack-common",
+ "clack-host",
+ "clap-sys",
+ "raw-window-handle",
+]
+
+[[package]]
+name = "clack-host"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "103a00f784a6477d82dc4580ea125e875074729c2703ccb29e5e9fb40bea5308"
+dependencies = [
+ "clack-common",
+ "clap-sys",
+ "libloading",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
 name = "clang-sys"
 version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -595,6 +630,12 @@ dependencies = [
  "clap_builder",
  "clap_derive",
 ]
+
+[[package]]
+name = "clap-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a76abbdb2907f6fd97fb6bc0b7be96b77d328f2dd9669d1075cc03369ed22154"
 
 [[package]]
 name = "clap_builder"
@@ -670,6 +711,12 @@ dependencies = [
  "lazy_static",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "com-scrape-types"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ce183b975b8fc736a20919c4002717255fbd867df575c792aeefa9a56a73ad0"
 
 [[package]]
 name = "combine"
@@ -2769,6 +2816,7 @@ dependencies = [
  "ph-engine",
  "ph-formats",
  "ph-node",
+ "ph-plugin-host",
  "png",
  "rmcp",
  "serde_json",
@@ -2801,6 +2849,7 @@ dependencies = [
  "ph-engine",
  "ph-formats",
  "ph-node",
+ "ph-plugin-host",
  "rmcp",
  "schemars",
  "serde",
@@ -2849,6 +2898,7 @@ dependencies = [
  "ph-formats",
  "ph-instruments",
  "ph-node",
+ "ph-plugin-host",
  "rtrb",
  "tempfile",
  "thiserror 2.0.21",
@@ -2893,12 +2943,35 @@ dependencies = [
 name = "ph-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "assert_no_alloc",
+ "cc",
+ "clack-extensions",
+ "clack-host",
+ "clap-sys",
+ "libloading",
  "ph-core",
  "ph-node",
  "raw-window-handle",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
+ "vst3",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ph-test-plugins"
+version = "0.1.0"
+dependencies = [
+ "clap-sys",
+]
+
+[[package]]
+name = "ph-test-vst3"
+version = "0.1.0"
+dependencies = [
+ "vst3",
 ]
 
 [[package]]
@@ -2916,6 +2989,7 @@ dependencies = [
  "ph-engine",
  "ph-formats",
  "ph-node",
+ "raw-window-handle",
  "ron",
  "serde",
  "serde_json",
@@ -4304,6 +4378,15 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vst3"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e31e3fe7a6f028ded8c5a9984cf283319e6dc63572c9b71da1d4ee9d71d3b6bf"
+dependencies = [
+ "com-scrape-types",
+]
 
 [[package]]
 name = "wait-timeout"

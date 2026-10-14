@@ -97,7 +97,13 @@ struct Save {
 fn write_project(ctx: &mut CommandCtx<'_>, path: &str) -> CmdResult<CommandOutput> {
     let dir = ctx.host.resolve_path(path, FileAccess::Write)?;
     ph_formats::save_project(ctx.project, &dir).map_err(|e| CmdError::Host(e.to_string()))?;
-    Ok(CommandOutput::value(json!({ "path": dir })))
+    // plugin states live beside project.json (DESIGN §10)
+    let states = ctx.host.save_plugin_states(ctx.project, &dir)?;
+    let mut out = json!({ "path": dir });
+    if !states.is_empty() {
+        out["plugin_states"] = json!(states);
+    }
+    Ok(CommandOutput::value(out))
 }
 
 fn save(ctx: &mut CommandCtx<'_>, p: Save) -> CmdResult<CommandOutput> {

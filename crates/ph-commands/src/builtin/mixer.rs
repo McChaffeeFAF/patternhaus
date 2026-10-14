@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 /// FL-style limit on effect slots per insert.
-const MAX_EFFECTS: usize = 10;
+pub(crate) const MAX_EFFECTS: usize = 10;
 
 pub fn register(r: &mut Registry) {
     r.register(typed(
@@ -381,7 +381,7 @@ fn set_effect_param(ctx: &mut CommandCtx<'_>, p: SetEffectParam) -> CmdResult<Co
         },
     )?;
     if !matches!(s.effect, EffectSpec::Builtin { .. }) {
-        return invalid("plugin parameters are set through the plugin's own state");
+        return invalid("this is a plugin effect: set its parameters with plugin.set_param");
     }
     if !p.value.is_finite() {
         return invalid("value must be a finite number");

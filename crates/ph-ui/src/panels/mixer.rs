@@ -531,6 +531,12 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                                 ui.close();
                             }
                         }
+                        ui.separator();
+                        let at = m.effects.len();
+                        crate::plugin_ui::plugin_menu(ui, core, false, |core, format, id| {
+                            core.send(mapping::plugin_add_effect(ins as u32, format, id));
+                            core.sel.effect = Some(at);
+                        });
                     });
                 } else {
                     ui.label(RichText::new("Insert is full (10 effects)").color(theme.colors.dim));
@@ -645,6 +651,14 @@ pub fn effect_window(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize)
 }
 
 fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effect: &EffectSpec) {
+    if let EffectSpec::Plugin { .. } = effect {
+        let target = ph_commands::PluginTarget::Effect {
+            insert,
+            slot: index as u32,
+        };
+        crate::plugin_ui::plugin_panel(ui, core, target);
+        return;
+    }
     let theme = core.theme.clone();
     let Ok(desc) = ph_engine::catalog::effect_descriptor(effect) else {
         ui.label("This effect has no parameter descriptor.");

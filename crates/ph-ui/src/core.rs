@@ -266,6 +266,8 @@ pub struct AppCore {
     history_pending: Option<Pending<Vec<HistoryEntry>>>,
     /// An in-flight read of the session's solo state (polled once per frame, see `update`).
     solo_pending: Option<Pending<ph_commands::SoloState>>,
+    /// Plugin list, live values and open plugin editors (M2/T3).
+    pub plugins: crate::plugin_ui::PluginUi,
     pub toasts: Vec<Toast>,
     pub conflict: Option<ConflictDialog>,
     pub dialog: Option<Dialog>,
@@ -390,6 +392,7 @@ impl AppCore {
             history_dirty: true,
             history_pending: None,
             solo_pending: None,
+            plugins: Default::default(),
             toasts: Vec::new(),
             conflict: None,
             dialog: None,
@@ -717,6 +720,8 @@ impl AppCore {
                     .push((PanelId::PianoRoll, PanelAction::Open));
             }
             UiRequest::Notify { message } => self.toast(ToastKind::Info, message),
+            // opened at the end of the frame, where the app window's handle is known
+            UiRequest::PluginEditor { target, open } => self.plugins.requests.push((target, open)),
         }
     }
 

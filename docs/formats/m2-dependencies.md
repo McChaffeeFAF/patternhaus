@@ -12,6 +12,11 @@ are for later tracks. Each must still pass `cargo deny check` when it is added, 
 | Time-stretch (T1), alternative | `ssstretch` | 0.1.0 | MIT | the same upstream (MIT) | Licence OK; younger and much less used |
 | CLAP host (T3) | `clack-host` (+ `clack-extensions`) | 0.2.0 | MIT OR Apache-2.0 | CLAP headers: MIT | OK |
 | VST3 host (T3) | `vst3` (coupler-rs/vst3-rs) | 0.3.0 | MIT OR Apache-2.0 | VST 3 SDK: MIT since 3.8 (DESIGN §6) | OK |
+| CLAP ABI (T3: host constants, the CLAP test plugins) | `clap-sys` | 0.5.0 | MIT OR Apache-2.0 | CLAP headers: MIT | OK (added in T3) |
+| VST3 COM helpers (T3, through `vst3`) | `com-scrape-types` | 0.1.1 | MIT OR Apache-2.0 | | OK (added in T3) |
+| Loading VST3 modules (T3) | `libloading` | 0.8 | ISC | | OK (already in the tree through clack-host) |
+| Building the crash-guard shim (T3) | `cc` | 1 | MIT OR Apache-2.0 | | OK (already in the tree) |
+| Win32 message pump, editor frames (T3) | `windows-sys` | 0.61 | MIT OR Apache-2.0 | | OK (already in the tree; T3 enables more features) |
 
 Rubber Band is GPL and stays out (M2 milestone, "Stretch engine").
 

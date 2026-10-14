@@ -1,0 +1,16 @@
+[package]
+name = "ph-test-vst3"
+description = "Patternhaus VST3 test plugins: a sine synth and a gain with latency, single-component, so the VST3 host is tested without third-party plugins (not shipped)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+# the .vst3 file is this cdylib renamed
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+vst3.workspace = true
