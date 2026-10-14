@@ -84,6 +84,34 @@ pub struct StudioConfig {
     pub projects_dir: Option<PathBuf>,
     pub engine: EngineConfig,
     pub audio: AudioMode,
+    /// Plugin hosting (M2/T3): the scan cache file, extra plugin folders and the scan helper.
+    /// `HostConfig::default()` keeps the cache in memory (tests); front ends pass
+    /// [`default_plugin_config`].
+    pub plugins: ph_engine::plugins::HostConfig,
+}
+
+/// The plugin settings front ends use: the scan cache in the user's cache folder
+/// (`%LOCALAPPDATA%\Patternhaus\plugin-cache.json`, `~/Library/Caches/Patternhaus/...`,
+/// `$XDG_CACHE_HOME/patternhaus/...`), the helper next to the executable.
+pub fn default_plugin_config() -> ph_engine::plugins::HostConfig {
+    let env = |k: &str| {
+        std::env::var_os(k)
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+    };
+    let dir = if cfg!(windows) {
+        env("LOCALAPPDATA").map(|d| d.join("Patternhaus"))
+    } else if cfg!(target_os = "macos") {
+        env("HOME").map(|h| h.join("Library/Caches/Patternhaus"))
+    } else {
+        env("XDG_CACHE_HOME")
+            .or_else(|| env("HOME").map(|h| h.join(".cache")))
+            .map(|d| d.join("patternhaus"))
+    };
+    ph_engine::plugins::HostConfig {
+        cache_file: dir.map(|d| d.join("plugin-cache.json")),
+        ..Default::default()
+    }
 }
 
 /// The running application core.
@@ -101,6 +129,7 @@ pub struct Studio {
     registry: Arc<Registry>,
     hub: Arc<OnceLock<Arc<EventHub>>>,
     ui_hint: Arc<Mutex<Option<UiHint>>>,
+    ui_attached: Arc<AtomicBool>,
 }
 
 impl Drop for Studio {
@@ -160,6 +189,14 @@ impl Studio {
             }
         };
         let engine = Arc::new(engine);
+        // plugin hosting (M2/T3): instruments and effects from scanned CLAP/VST3 plugins
+        let plugin_host = Arc::new(ph_engine::plugins::PluginHost::new(config.plugins.clone()));
+        engine
+            .set_plugins(Some(ph_engine::plugins::PluginEnv::new(
+                plugin_host,
+                &config.project_dir,
+            )))
+            .map_err(|e| e.to_string())?;
         let project = Arc::new(project);
         engine
             .set_project(project.clone())
@@ -167,8 +204,10 @@ impl Studio {
         let latest = Arc::new(Mutex::new(project.clone()));
 
         let (ui_tx, ui_requests) = channel();
-        let host =
-            EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx).with_resolver(resolver);
+        let ui_attached = Arc::new(AtomicBool::new(false));
+        let host = EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx)
+            .with_resolver(resolver)
+            .with_ui_flag(ui_attached.clone());
         let registry = Arc::new(studio_registry());
         let session = Session::new(registry.clone(), (*project).clone());
         let session = SessionHandle::spawn(session, host);
@@ -207,7 +246,14 @@ impl Studio {
             registry,
             hub: Arc::new(OnceLock::new()),
             ui_hint: Arc::new(Mutex::new(None)),
+            ui_attached,
         })
+    }
+
+    /// The UI says it is there (it takes `ui_requests`, e.g. opens plugin editors). Headless
+    /// front ends never call it, so `plugin.open_editor` reports that no UI took the request.
+    pub fn set_ui_attached(&self, attached: bool) {
+        self.ui_attached.store(attached, Ordering::Relaxed);
     }
 
     /// The snapshot the engine is playing (or about to).
@@ -342,5 +388,7 @@ pub fn studio_registry() -> Registry {
 
 #[cfg(test)]
 mod coverage;
+#[cfg(test)]
+mod plugin_tests;
 #[cfg(test)]
 mod tests;

@@ -19,12 +19,18 @@ struct NodeParams {
     /// Built-in effect name, e.g. `eq`, `compressor`, `reverb`.
     #[serde(default)]
     effect: Option<String>,
+    /// A scanned plugin's id (see plugin.list): lists its parameters by the plugin's own ids.
+    #[serde(default)]
+    plugin: Option<String>,
+    /// `clap` or `vst3`, with `plugin` (needed only when both formats have that id).
+    #[serde(default)]
+    format: Option<ph_core::PluginFormat>,
 }
 
 pub fn register(r: &mut Registry) {
     r.register(typed(
         "query.node_params",
-        "List instruments and effects, or the parameters (ids, ranges, defaults, units, choices) of one instrument kind or built-in effect.",
+        "List instruments, effects and plugins, or the parameters (ids, ranges, defaults, units, choices) of one of them.",
         Scope::Read,
         READ,
         node_params,
@@ -72,11 +78,29 @@ fn describe(d: &NodeDescriptor) -> Value {
     })
 }
 
-fn node_params(_ctx: &mut CommandCtx<'_>, p: NodeParams) -> CmdResult<CommandOutput> {
+fn node_params(ctx: &mut CommandCtx<'_>, p: NodeParams) -> CmdResult<CommandOutput> {
     let bad = |m: String| CmdError::BadParams {
         command: "query.node_params".into(),
         message: m,
     };
+    if let Some(id) = p.plugin {
+        if p.instrument.is_some() || p.effect.is_some() {
+            return Err(bad("give one of `instrument`, `effect` or `plugin`".into()));
+        }
+        let entry = ctx
+            .host
+            .plugin_list()?
+            .into_iter()
+            .find(|e| e.id == id && p.format.is_none_or(|f| f == e.format))
+            .ok_or_else(|| bad(format!("no scanned plugin {id:?} (see plugin.list)")))?;
+        let d = ctx.host.plugin_describe(entry.format, &entry.id)?;
+        let mut v = serde_json::to_value(&d).unwrap_or(Value::Null);
+        v["kind"] = json!(entry.kind);
+        v["usage"] = json!(
+            "add with plugin.add_instrument / plugin.add_effect, then set with plugin.set_param { channel | insert+slot, param, value }; plugin.get_params shows live values"
+        );
+        return Ok(CommandOutput::value(v));
+    }
     let result = match (p.instrument, p.effect) {
         (Some(_), Some(_)) => return Err(bad("give either `instrument` or `effect`".into())),
         (Some(kind), None) => {
@@ -128,7 +152,10 @@ fn node_params(_ctx: &mut CommandCtx<'_>, p: NodeParams) -> CmdResult<CommandOut
             "instruments": ["sampler", "synth", "multi_sampler"],
             "effects": catalog::builtin_effects(),
             "synth_presets": catalog::synth_presets(),
-            "hint": "call again with `instrument` or `effect` for the parameter list",
+            "plugins": ctx.host.plugin_list().unwrap_or_default().iter().map(|e| json!({
+                "format": e.format, "id": e.id, "name": e.name, "kind": e.kind, "status": e.status,
+            })).collect::<Vec<_>>(),
+            "hint": "call again with `instrument`, `effect` or `plugin` for the parameter list",
         }),
     };
     Ok(CommandOutput::value(result))

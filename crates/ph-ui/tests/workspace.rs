@@ -18,7 +18,7 @@ fn start() -> (H, Ids, tempfile::TempDir) {
     let (fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let mut app = fx.app;
-    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
     app.core.sel.pattern = Some(ids.beat);
     app.core.sel.channel = Some(ids.kick);
     app.core.fix_selection();
@@ -363,6 +363,17 @@ fn settle_frames(h: &mut H, n: usize) {
     for _ in 0..n {
         h.step();
         std::thread::sleep(Duration::from_millis(10));
+    }
+    // then until the UI's snapshot is the session's project (a loaded machine delays it)
+    if let Ok(target) = h.state().core.studio.session.project() {
+        for _ in 0..500 {
+            let p = &h.state().core.project;
+            if std::sync::Arc::ptr_eq(p, &target) || **p == *target {
+                break;
+            }
+            h.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
 

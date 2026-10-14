@@ -87,6 +87,9 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     });
                 }
             });
+            crate::plugin_ui::plugin_menu(ui, core, true, |core, format, id| {
+                core.send(mapping::plugin_add_instrument(format, id));
+            });
         });
         ui.label(widgets::caption(&theme, "Steps"));
         let r = ui

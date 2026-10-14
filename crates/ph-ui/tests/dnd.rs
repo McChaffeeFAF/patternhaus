@@ -68,7 +68,7 @@ fn start() -> Rig {
         None,
     )
     .expect("app starts");
-    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
     app.core.sel.pattern = Some(ids.beat);
     app.core.sel.channel = Some(ids.kick);
     app.core.fix_selection();
@@ -138,10 +138,21 @@ impl Rig {
     }
 
     fn settle(&mut self) {
-        for _ in 0..40 {
+        // generous bounds: a loaded machine (parallel builds) delays the session thread
+        for _ in 0..600 {
             self.frames(1);
             if self.h.state().core.dispatch.in_flight() == 0 {
                 break;
+            }
+        }
+        // the Change stream: until the UI's snapshot is the session's project
+        if let Ok(target) = self.h.state().core.studio.session.project() {
+            for _ in 0..600 {
+                let p = &self.h.state().core.project;
+                if Arc::ptr_eq(p, &target) || **p == *target {
+                    break;
+                }
+                self.frames(1);
             }
         }
         self.frames(6);

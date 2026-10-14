@@ -1,0 +1,16 @@
+[package]
+name = "ph-test-plugins"
+description = "Patternhaus test plugins (CLAP): a simple synth, a gain and a crash-on-demand effect, so tests never need third-party plugins (not shipped)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+# the .clap file is this cdylib renamed; the rlib lets `cargo test` build it like any crate
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+clap-sys.workspace = true

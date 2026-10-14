@@ -16,6 +16,7 @@ ph-stretch.workspace = true
 ph-instruments.workspace = true
 ph-effects.workspace = true
 ph-formats.workspace = true
+ph-plugin-host.workspace = true
 cpal.workspace = true
 rtrb.workspace = true
 assert_no_alloc.workspace = true

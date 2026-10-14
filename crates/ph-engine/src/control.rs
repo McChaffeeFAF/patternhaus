@@ -3,11 +3,13 @@
 use crate::EngineResult;
 use crate::plan::{CompileOptions, Plan, Settings, Shadow, compile};
 use crate::player::AudioCtx;
+use crate::plugins::{LivePlugin, PluginSlot};
 use crate::rt::Mailbox;
 use crate::stats::StatsBoard;
 use crate::stream::StreamPolicy;
 use ph_core::Project;
 use ph_node::AssetResolver;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Compiles snapshots against the plan the audio thread runs and posts them.
@@ -27,6 +29,8 @@ pub(crate) struct Controller {
     pub board: Arc<StatsBoard>,
     /// Audio-clip sources, streams and the prefetch thread (M2/T1).
     pub audio: AudioCtx,
+    /// Plugin nodes of the most recently compiled plan (M2/T3).
+    pub plugins: BTreeMap<PluginSlot, LivePlugin>,
 }
 
 impl Controller {
@@ -42,6 +46,7 @@ impl Controller {
             opts: CompileOptions::default(),
             board: Arc::new(StatsBoard::default()),
             audio: AudioCtx::new(policy),
+            plugins: BTreeMap::new(),
         }
     }
 
@@ -61,6 +66,7 @@ impl Controller {
             self.next_id,
         )?;
         self.next_id += 1;
+        self.plugins = shadow.plugins.clone();
         self.installed = shadow;
         self.pending = None;
         self.board = plan.board.clone();
@@ -109,6 +115,7 @@ impl Controller {
         )?;
         self.next_id += 1;
         self.board = plan.board.clone();
+        self.plugins = shadow.plugins.clone();
         if let Some(stale) = self.mailbox.put(plan) {
             drop(stale);
         }

@@ -40,7 +40,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: dist
-      - run: cargo build --release --locked -p ph-app -p ph-cli
+      - run: cargo build --release --locked -p ph-app -p ph-cli -p ph-plugin-host
       - name: package
         shell: bash
         run: packaging/package.sh target/release "patternhaus-${{ inputs.label }}-${{ matrix.name }}"
@@ -70,7 +70,7 @@ jobs:
       - name: build with ASIO (bindgen uses the runner's LLVM)
         env:
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
-        run: cargo build --release --locked -p ph-app -p ph-cli --features ph-app/asio
+        run: cargo build --release --locked -p ph-app -p ph-cli -p ph-plugin-host --features ph-app/asio
       - name: package
         shell: bash
         run: packaging/package.sh target/release "patternhaus-${{ inputs.label }}-windows-x64-asio-gpl3" gpl

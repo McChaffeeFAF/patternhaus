@@ -24,6 +24,9 @@ mod mixer;
 mod note;
 mod pattern;
 mod playlist;
+mod plugin;
+#[cfg(test)]
+mod plugin_behaviour;
 mod project;
 mod query;
 mod sample;
@@ -59,4 +62,5 @@ pub fn register_builtin(r: &mut Registry) {
     automation::register(r);
     slicer::register(r);
     m2_stubs::register(r);
+    plugin::register(r);
 }

@@ -75,6 +75,8 @@ impl PhApp {
             ),
         };
         let prefs = settings::load_prefs(paths.config_dir.as_deref());
+        // this front end takes UI requests (plugin editors open here)
+        studio.set_ui_attached(true);
         let mut core = AppCore::new(
             studio,
             ctx.clone(),
@@ -1132,7 +1134,8 @@ impl PhApp {
                                     t.text.clone(),
                                     egui::TextStyle::Body.resolve(ui.style()),
                                     ui.visuals().text_color(),
-                                    ui.available_width(),
+                                    // capped: an Area's first (sizing) pass has unbounded width
+                                    ui.available_width().min(360.0),
                                 );
                                 job.wrap.break_anywhere = true;
                                 ui.label(job);
@@ -1202,12 +1205,17 @@ fn captured_chord(ui: &Ui) -> Option<Chord> {
 }
 
 impl eframe::App for PhApp {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         self.draw(ui);
+        // plugin editors embed into this window (M2/T3)
+        use raw_window_handle::HasWindowHandle;
+        let parent = frame.window_handle().ok().map(|h| h.as_raw());
+        crate::plugin_ui::after_frame(&mut self.core, parent);
     }
 
     /// The window layout is remembered per user across runs.
     fn on_exit(&mut self) {
+        self.core.plugins.editors.close_all();
         if let Some(dir) = self.core.paths.config_dir.clone() {
             let _ = settings::save_layout(&settings::layout_path(&dir), &self.layout());
         }

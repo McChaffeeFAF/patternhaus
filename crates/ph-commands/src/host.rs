@@ -73,6 +73,144 @@ pub trait Host {
     fn projects_dir(&self) -> Option<PathBuf> {
         None
     }
+
+    // ---- plugins (M2/T3). Additive defaults: hosts without plugin hosting refuse.
+
+    /// Scans `paths` (folders or plugin files; empty = the standard plugin folders) for CLAP
+    /// and VST3 plugins, each file in a helper process, and updates the plugin list.
+    fn plugin_scan(&mut self, paths: &[PathBuf]) -> CmdResult<PluginScanResult> {
+        let _ = paths;
+        Err(no_plugins())
+    }
+
+    /// Every scanned plugin with its status.
+    fn plugin_list(&self) -> CmdResult<Vec<PluginEntry>> {
+        Err(no_plugins())
+    }
+
+    /// The parameters of the plugin at `target` in `project`: live values when it is running,
+    /// otherwise its declared defaults with the spec's own values.
+    fn plugin_params(&self, project: &Project, target: PluginTarget) -> CmdResult<PluginParams> {
+        let _ = (project, target);
+        Err(no_plugins())
+    }
+
+    /// The parameters a scanned plugin declares (its defaults), without adding it.
+    fn plugin_describe(&self, format: ph_core::PluginFormat, id: &str) -> CmdResult<PluginParams> {
+        let _ = (format, id);
+        Err(no_plugins())
+    }
+
+    /// Writes the state of every plugin of `project` that names a `plugins/<file>` into `dir`
+    /// (called by `file.save` after `project.json`). Returns the files written. Additive
+    /// default: nothing to write.
+    fn save_plugin_states(
+        &mut self,
+        project: &Project,
+        dir: &std::path::Path,
+    ) -> CmdResult<Vec<String>> {
+        let _ = (project, dir);
+        Ok(Vec::new())
+    }
+
+    /// Opens (or closes) the plugin's own editor window. Returns whether a UI took the request
+    /// (headless hosts return false).
+    fn plugin_editor(&mut self, target: PluginTarget, open: bool) -> CmdResult<bool> {
+        let _ = (target, open);
+        Err(no_plugins())
+    }
+}
+
+fn no_plugins() -> CmdError {
+    CmdError::Host("this host cannot load plugins".into())
+}
+
+/// Where a plugin sits in the project.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginTarget {
+    /// A channel's instrument.
+    Channel(ph_core::ChannelId),
+    /// Effect `slot` (position in the chain) of mixer insert `insert`.
+    Effect { insert: u32, slot: u32 },
+}
+
+impl std::fmt::Display for PluginTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PluginTarget::Channel(c) => write!(f, "channel {}", c.0),
+            PluginTarget::Effect { insert, slot } => write!(f, "insert {insert} slot {slot}"),
+        }
+    }
+}
+
+/// A scanned plugin, as `plugin.list` shows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginEntry {
+    pub format: ph_core::PluginFormat,
+    /// CLAP id or VST3 class id: what `plugin.add_*` takes.
+    pub id: String,
+    pub name: String,
+    pub vendor: String,
+    pub version: String,
+    /// `instrument`, `effect` or `note_effect`.
+    pub kind: String,
+    pub has_editor: bool,
+    /// `ok`, `isolate` (crashed; not loaded until M4 can run it out of process) or `blocked`.
+    pub status: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reason: String,
+    pub path: String,
+}
+
+/// What `plugin.scan` found.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginScanResult {
+    pub plugins: Vec<PluginEntry>,
+    /// Files that could not be scanned (blocked until they change), with why.
+    pub failed: Vec<PluginScanFailure>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginScanFailure {
+    pub path: String,
+    pub error: String,
+}
+
+/// One plugin parameter.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginParam {
+    /// The plugin's own parameter id (as text): what `plugin.set_param` takes.
+    pub id: String,
+    pub name: String,
+    pub min: f64,
+    pub max: f64,
+    pub default: f64,
+    /// Current value (live from the running plugin when it runs).
+    pub value: f64,
+    /// The plugin's own text for the value, when it gives one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    pub stepped: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<String>,
+    pub automatable: bool,
+}
+
+/// A plugin's parameters at a target.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginParams {
+    /// Where it sits; `None` when describing a scanned plugin that is not in the project.
+    pub target: Option<PluginTarget>,
+    pub format: ph_core::PluginFormat,
+    pub plugin_id: String,
+    pub name: String,
+    /// Read from the running instance (false: declared defaults plus the project's values).
+    pub live: bool,
+    /// Latency in samples the plugin reports.
+    pub latency: u32,
+    pub has_editor: bool,
+    pub params: Vec<PluginParam>,
 }
 
 /// An audio file's format, from [`Host::sample_info`].
@@ -236,6 +374,11 @@ pub enum UiRequest {
     },
     Notify {
         message: String,
+    },
+    /// Open or close a plugin's own editor window (M2/T3, `plugin.open_editor`).
+    PluginEditor {
+        target: PluginTarget,
+        open: bool,
     },
 }
 

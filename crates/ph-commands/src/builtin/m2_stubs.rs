@@ -1,5 +1,6 @@
-//! M2 command families whose implementation needs devices, DSP or plugin SDKs: `plugin.*`
-//! (T3), `record.*` and `midi.*` (T8), `slicer.make_instrument` and `editor.*` (T6).
+//! M2 command families whose implementation needs devices or DSP: `record.*` and `midi.*`
+//! (T8), `slicer.make_instrument` and `editor.*` (T6). (`plugin.*`, T3, is implemented in
+//! `plugin.rs`; `slicer.detect`, T1, in `slicer.rs`.)
 //!
 //! Their names, scopes and parameter schemas are fixed here so agents, the coverage guard
 //! and the parallel tracks agree on them; each returns `CmdError::Unavailable` naming its
@@ -23,77 +24,6 @@ macro_rules! stub {
 }
 
 pub fn register(r: &mut Registry) {
-    // ---- plugins (M2/T3)
-    stub!(
-        r,
-        "plugin.scan",
-        "Scan plugin folders for CLAP and VST3 plugins and update the plugin list.",
-        Scope::Full,
-        READ,
-        Scan,
-        "plugin hosting",
-        "T3"
-    );
-    stub!(
-        r,
-        "plugin.list",
-        "List scanned plugins with their format, kind and status (ok, isolate, blocked).",
-        Scope::Read,
-        READ,
-        NoParams,
-        "plugin hosting",
-        "T3"
-    );
-    stub!(
-        r,
-        "plugin.add_instrument",
-        "Add a channel playing a plugin instrument.",
-        Scope::Full,
-        MUTATES,
-        AddInstrument,
-        "plugin hosting",
-        "T3"
-    );
-    stub!(
-        r,
-        "plugin.add_effect",
-        "Add a plugin effect to a mixer insert.",
-        Scope::Full,
-        MUTATES,
-        AddEffect,
-        "plugin hosting",
-        "T3"
-    );
-    stub!(
-        r,
-        "plugin.set_param",
-        "Set a plugin parameter by the plugin's own parameter id.",
-        Scope::Full,
-        MUTATES,
-        SetParam,
-        "plugin hosting",
-        "T3"
-    );
-    stub!(
-        r,
-        "plugin.open_editor",
-        "Open a plugin's own editor window.",
-        Scope::Full,
-        READ,
-        PluginRef,
-        "plugin hosting",
-        "T3"
-    );
-    stub!(
-        r,
-        "plugin.close_editor",
-        "Close a plugin's editor window.",
-        Scope::Full,
-        READ,
-        PluginRef,
-        "plugin hosting",
-        "T3"
-    );
     // ---- recording (M2/T8)
     stub!(
         r,
@@ -238,69 +168,6 @@ pub fn register(r: &mut Registry) {
         "the audio editor",
         "T6"
     );
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct Scan {
-    /// Folders or plugin files to scan; empty = the standard plugin folders.
-    #[serde(default)]
-    paths: Vec<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct AddInstrument {
-    /// `clap` or `vst3`.
-    format: PluginFormat,
-    /// The plugin's id from plugin.list.
-    plugin: String,
-    /// Channel name; defaults to the plugin's name.
-    #[serde(default)]
-    name: Option<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct AddEffect {
-    /// Mixer insert, 0 = master.
-    insert: u32,
-    /// `clap` or `vst3`.
-    format: PluginFormat,
-    /// The plugin's id from plugin.list.
-    plugin: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct PluginRef {
-    /// A channel playing a plugin instrument; or give `insert` and `slot`.
-    #[serde(default)]
-    channel: Option<ChannelId>,
-    /// Mixer insert of a plugin effect.
-    #[serde(default)]
-    insert: Option<u32>,
-    /// Effect slot in that insert.
-    #[serde(default)]
-    slot: Option<u32>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct SetParam {
-    /// A channel playing a plugin instrument; or give `insert` and `slot`.
-    #[serde(default)]
-    channel: Option<ChannelId>,
-    /// Mixer insert of a plugin effect.
-    #[serde(default)]
-    insert: Option<u32>,
-    /// Effect slot in that insert.
-    #[serde(default)]
-    slot: Option<u32>,
-    /// The plugin's own parameter id (see query.node_params).
-    param: String,
-    /// Plain value in the parameter's range.
-    value: f64,
 }
 
 #[derive(Deserialize, JsonSchema)]

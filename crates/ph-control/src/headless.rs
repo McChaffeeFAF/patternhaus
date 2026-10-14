@@ -23,6 +23,9 @@ pub struct HeadlessOptions {
     /// Scopes every client gets (headless sessions are started on purpose, so the default
     /// the CLI passes is `full`).
     pub grant: Grant,
+    /// Plugin hosting (see [`StudioConfig::plugins`]): the CLI passes
+    /// [`crate::default_plugin_config`], tests `Default::default()`.
+    pub plugins: ph_engine::plugins::HostConfig,
 }
 
 /// Looks for the `assets/` folder: `$PATTERNHAUS_ASSETS`, then next to the executable and
@@ -69,6 +72,7 @@ pub fn start_headless(opts: HeadlessOptions) -> Result<(Studio, Arc<Agent>), Str
         projects_dir: opts.projects_dir.clone(),
         engine: EngineConfig::default(),
         audio: opts.audio,
+        plugins: opts.plugins.clone(),
     };
     let studio = Studio::start(config, project)?;
     let agent = Agent::new(studio.handle(), Grants::fixed(opts.grant));

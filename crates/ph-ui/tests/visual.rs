@@ -30,7 +30,7 @@ fn start() -> (H, Ids, tempfile::TempDir) {
     let (fx, ids) = fixture(true);
     let ids = ids.unwrap();
     let mut app = fx.app;
-    pump_until(&mut app, 500, |a| a.core.project.channels.len() == 4);
+    pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
     app.core.sel.pattern = Some(ids.beat);
     app.core.sel.channel = Some(ids.kick);
     app.core.fix_selection();

@@ -1,6 +1,6 @@
 [package]
 name = "ph-plugin-host"
-description = "Patternhaus plugin hosting contract: scan results, plugin instances as processors, state, editors and the crash-catch boundary (CLAP/VST3 in M2/T3)."
+description = "Patternhaus plugin hosting: CLAP and VST3 hosts, the scanner and its cache, plugin instances as processors, state, editors and the crash-catch boundary."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,8 +11,22 @@ rust-version.workspace = true
 ph-core.workspace = true
 ph-node.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 raw-window-handle.workspace = true
+clack-host.workspace = true
+clack-extensions.workspace = true
+clap-sys.workspace = true
+vst3.workspace = true
+libloading.workspace = true
+# the one-off fault path is allowed to allocate on the audio thread (contract rule 5)
+assert_no_alloc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_Graphics_Gdi", "Win32_System_StationsAndDesktops", "Win32_Security"] }
+
+[build-dependencies]
+cc.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+tempfile.workspace = true

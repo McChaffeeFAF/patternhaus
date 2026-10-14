@@ -63,6 +63,17 @@ Sources for the *Behaves* column:
 | UI | History panel: per-author undo, undo of one transaction, conflict dialog | `history.undo` `history.undo_author` `history.undo_txn` (mode `stop` / `skip` / `force`) | differs: per-author (DESIGN §3) |
 | UI | Agent activity: flash and badge on agent edits, `ui.select` highlight, grant prompt hook | `ui.open_panel` `ui.close_panel` `ui.select` `ui.show_piano_roll` `ui.notify`; `AgentDirectory` hook | differs: no FL counterpart (agent interface, DESIGN §5) |
 
+## M2: plugin hosting (T3)
+
+| Area | Feature | Wired | Behaves |
+|---|---|---|---|
+| Plugins | Plugin manager: find installed plugins, a list with status, a blocklist | `plugin.scan` `plugin.list`; `patternhaus-cli plugin-scan --report` (each file in the `ph-plugin-scan` helper process, cache by path, mtime and size) | differs: CLAP and VST3 only (FL also hosts VST2, AU); crashed or hung files are blocked until they change. Owner report: local only |
+| Plugins | Add a plugin instrument / a plugin effect to a mixer slot | `plugin.add_instrument` `plugin.add_effect` (also `channel.set_instrument` / `mixer.add_effect` with a plugin spec); UI: "+ Channel > Plugins", "+ Add effect > Plugins" | owner check pending ([M1-ui](../manual-tests/M1-ui.md) style: add one of your VST3s, play it, hear it) |
+| Plugins | Plugin parameters, automation by parameter, the generic parameter view | `plugin.set_param` `plugin.get_params` `query.node_params { plugin }`; the plugin window's knob grid; `Param` events are sample-accurate CLAP param events / VST3 parameter points | differs: VST3 continuous parameters are shown normalized 0..1 (the plugin's own text shows the plain value) |
+| Plugins | Open the plugin's own editor | `plugin.open_editor` `plugin.close_editor`; embedded in the floating window on Windows, floating elsewhere | owner check pending (Windows embedding with your plugins) |
+| Plugins | Plugin state saved with the project | `file.save` writes `plugins/<name>.state` (component + controller state for VST3) | 2026-10-13: test synth state survives save and reopen (`ph-control` plugin tests) |
+| Plugins | A crashing plugin does not take the session down | crash guard (SEH / signals) in `ph-plugin-host`; the node goes silent, `plugin_fault` event, status *isolate* | differs: FL runs bridged plugins out of process; Patternhaus isolates crashed plugins (out-of-process loading is M4) |
+
 ## M2: Make a Song
 
 | Area | Feature | Wired | Behaves |
