@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Packages a release build into dist/<name>.zip:
-#   ph-app, patternhaus-cli, assets/, THIRD_PARTY_NOTICES.md, LICENSE-*, README.txt, a launcher.
+#   ph-app, patternhaus-cli, ph-plugin-scan (the plugin scan helper), assets/, THIRD_PARTY_NOTICES.md, LICENSE-*, README.txt, a launcher.
 # Usage: packaging/package.sh <cargo target dir with release binaries> <name> [gpl]
 # Run from the repository root. Used by .github/workflows/nightly.yml and release.yml.
 set -euo pipefail
@@ -14,7 +14,7 @@ esac
 stage="dist/$name"
 rm -rf "$stage" "dist/$name.zip"
 mkdir -p "$stage"
-cp "$bin_dir/ph-app$exe" "$bin_dir/patternhaus-cli$exe" "$stage/"
+cp "$bin_dir/ph-app$exe" "$bin_dir/patternhaus-cli$exe" "$bin_dir/ph-plugin-scan$exe" "$stage/"
 cp -r assets "$stage/assets"
 cp THIRD_PARTY_NOTICES.md LICENSE-MIT LICENSE-APACHE "$stage/"
 cp packaging/README.txt "$stage/README.txt"
@@ -26,7 +26,7 @@ if [ -n "$exe" ]; then
   cp packaging/Patternhaus.bat "$stage/"
 else
   cp packaging/patternhaus.sh "$stage/"
-  chmod +x "$stage/patternhaus.sh" "$stage/ph-app" "$stage/patternhaus-cli"
+  chmod +x "$stage/patternhaus.sh" "$stage/ph-app" "$stage/patternhaus-cli" "$stage/ph-plugin-scan"
 fi
 git rev-parse HEAD > "$stage/COMMIT.txt"
 cd dist

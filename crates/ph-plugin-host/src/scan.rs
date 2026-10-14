@@ -340,6 +340,37 @@ pub fn scan_in_child(
     }
 }
 
+/// The child side, before loading anything: on Windows the plugin main thread moves to a
+/// desktop of its own that is never shown, so a window a plugin opens while it is scanned (a
+/// licence prompt, say) does not appear on the owner's screen; a plugin that waits for an
+/// answer there hits the scan timeout instead. Windows that plugins open from threads of
+/// their own still land on the normal desktop. A no-op elsewhere.
+pub fn prepare_child() {
+    #[cfg(windows)]
+    crate::main_thread::main_thread().run(|| {
+        use windows_sys::Win32::Foundation::GENERIC_ALL;
+        use windows_sys::Win32::System::StationsAndDesktops::{CreateDesktopW, SetThreadDesktop};
+        let name: Vec<u16> = format!("ph-plugin-scan-{}", std::process::id())
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        // SAFETY: a new desktop for this thread, before it has any window
+        unsafe {
+            let desk = CreateDesktopW(
+                name.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                GENERIC_ALL,
+                std::ptr::null(),
+            );
+            if !desk.is_null() {
+                SetThreadDesktop(desk);
+            }
+        }
+    });
+}
+
 /// The child side: scans `args = [format, path]` with `formats` and prints the result line.
 /// Returns the process exit code. Used by the `ph-plugin-scan` helper.
 pub fn run_child(args: &[String], formats: &[Arc<dyn PluginFormatHost>]) -> i32 {
