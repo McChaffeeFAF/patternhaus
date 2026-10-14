@@ -60,6 +60,7 @@ ph-cli (binary) ─ ph-control ────────┤   ph-control = JSON-R
 ph-engine (graph, scheduler, render) ┤
    ├─ ph-instruments, ph-effects ────┤─ ph-core (pure data model)
    ├─ ph-dsp (primitives)            │
+   ├─ ph-stretch (Signalsmith Stretch, MIT, vendored C++ behind a C binding)
    ├─ ph-plugin-host (CLAP, VST3)    │
    └─ ph-audio-io (devices, MIDI)    │
 ph-formats (project, WAV/FLAC/MP3/OGG, MIDI, DAWproject, FLP import)

@@ -12,6 +12,7 @@ pub mod encode;
 pub mod flp;
 mod folder;
 mod midi;
+pub mod wav_stream;
 
 pub use folder::*;
 pub use midi::*;

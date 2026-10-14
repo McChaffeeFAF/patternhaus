@@ -8,6 +8,7 @@
 use crate::pool::Handoff;
 use crate::rt::Mailbox;
 use crate::sched::Sched;
+use crate::stream::Slot;
 use loom::sync::Arc;
 use loom::sync::atomic::{AtomicBool, AtomicUsize};
 use loom::thread;
@@ -212,5 +213,29 @@ fn handoff_never_uses_a_retracted_job() {
         h.shut_down();
         let used = worker.join().unwrap();
         assert!(used <= 2);
+    });
+}
+
+/// Stream cache slot (seqlock): the prefetch thread replaces block 1 with block 2 while the
+/// audio thread copies. A copy that reports success holds exactly that block's samples,
+/// never a mix of old and new; once the writer is done, block 2 is readable and block 1 is
+/// gone. (One frame per block keeps the model small; the protocol does not depend on it.)
+#[test]
+fn stream_slot_seqlock() {
+    loom::model(|| {
+        let slot = Arc::new(Slot::new(1));
+        slot.write(1, &[1.0], &[-1.0]);
+        let s2 = slot.clone();
+        let writer = thread::spawn(move || s2.write(2, &[2.0], &[-2.0]));
+        let (mut l, mut r) = ([0.0f32; 1], [0.0f32; 1]);
+        if slot.copy(2, 0, 1, [&mut l, &mut r], 0) {
+            assert_eq!((l, r), ([2.0], [-2.0]), "torn read of the new block");
+        } else if slot.copy(1, 0, 1, [&mut l, &mut r], 0) {
+            assert_eq!((l, r), ([1.0], [-1.0]), "torn read of the old block");
+        }
+        writer.join().unwrap();
+        assert!(slot.copy(2, 0, 1, [&mut l, &mut r], 0));
+        assert_eq!((l, r), ([2.0], [-2.0]));
+        assert!(!slot.copy(1, 0, 1, [&mut l, &mut r], 0), "block 1 is gone");
     });
 }

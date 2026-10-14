@@ -54,6 +54,12 @@ pub(crate) struct ChunkCtx {
     pub playing: bool,
     pub sample_rate: f64,
     pub meters: bool,
+    /// Song mode (audio clips play only on the song timeline).
+    pub song: bool,
+    /// Timeline sample where an offline range ends (audio clips are silent from there).
+    pub limit: i64,
+    /// The song loop region in samples while the transport loops (audio-clip pre-warm).
+    pub looping: Option<(i64, i64)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -142,6 +148,9 @@ impl Runtime {
             playing: false,
             sample_rate: plan.settings.sample_rate as f64,
             meters: true,
+            song: true,
+            limit: i64::MAX,
+            looping: None,
         };
         Self {
             plan,
@@ -270,6 +279,13 @@ impl Runtime {
                                 (a.effects.get_mut(from.1), b.effects.get_mut(to.1))
                         {
                             std::mem::swap(x, y);
+                        }
+                    }
+                    Transfer::AudioTrack { from, to } => {
+                        if let (NodeState::AudioTrack(a), NodeState::AudioTrack(b)) =
+                            (old.state_mut(from), new.state_mut(to))
+                        {
+                            std::mem::swap(a, b);
                         }
                     }
                 }
@@ -462,6 +478,13 @@ impl Runtime {
             playing: self.tr.playing,
             sample_rate: self.plan.settings.sample_rate as f64,
             meters: self.shed.level < 1,
+            song: self.tr.mode == PlayMode::Song,
+            limit: self.tr.end.unwrap_or(i64::MAX),
+            looping: if self.tr.mode == PlayMode::Song {
+                self.loop_samples().filter(|(a, b)| b > a)
+            } else {
+                None
+            },
         };
         self.run_graph(ctx);
         let m = self.plan.master();
@@ -697,7 +720,8 @@ impl Runtime {
                         }
                     }
                 }
-                NodeState::Channel(None) => {}
+                NodeState::AudioTrack(Some(t)) => store_f32(&board.entries[stat].micros, t.micros),
+                NodeState::Channel(None) | NodeState::AudioTrack(None) => {}
             }
         }
         if frames == 0 {
@@ -892,6 +916,10 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
             }
             st.micros += (t0.elapsed().as_secs_f32() * 1e6 - st.micros) * 0.05;
         }
+        (NodeDef::AudioTrack, NodeState::AudioTrack(Some(st))) => {
+            st.render(ctx.pos, n, ctx.playing && ctx.song, ctx.limit, ctx.looping);
+            st.micros += (t0.elapsed().as_secs_f32() * 1e6 - st.micros) * 0.05;
+        }
         (NodeDef::Insert(def), NodeState::Insert(st)) => {
             let Some(bus) = st.bus.as_deref_mut() else {
                 return;
@@ -993,6 +1021,7 @@ unsafe fn output_of(plan: &Plan, i: usize) -> Option<(&[f32], &[f32])> {
     match unsafe { plan.state(i) } {
         NodeState::Channel(Some(c)) => Some((&c.out[0], &c.out[1])),
         NodeState::Insert(s) => s.bus.as_ref().map(|b| (&b.out[0][..], &b.out[1][..])),
-        NodeState::Channel(None) => None,
+        NodeState::AudioTrack(Some(t)) => Some((&t.out[0], &t.out[1])),
+        NodeState::Channel(None) | NodeState::AudioTrack(None) => None,
     }
 }

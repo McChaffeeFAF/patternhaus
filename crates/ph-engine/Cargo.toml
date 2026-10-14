@@ -12,6 +12,7 @@ ph-core.workspace = true
 ph-node.workspace = true
 thiserror.workspace = true
 ph-dsp.workspace = true
+ph-stretch.workspace = true
 ph-instruments.workspace = true
 ph-effects.workspace = true
 ph-formats.workspace = true

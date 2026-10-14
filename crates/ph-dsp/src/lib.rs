@@ -28,6 +28,7 @@ pub mod filter;
 pub mod interp;
 pub mod lfo;
 pub mod math;
+pub mod onset;
 pub mod osc;
 pub mod oversample;
 pub mod smooth;

@@ -616,3 +616,94 @@ fn agent_flp_import_is_confined_to_the_projects_folder() {
     assert!(report.contains("## Placement"), "{report}");
     assert!(!library.path().join("near (Patternhaus)").exists());
 }
+
+/// A two-bar drum loop at `bpm` (kick on the beats, a snare on 2 and 4), 48 kHz mono.
+fn drum_loop(bpm: f64) -> Vec<f32> {
+    let sr = 48_000.0;
+    let beat = 60.0 / bpm;
+    let n = (8.0 * beat * sr).round() as usize;
+    let mut x = vec![0.0f32; n];
+    let mut seed = 3u32;
+    for b in 0..8 {
+        let s0 = (b as f64 * beat * sr).round() as usize;
+        for i in 0..(0.25 * sr) as usize {
+            if s0 + i >= n {
+                break;
+            }
+            let t = i as f64 / sr;
+            let mut v = 0.9
+                * (std::f64::consts::TAU * (50.0 + 100.0 * (-t * 40.0).exp()) * t).sin()
+                * (-t * 12.0).exp();
+            if b % 2 == 1 {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let noise = (seed >> 8) as f64 / 8_388_608.0 - 1.0;
+                v += 0.5 * noise * (-t * 25.0).exp();
+            }
+            x[s0 + i] += v as f32;
+        }
+    }
+    x
+}
+
+#[test]
+fn bpm_detection_slicing_and_fit_to_tempo_end_to_end() {
+    use ph_formats::encode::{WavFormat, write_wav};
+    let proj = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(proj.path().join("samples")).unwrap();
+    write_wav(
+        &proj.path().join("samples/loop.wav"),
+        &[drum_loop(110.0)],
+        48_000,
+        WavFormat::Float32,
+    )
+    .unwrap();
+    let s = studio(proj.path());
+    let agent = Caller::agent("claude", Grant(vec![Scope::Full]));
+    s.run(&agent, "project.set_tempo", json!({ "bpm": 128 }))
+        .unwrap();
+    let out = s
+        .run(
+            &agent,
+            "audio.add_clip",
+            json!({ "track": 0, "start": 0, "path": "samples/loop.wav" }),
+        )
+        .unwrap();
+    let (sample, clip) = (out.result["sample"].clone(), out.result["clip"].clone());
+    let det = s
+        .run(&agent, "sample.detect_bpm", json!({ "sample": sample }))
+        .unwrap();
+    assert_eq!(det.result["bpm"], 110.0, "{:?}", det.result);
+    assert_eq!(det.result["loop_beats"], 8);
+    let sl = s
+        .run(&agent, "slicer.detect", json!({ "sample": sample }))
+        .unwrap();
+    assert_eq!(
+        sl.result["slices"].as_array().unwrap().len(),
+        8,
+        "{:?}",
+        sl.result
+    );
+    let fit = s
+        .run(&agent, "audio.fit_to_tempo", json!({ "clip": clip }))
+        .unwrap();
+    // 8 beats of the loop at the project tempo
+    assert_eq!(fit.result["length"], 8 * 960);
+    assert_eq!(fit.result["mode"], "stretch");
+    wait_for(|| {
+        s.project()
+            .clip(ph_core::ClipId(0))
+            .is_ok_and(|c| c.length == 8 * 960)
+    });
+    let out = s
+        .run(
+            &agent,
+            "file.export_audio",
+            json!({ "path": "fitted.wav", "bit_depth": 24 }),
+        )
+        .unwrap();
+    let peak = out.result["peak_dbfs"].as_f64().unwrap();
+    assert!(peak > -12.0, "the stretched loop plays: {peak} dBFS");
+    // 8 beats at 128 BPM
+    let rendered = ph_formats::decode::decode_file(&proj.path().join("fitted.wav")).unwrap();
+    assert_eq!(rendered.frames(), 180_000);
+}

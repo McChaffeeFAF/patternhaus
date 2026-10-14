@@ -1,25 +1,25 @@
-//! Audio clips in the engine (M2/T0 interfaces; M2/T1 implements playback).
+//! Audio clips in the engine (M2/T0 interfaces, M2/T1 playback).
 //!
 //! - [`plan_audio_clips`] compiles the model's audio clips into [`AudioClipPlan`]s: song
-//!   positions in samples, the source range in source frames, the speed, gain and fades.
-//!   Control thread.
-//! - [`Prefetcher`] is the streaming side: a thread off the audio thread keeps one lock-free
-//!   ring buffer per open stream filled ahead of playback; the audio thread only reads its
-//!   [`StreamReader`]. (M2/T0 streams from decoded audio held by the `AssetResolver`; T1 may
-//!   read from disk instead behind the same interface.)
-//! - [`Stretcher`] is the time-stretch / pitch-shift engine interface, shaped after
-//!   Signalsmith Stretch (MIT), which T1 binds. [`stretcher_for`] is where T1 plugs it in.
-//! - [`AudioClipNode`] is the per-track playback node T1 fills in; in T0 it outputs silence
-//!   and is not yet part of the render plan, so M1 renders are unchanged.
+//!   positions in samples and ticks, the played source range, how the source position
+//!   follows the song (tempo-synced clips follow the [`TempoMap`], so they track tempo
+//!   changes), gain and fades. Control thread.
+//! - The render plan gives every playlist track with audio clips one **audio-track node**
+//!   (`crate::player`), summed into the master insert after the channels. Its voices play
+//!   the clips sample-accurately: [`StretchMode::Resample`] and [`StretchMode::Slice`] by
+//!   windowed-sinc interpolation (`ph_dsp::interp`), [`StretchMode::Stretch`] through a
+//!   [`Stretcher`] (Signalsmith Stretch, MIT, via `ph-stretch`).
+//! - Long sources stream from disk through the prefetch thread ([`Prefetcher`],
+//!   `crate::stream`); short ones are decoded whole.
+//!
+//! Everything a voice computes depends only on the song position, never on the block size
+//! or the thread, so live playback is bit-identical to an offline render.
 
+use crate::EngineResult;
 use crate::tempo::TempoMap;
-use crate::{EngineError, EngineResult};
 use ph_core::*;
-use ph_node::*;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
-use std::time::Duration;
+
+pub use crate::stream::{BLOCK_FRAMES, Prefetcher, STREAM_MIN_SECONDS, StreamPolicy};
 
 /// One audio clip, ready to play.
 #[derive(Clone, Debug, PartialEq)]
@@ -32,14 +32,24 @@ pub struct AudioClipPlan {
     /// Song samples covered: `start..end`.
     pub start: i64,
     pub end: i64,
+    /// Song ticks covered: `start_tick..end_tick`.
+    pub start_tick: Tick,
+    pub end_tick: Tick,
     /// First source frame played (the start of the played range, also when reversed).
     pub source_start: u64,
-    /// Source frames consumed per output frame, sample-rate conversion included:
-    /// `AudioClip::time_ratio × source rate / engine rate`. Uses the tempo at the clip
-    /// start; T1 follows tempo changes inside a synced clip.
+    /// Tempo-synced (and the sample has a tempo): the source position follows song *ticks*,
+    /// [`AudioClipPlan::source_per_tick`] frames per tick, so it follows tempo changes.
+    /// Otherwise it follows song *samples* at [`AudioClipPlan::speed`].
+    pub synced: bool,
+    /// Source frames per song tick when `synced` (pitch factor included for `Resample`).
+    pub source_per_tick: f64,
+    /// Source frames per output frame, sample-rate conversion included:
+    /// `AudioClip::time_ratio × source rate / engine rate`, at the tempo at the clip start
+    /// (exact for unsynced clips; a synced clip's speed changes with the tempo).
     pub speed: f64,
-    /// Transposition left to a pitch shifter, in semitones: 0 for `Resample` (the speed
-    /// carries it), the clip's pitch for `Stretch` and `Slice`.
+    /// Transposition not carried by `speed`, in semitones: 0 for `Resample` (the speed
+    /// carries it), the clip's pitch for `Stretch` (the time-stretcher shifts it) and `Slice`
+    /// (each slice is played faster or slower by it, unstretched, from its own start).
     pub transpose: f64,
     /// Linear gain from `gain_db`.
     pub gain: f32,
@@ -48,13 +58,33 @@ pub struct AudioClipPlan {
     pub fade_out: (u64, FadeCurve),
     pub reverse: bool,
     pub stretch: StretchMode,
+    /// The file's sample rate and length according to the registry.
+    pub file_rate: f64,
+    pub file_frames: u64,
 }
 
 impl AudioClipPlan {
-    /// Source frames the clip plays (`speed × length`, rounded up, clipped to the file).
-    pub fn source_frames(&self, file_frames: u64) -> u64 {
-        let want = ((self.end - self.start) as f64 * self.speed).ceil() as u64;
+    /// Source frames the clip covers from `source_start` (the played range), before clipping
+    /// to the file: the source position at the clip end.
+    pub fn span(&self, tempo: &TempoMap) -> f64 {
+        self.pos(tempo, self.end)
+    }
+
+    /// Source frames the clip plays (the span rounded up, clipped to the file).
+    pub fn source_frames(&self, tempo: &TempoMap, file_frames: u64) -> u64 {
+        let want = self.span(tempo).max(0.0).ceil() as u64;
         want.min(file_frames.saturating_sub(self.source_start))
+    }
+
+    /// Position in the played range (0 = the first frame played, counting in play order,
+    /// so backwards through the file when reversed), in source frames, at song sample `s`.
+    /// Valid for any `s` (negative before the clip start).
+    pub fn pos(&self, tempo: &TempoMap, s: i64) -> f64 {
+        if self.synced {
+            (tempo.tick_at(s) - self.start_tick as f64) * self.source_per_tick
+        } else {
+            (s - self.start) as f64 * self.speed
+        }
     }
 
     /// Fade gain at output sample `i` of the clip (0-based), fade-in and fade-out combined.
@@ -96,7 +126,8 @@ pub fn plan_audio_clips(project: &Project, tempo: &TempoMap) -> (Vec<AudioClipPl
             ));
             continue;
         };
-        if a.tempo_sync && entry.bpm.is_none() {
+        let has_tempo = entry.bpm().is_some_and(|b| b > 0.0);
+        if a.tempo_sync && !has_tempo {
             warnings.push(format!(
                 "audio clip {}: {} has no tempo, so it plays unsynced",
                 c.id, entry.name
@@ -105,6 +136,14 @@ pub fn plan_audio_clips(project: &Project, tempo: &TempoMap) -> (Vec<AudioClipPl
         let start = tempo.sample_at(c.start);
         let end = tempo.sample_at(c.start + c.length);
         let to_samples = |t: Tick| (tempo.sample_at(c.start + t.min(c.length)) - start) as u64;
+        let file_rate = entry.sample_rate.max(1) as f64;
+        let synced = a.tempo_sync && has_tempo;
+        // at 60 BPM a beat is one second, so the ratio there is source seconds per beat
+        let source_per_tick = if synced {
+            a.time_ratio(entry, 60.0) * file_rate / PPQ as f64
+        } else {
+            0.0
+        };
         let ratio = a.time_ratio(entry, tempo.bpm_at(c.start));
         plans.push(AudioClipPlan {
             clip: c.id,
@@ -113,8 +152,12 @@ pub fn plan_audio_clips(project: &Project, tempo: &TempoMap) -> (Vec<AudioClipPl
             path: entry.path.clone(),
             start,
             end,
+            start_tick: c.start,
+            end_tick: c.start + c.length,
             source_start: a.source_offset,
-            speed: ratio * entry.sample_rate as f64 / rate,
+            synced,
+            source_per_tick,
+            speed: ratio * file_rate / rate,
             transpose: match a.stretch {
                 StretchMode::Resample => 0.0,
                 StretchMode::Stretch | StretchMode::Slice => a.pitch(),
@@ -124,6 +167,8 @@ pub fn plan_audio_clips(project: &Project, tempo: &TempoMap) -> (Vec<AudioClipPl
             fade_out: (to_samples(a.fade_out.length), a.fade_out.curve),
             reverse: a.reverse,
             stretch: a.stretch,
+            file_rate,
+            file_frames: entry.frames,
         });
     }
     plans.sort_by_key(|p| (p.start, p.clip));
@@ -147,296 +192,172 @@ pub trait Stretcher: std::marker::Send {
     /// Real-time. Consumes all of `input` (`[channel][frame]`) and produces all of `output`;
     /// the time ratio of this call is `input frames / output frames`.
     fn process(&mut self, input: &[&[f32]], output: &mut [&mut [f32]]);
+    /// Real-time. Pre-roll after a [`Stretcher::reset`]: the [`Stretcher::preroll`] frames
+    /// just before the next input, fed without producing output, for playback at `rate`
+    /// (input ÷ output frames). Added in M2/T1; the default ignores it.
+    fn seek(&mut self, input: &[&[f32]], rate: f64) {
+        let _ = (input, rate);
+    }
+    /// Frames [`Stretcher::seek`] wants (0 = no pre-roll).
+    fn preroll(&self) -> usize {
+        0
+    }
 }
 
-/// The stretcher for a mode. M2/T1 provides them (Signalsmith Stretch for `Stretch`, the
-/// slicer for `Slice`, a resampler for `Resample`); until then every mode is unavailable.
+/// Signalsmith Stretch (MIT) as a [`Stretcher`]: the `Stretch` mode.
+pub struct SignalsmithStretcher {
+    inner: Option<ph_stretch::Stretch>,
+    preset: ph_stretch::Preset,
+    seed: u32,
+}
+
+impl SignalsmithStretcher {
+    /// Unconfigured; [`Stretcher::configure`] allocates. `seed` drives the phase
+    /// randomisation Signalsmith uses for stretches slower than 0.5×. Configured with split
+    /// computation (each spectrum's work spread over an interval), for even real-time load.
+    pub fn new(preset: ph_stretch::Preset, seed: u32) -> Self {
+        Self {
+            inner: None,
+            preset,
+            seed,
+        }
+    }
+}
+
+impl Stretcher for SignalsmithStretcher {
+    fn configure(&mut self, channels: usize, sample_rate: f64, _max_frames: usize) {
+        self.inner =
+            ph_stretch::Stretch::with_split(channels, sample_rate, self.preset, self.seed, true);
+    }
+    fn reset(&mut self) {
+        if let Some(s) = self.inner.as_mut() {
+            s.reset();
+        }
+    }
+    fn input_latency(&self) -> usize {
+        self.inner.as_ref().map_or(0, |s| s.input_latency())
+    }
+    fn output_latency(&self) -> usize {
+        self.inner.as_ref().map_or(0, |s| s.output_latency())
+    }
+    fn set_transpose(&mut self, semitones: f64) {
+        if let Some(s) = self.inner.as_mut() {
+            s.set_transpose(semitones);
+        }
+    }
+    fn process(&mut self, input: &[&[f32]], output: &mut [&mut [f32]]) {
+        match self.inner.as_mut() {
+            Some(s) => s.process(input, output),
+            None => {
+                for c in output.iter_mut() {
+                    c.fill(0.0);
+                }
+            }
+        }
+    }
+    fn seek(&mut self, input: &[&[f32]], rate: f64) {
+        if let Some(s) = self.inner.as_mut() {
+            s.seek(input, rate);
+        }
+    }
+    fn preroll(&self) -> usize {
+        self.inner
+            .as_ref()
+            .map_or(0, |s| s.block_samples() + s.interval_samples())
+    }
+}
+
+/// Varispeed (turntable) as a [`Stretcher`]: the time ratio changes speed and pitch together
+/// (cubic Hermite interpolation; `set_transpose` has no effect). The `Resample` and `Slice`
+/// modes' behaviour; the clip player itself interpolates from absolute source positions.
+pub struct Varispeed {
+    hist: Vec<[f32; 3]>,
+    phase: f64,
+}
+
+impl Default for Varispeed {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Varispeed {
+    pub fn new() -> Self {
+        Self {
+            hist: Vec::new(),
+            phase: 0.0,
+        }
+    }
+}
+
+impl Stretcher for Varispeed {
+    fn configure(&mut self, channels: usize, _sample_rate: f64, _max_frames: usize) {
+        self.hist = vec![[0.0; 3]; channels.max(1)];
+        self.phase = 0.0;
+    }
+    fn reset(&mut self) {
+        self.hist.fill([0.0; 3]);
+        self.phase = 0.0;
+    }
+    fn input_latency(&self) -> usize {
+        0
+    }
+    fn output_latency(&self) -> usize {
+        2
+    }
+    fn set_transpose(&mut self, _semitones: f64) {}
+    fn process(&mut self, input: &[&[f32]], output: &mut [&mut [f32]]) {
+        let n_in = input.first().map_or(0, |c| c.len());
+        let n_out = output.first().map_or(0, |c| c.len());
+        let step = if n_out > 0 {
+            n_in as f64 / n_out as f64
+        } else {
+            0.0
+        };
+        let start_phase = self.phase;
+        for (c, out) in output.iter_mut().enumerate() {
+            let Some(inp) = input.get(c.min(input.len().saturating_sub(1))) else {
+                out.fill(0.0);
+                continue;
+            };
+            let h = self.hist.get(c).copied().unwrap_or([0.0; 3]);
+            // virtual signal: h[0], h[1], h[2], inp[0], inp[1], ...; output reads from h[1]
+            let at = |k: i64| -> f32 {
+                if k < 3 {
+                    h[k.max(0) as usize]
+                } else {
+                    inp.get((k - 3) as usize)
+                        .copied()
+                        .unwrap_or_else(|| inp.last().copied().unwrap_or(0.0))
+                }
+            };
+            for (i, o) in out.iter_mut().enumerate() {
+                let p = 1.0 + start_phase + i as f64 * step;
+                let k = p.floor() as i64;
+                let t = (p - k as f64) as f32;
+                *o = ph_dsp::interp::hermite(at(k - 1), at(k), at(k + 1), at(k + 2), t);
+            }
+            if let Some(hc) = self.hist.get_mut(c) {
+                let len = n_in as i64 + 3;
+                *hc = [at(len - 3), at(len - 2), at(len - 1)];
+            }
+        }
+        self.phase = (start_phase + n_out as f64 * step) - n_in as f64;
+    }
+}
+
+/// The stretcher for a mode, unconfigured: Signalsmith Stretch for `Stretch`, varispeed
+/// for `Resample` and `Slice`.
 pub fn stretcher_for(mode: StretchMode) -> EngineResult<Box<dyn Stretcher>> {
-    let _ = mode;
-    Err(EngineError::Unavailable {
-        feature: "audio clip playback (stretching and resampling)",
-        track: "T1",
+    Ok(match mode {
+        StretchMode::Stretch => Box::new(SignalsmithStretcher::new(ph_stretch::Preset::Default, 1)),
+        StretchMode::Resample | StretchMode::Slice => Box::new(Varispeed::new()),
     })
 }
 
-/// Ring capacity per stream, in frames, unless the caller asks for another.
-pub const DEFAULT_PREFETCH_FRAMES: usize = 1 << 16;
-
-/// One stream as the prefetch thread sees it.
-struct Feed {
-    data: Arc<SampleData>,
-    /// Next source frame to push (counting down when reversed).
-    next: u64,
-    /// Frames still to push.
-    left: u64,
-    reverse: bool,
-    prod: rtrb::Producer<f32>,
-    closed: Arc<AtomicBool>,
-}
-
-impl Feed {
-    /// Pushes as many whole frames as fit. Returns false when the feed is done.
-    fn pump(&mut self) -> bool {
-        let ch = self.data.channels.len().max(1);
-        let fit = (self.prod.slots() / ch) as u64;
-        let n = fit.min(self.left) as usize;
-        if n > 0
-            && let Ok(mut chunk) = self.prod.write_chunk(n * ch)
-        {
-            let (a, b) = chunk.as_mut_slices();
-            for (k, slot) in a.iter_mut().chain(b.iter_mut()).enumerate() {
-                let (i, c) = (k / ch, k % ch);
-                let f = if self.reverse {
-                    self.next - i as u64
-                } else {
-                    self.next + i as u64
-                } as usize;
-                *slot = self.data.channels[c].get(f).copied().unwrap_or(0.0);
-            }
-            chunk.commit_all();
-            self.left -= n as u64;
-            if self.reverse {
-                self.next = self.next.saturating_sub(n as u64);
-            } else {
-                self.next += n as u64;
-            }
-        }
-        self.left > 0 && !self.closed.load(Ordering::Acquire)
-    }
-}
-
-/// The audio-thread end of a stream. Dropping it closes the stream (do that off the audio
-/// thread, like any plan data).
-pub struct StreamReader {
-    cons: rtrb::Consumer<f32>,
-    channels: usize,
-    left: u64,
-    underruns: u64,
-    closed: Arc<AtomicBool>,
-}
-
-impl StreamReader {
-    /// Real-time. Reads the next frames into `out` (`[channel][frame]`, all the same
-    /// length; output channels beyond the source's repeat its last one, so a mono source
-    /// fills both sides). Frames the prefetcher has not delivered yet are silence and count as an
-    /// underrun; frames past the stream's end are silence and do not. Returns frames read.
-    pub fn read(&mut self, out: &mut [&mut [f32]]) -> usize {
-        let want = out.first().map_or(0, |c| c.len());
-        let ch = self.channels;
-        let avail = self.cons.slots() / ch;
-        let n = want.min(avail);
-        if n > 0
-            && let Ok(chunk) = self.cons.read_chunk(n * ch)
-        {
-            let (a, b) = chunk.as_slices();
-            for (k, v) in a.iter().chain(b.iter()).enumerate() {
-                let (i, c) = (k / ch, k % ch);
-                for (o, dst) in out.iter_mut().enumerate() {
-                    if o.min(ch - 1) == c {
-                        dst[i] = *v;
-                    }
-                }
-            }
-            chunk.commit_all();
-        }
-        for dst in out.iter_mut() {
-            dst[n..].fill(0.0);
-        }
-        if n < want && (self.left as usize) > n {
-            self.underruns += 1;
-        }
-        self.left = self.left.saturating_sub(n as u64);
-        n
-    }
-
-    /// Blocks that came up short before the stream's end.
-    pub fn underruns(&self) -> u64 {
-        self.underruns
-    }
-
-    /// Every frame of the stream has been read.
-    pub fn finished(&self) -> bool {
-        self.left == 0
-    }
-}
-
-impl Drop for StreamReader {
-    fn drop(&mut self) {
-        self.closed.store(true, Ordering::Release);
-    }
-}
-
-struct Shared {
-    feeds: Mutex<Vec<Feed>>,
-    stop: AtomicBool,
-}
-
-/// The prefetch thread. One per engine.
-pub struct Prefetcher {
-    assets: Arc<dyn AssetResolver>,
-    ring_frames: usize,
-    shared: Arc<Shared>,
-    thread: Option<JoinHandle<()>>,
-}
-
-impl Prefetcher {
-    /// Starts the thread. `ring_frames` is the read-ahead per stream.
-    pub fn start(assets: Arc<dyn AssetResolver>, ring_frames: usize) -> Self {
-        let shared = Arc::new(Shared {
-            feeds: Mutex::new(Vec::new()),
-            stop: AtomicBool::new(false),
-        });
-        let s = shared.clone();
-        let thread = std::thread::Builder::new()
-            .name("ph-prefetch".into())
-            .spawn(move || {
-                while !s.stop.load(Ordering::Acquire) {
-                    if let Ok(mut feeds) = s.feeds.lock() {
-                        feeds.retain_mut(Feed::pump);
-                    }
-                    std::thread::sleep(Duration::from_millis(2));
-                }
-            })
-            .expect("spawn the prefetch thread");
-        Self {
-            assets,
-            ring_frames: ring_frames.max(64),
-            shared,
-            thread: Some(thread),
-        }
-    }
-
-    /// Opens a stream of `frames` source frames of `path` from `start` (backwards from
-    /// `start + frames − 1` when `reverse`). Resolves the asset and pre-fills the ring on the
-    /// calling thread, so playback can start at once. Off the audio thread.
-    pub fn open(
-        &self,
-        path: &str,
-        start: u64,
-        frames: u64,
-        reverse: bool,
-    ) -> EngineResult<StreamReader> {
-        let data = self.assets.sample(path).map_err(EngineError::Asset)?;
-        let total = data.frames() as u64;
-        let frames = frames.min(total.saturating_sub(start));
-        let channels = data.channels.len().max(1);
-        let (prod, cons) = rtrb::RingBuffer::new(self.ring_frames * channels);
-        let closed = Arc::new(AtomicBool::new(false));
-        let mut feed = Feed {
-            data,
-            next: if reverse {
-                (start + frames).saturating_sub(1)
-            } else {
-                start
-            },
-            left: frames,
-            reverse,
-            prod,
-            closed: closed.clone(),
-        };
-        if feed.pump()
-            && let Ok(mut feeds) = self.shared.feeds.lock()
-        {
-            feeds.push(feed);
-        }
-        Ok(StreamReader {
-            cons,
-            channels,
-            left: frames,
-            underruns: 0,
-            closed,
-        })
-    }
-
-    /// Open streams still being filled.
-    pub fn active(&self) -> usize {
-        self.shared.feeds.lock().map_or(0, |f| f.len())
-    }
-}
-
-impl Drop for Prefetcher {
-    fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Release);
-        if let Some(t) = self.thread.take() {
-            let _ = t.join();
-        }
-    }
-}
-
-/// The playback node for one playlist track's audio clips (M2/T1). In T0 it only holds its
-/// plans and outputs silence; it is not part of the render plan yet.
-pub struct AudioClipNode {
-    desc: NodeDescriptor,
-    plans: Vec<AudioClipPlan>,
-}
-
-impl AudioClipNode {
-    pub fn new(track: u32, plans: Vec<AudioClipPlan>) -> Self {
-        Self {
-            desc: NodeDescriptor {
-                id: "ph.audio_clips".into(),
-                name: format!("Audio clips, track {}", track + 1),
-                kind: NodeKind::Utility,
-                audio_inputs: Vec::new(),
-                audio_outputs: vec![PortInfo {
-                    name: "out".into(),
-                    channels: 2,
-                    sidechain: false,
-                }],
-                note_input: false,
-                params: Vec::new(),
-            },
-            plans: plans.into_iter().filter(|p| p.track == track).collect(),
-        }
-    }
-
-    pub fn plans(&self) -> &[AudioClipPlan] {
-        &self.plans
-    }
-}
-
-impl Processor for AudioClipNode {
-    fn descriptor(&self) -> &NodeDescriptor {
-        &self.desc
-    }
-    fn activate(&mut self, _: &ActivateInfo) {}
-    fn process(&mut self, _: &ProcessContext, io: &mut ProcessIo<'_, '_>) -> ProcessStatus {
-        silence(io);
-        ProcessStatus::Sleep
-    }
-    fn set_param(&mut self, _: ParamId, _: f64) {}
-    fn param(&self, _: ParamId) -> f64 {
-        0.0
-    }
-    fn reset(&mut self) {}
-}
-
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use super::*;
-
-    struct Assets(Arc<SampleData>);
-    impl AssetResolver for Assets {
-        fn sample(&self, r: &str) -> Result<Arc<SampleData>, String> {
-            if r == "samples/ramp.wav" {
-                Ok(self.0.clone())
-            } else {
-                Err(format!("no {r}"))
-            }
-        }
-    }
-
-    /// Stereo: left counts up 0, 1, 2, ...; right is its negative.
-    fn ramp(frames: usize) -> Arc<SampleData> {
-        let l: Vec<f32> = (0..frames).map(|i| i as f32).collect();
-        let r = l.iter().map(|v| -v).collect();
-        Arc::new(SampleData {
-            sample_rate: 44_100.0,
-            channels: vec![l, r],
-            loop_range: None,
-            root_key: None,
-        })
-    }
 
     fn project() -> (Project, ClipId) {
         let mut ed = Edit::new(&Project::empty("a"));
@@ -480,85 +401,73 @@ mod tests {
         let pl = &plans[0];
         assert_eq!(pl.clip, c);
         assert_eq!((pl.start, pl.end), (23_040, 115_200));
+        assert_eq!((pl.start_tick, pl.end_tick), (PPQ, 5 * PPQ));
         assert_eq!(pl.source_start, 100);
         // 125 / 100 BPM, and 44.1 kHz source into a 48 kHz engine
         assert!((pl.speed - 1.25 * 44_100.0 / 48_000.0).abs() < 1e-12);
+        assert!(pl.synced);
+        // a beat of a 100 BPM sample at 44.1 kHz is 26 460 frames
+        assert!((pl.source_per_tick * PPQ as f64 - 26_460.0).abs() < 1e-9);
+        assert!((pl.pos(&tempo, pl.end) - 4.0 * 26_460.0).abs() < 1e-6);
+        assert_eq!(pl.pos(&tempo, pl.start), 0.0);
         assert_eq!(pl.transpose, 3.0);
         assert!((pl.gain - 0.501_187).abs() < 1e-5);
         assert_eq!(pl.fade_in, (23_040, FadeCurve::Linear));
         assert_eq!(pl.fade_gain(0), 0.0);
         assert_eq!(pl.fade_gain(11_520), 0.5);
         assert_eq!(pl.fade_gain(23_040), 1.0);
-        assert_eq!(pl.source_frames(1000), 900);
+        assert_eq!(pl.source_frames(&tempo, 1000), 900);
+        // a tempo change halfway: the synced clip's source follows ticks, not samples
+        let mut map = TempoMap::constant(125.0, 48_000);
+        map.push_change(3 * PPQ, 62.5);
+        let (plans2, _) = plan_audio_clips(&p, &map);
+        let q = &plans2[0];
+        assert!(
+            (q.pos(&map, q.end) - 4.0 * 26_460.0).abs() < 1e-6,
+            "same beats played"
+        );
+        assert!(q.end - q.start > pl.end - pl.start, "but it takes longer");
         // no tempo: warned, plays unsynced
         let mut ed = Edit::new(&p);
         ed.set_sample_bpm(SampleId(0), None).unwrap();
         let (plans, warnings) = plan_audio_clips(ed.project(), &tempo);
         assert_eq!(warnings.len(), 1);
+        assert!(!plans[0].synced);
         assert!((plans[0].speed - 44_100.0 / 48_000.0).abs() < 1e-12);
-        // the node holds its track's plans and is silent until T1
-        let node = AudioClipNode::new(0, plans);
-        assert_eq!(node.plans().len(), 1);
-        assert!(stretcher_for(StretchMode::Stretch).is_err());
-    }
-
-    fn read_all(r: &mut StreamReader, block: usize) -> (Vec<f32>, Vec<f32>) {
-        let (mut l, mut rr) = (Vec::new(), Vec::new());
-        for _ in 0..10_000 {
-            if r.finished() {
-                break;
-            }
-            let (mut a, mut b) = (vec![0.0; block], vec![0.0; block]);
-            let n = r.read(&mut [&mut a, &mut b]);
-            l.extend_from_slice(&a[..n]);
-            rr.extend_from_slice(&b[..n]);
-            if n < block {
-                std::thread::sleep(Duration::from_millis(1));
-            }
-        }
-        (l, rr)
     }
 
     #[test]
-    fn the_prefetcher_streams_forwards_and_backwards() {
-        let pf = Prefetcher::start(Arc::new(Assets(ramp(10_000))), 256);
-        let mut fwd = pf.open("samples/ramp.wav", 100, 5000, false).unwrap();
-        let (l, r) = read_all(&mut fwd, 100);
-        assert_eq!(l.len(), 5000);
-        assert!(l.iter().enumerate().all(|(i, v)| *v == (100 + i) as f32));
-        assert!(r.iter().zip(&l).all(|(a, b)| *a == -b));
-        let mut back = pf.open("samples/ramp.wav", 9_990, 50, true).unwrap();
-        let (l, _) = read_all(&mut back, 64);
-        assert_eq!(l, (0..10).map(|i| (9_999 - i) as f32).collect::<Vec<_>>());
-        // reading past the end is silence, not an underrun
-        let mut o = [1.0f32; 8];
-        assert_eq!(back.read(&mut [&mut o]), 0);
-        assert_eq!(o, [0.0; 8]);
-        assert_eq!(back.underruns(), 0);
-        assert!(pf.open("samples/missing.wav", 0, 10, false).is_err());
-        drop((fwd, back));
-        for _ in 0..500 {
-            if pf.active() == 0 {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(2));
+    fn every_mode_has_a_stretcher() {
+        for mode in [
+            StretchMode::Resample,
+            StretchMode::Stretch,
+            StretchMode::Slice,
+        ] {
+            let mut s = stretcher_for(mode).unwrap();
+            s.configure(2, 48_000.0, 512);
+            s.reset();
+            s.set_transpose(2.0);
+            let x: Vec<f32> = (0..600).map(|i| (i as f32 * 0.05).sin()).collect();
+            let (mut l, mut r) = (vec![0.0; 500], vec![0.0; 500]);
+            s.process(&[&x, &x], &mut [&mut l, &mut r]);
+            assert!(l.iter().all(|v| v.is_finite()));
         }
-        assert_eq!(
-            pf.active(),
-            0,
-            "closed streams are dropped by the prefetch thread"
-        );
     }
 
     #[test]
-    fn a_reader_counts_underruns_when_the_prefetcher_falls_behind() {
-        let pf = Prefetcher::start(Arc::new(Assets(ramp(100_000))), 64);
-        let mut r = pf.open("samples/ramp.wav", 0, 100_000, false).unwrap();
-        // the ring holds 64 frames; asking for 1000 at once must come up short
-        let mut a = vec![0.0; 1000];
-        let n = r.read(&mut [&mut a]);
-        assert!(n <= 64);
-        assert_eq!(r.underruns(), 1);
-        assert!(a[n..].iter().all(|v| *v == 0.0));
+    fn varispeed_resamples_continuously_across_calls() {
+        let mut v = Varispeed::new();
+        v.configure(1, 48_000.0, 64);
+        // a ramp read at half speed: output steps by 0.5, delayed by the latency
+        let x: Vec<f32> = (0..200).map(|i| i as f32).collect();
+        let mut out = Vec::new();
+        for k in 0..10 {
+            let mut o = vec![0.0; 40];
+            v.process(&[&x[k * 20..(k + 1) * 20]], &mut [&mut o]);
+            out.extend(o);
+        }
+        for (i, w) in out.windows(2).enumerate().skip(8) {
+            assert!((w[1] - w[0] - 0.5).abs() < 1e-4, "at {i}: {w:?}");
+        }
     }
 }

@@ -21,6 +21,9 @@
 //! [`ParamSet`]s applied at the swap. Only new or changed instruments/effects get fresh,
 //! already-activated instances.
 
+use crate::audio_clips::{AudioClipPlan, plan_audio_clips};
+use crate::automation::AutomationEvaluator;
+use crate::player::{AudioCtx, AudioTrackState, TrackKey, build_track};
 use crate::plugins::{LivePlugin, PluginEnv, PluginSlot, effect_plugin, instrument_plugin};
 use crate::sched::Sched;
 use crate::stats::StatsBoard;
@@ -45,6 +48,9 @@ pub(crate) const PREVIEW_CAP: usize = 64;
 pub(crate) const RAMP_FRAMES: u32 = 64;
 /// Choke groups are numbered 1..=16 (sampler `choke_group`; 0 = none).
 pub(crate) const CHOKE_GROUPS: usize = 16;
+/// Tempo automation becomes a tempo map with one constant step per this many ticks (a 64th
+/// note), so tempo-synced audio clips and notes follow tempo changes.
+pub(crate) const TEMPO_RESOLUTION: Tick = ph_core::PPQ / 16;
 
 /// Everything that requires re-activating processors when it changes.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -177,6 +183,8 @@ pub(crate) struct InsertState {
 pub(crate) enum NodeState {
     Channel(Option<Box<ChannelState>>),
     Insert(InsertState),
+    /// A playlist track's audio clips (M2/T1); `None` once moved to a newer plan.
+    AudioTrack(Option<Box<AudioTrackState>>),
 }
 
 pub(crate) struct ChannelDef {
@@ -203,6 +211,8 @@ pub(crate) struct InsertDef {
 pub(crate) enum NodeDef {
     Channel(ChannelDef),
     Insert(InsertDef),
+    /// Plays one playlist track's audio clips into the master insert.
+    AudioTrack,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -238,6 +248,10 @@ pub(crate) enum Transfer {
     Effect {
         from: (usize, usize),
         to: (usize, usize),
+    },
+    AudioTrack {
+        from: usize,
+        to: usize,
     },
 }
 
@@ -332,7 +346,7 @@ impl Plan {
     pub unsafe fn channel_mut(&self, i: usize) -> Option<&mut ChannelState> {
         match unsafe { self.state_mut(i) } {
             NodeState::Channel(c) => c.as_deref_mut(),
-            NodeState::Insert(_) => None,
+            NodeState::Insert(_) | NodeState::AudioTrack(_) => None,
         }
     }
 }
@@ -347,8 +361,16 @@ pub(crate) struct Shadow {
     pub settings: Option<Settings>,
     pub channels: BTreeMap<ChannelId, ChannelShadow>,
     pub inserts: BTreeMap<u16, InsertShadow>,
+    pub tracks: BTreeMap<u32, TrackShadow>,
     /// Plugin nodes of the plan (M2/T3), for the control side.
     pub plugins: BTreeMap<PluginSlot, LivePlugin>,
+}
+
+/// An audio-track node: reused while its clips (and the tempo map) are unchanged.
+#[derive(Clone)]
+pub(crate) struct TrackShadow {
+    pub node: usize,
+    pub key: Arc<TrackKey>,
 }
 
 #[derive(Clone)]
@@ -380,6 +402,7 @@ impl Shadow {
             settings: None,
             channels: BTreeMap::new(),
             inserts: BTreeMap::new(),
+            tracks: BTreeMap::new(),
             plugins: BTreeMap::new(),
         }
     }
@@ -561,6 +584,7 @@ fn new_bus(n: usize, gain: [f32; 2]) -> BusState {
 
 enum Key {
     Channel(usize),
+    Track(u32),
     Insert(u16),
 }
 
@@ -572,11 +596,23 @@ pub(crate) fn compile(
     settings: Settings,
     opts: &CompileOptions,
     assets: &dyn AssetResolver,
+    audio: &mut AudioCtx,
     id: u64,
 ) -> EngineResult<(Box<Plan>, Shadow)> {
     let n = settings.max_frames.max(1);
     let reuse = prev.settings == Some(settings);
-    let tempo = TempoMap::constant(project.settings.bpm, settings.sample_rate);
+    // tempo automation (if any) is part of the tempo map: notes and synced audio follow it
+    let tempo = AutomationEvaluator::new(project).tempo_map(
+        project.settings.bpm,
+        settings.sample_rate,
+        TEMPO_RESOLUTION,
+    );
+    // audio clips, by playlist track
+    let (clip_plans, _) = plan_audio_clips(project, &tempo);
+    let mut by_track: BTreeMap<u32, Vec<AudioClipPlan>> = BTreeMap::new();
+    for p in clip_plans {
+        by_track.entry(p.track).or_default().push(p);
+    }
     let n_inserts = project.mixer.len();
     if n_inserts == 0 {
         return Err(EngineError::Plan("project has no master insert".into()));
@@ -695,13 +731,15 @@ pub(crate) fn compile(
     }
     order.push(0);
 
-    // ---- node keys and indices
+    // ---- node keys and indices: channels, audio tracks, inserts
+    let n_tr = by_track.len();
     let mut keys: Vec<Key> = (0..n_ch).map(Key::Channel).collect();
+    keys.extend(by_track.keys().map(|t| Key::Track(*t)));
     keys.extend(order.iter().map(|i| Key::Insert(*i)));
     let ins_node: BTreeMap<u16, usize> = order
         .iter()
         .enumerate()
-        .map(|(k, i)| (*i, n_ch + k))
+        .map(|(k, i)| (*i, n_ch + n_tr + k))
         .collect();
 
     let solo = &opts.solo_channels;
@@ -714,6 +752,7 @@ pub(crate) fn compile(
         settings: Some(settings),
         channels: BTreeMap::new(),
         inserts: BTreeMap::new(),
+        tracks: BTreeMap::new(),
         plugins: BTreeMap::new(),
     };
     let info = |seed: u64| ActivateInfo {
@@ -810,14 +849,58 @@ pub(crate) fn compile(
                     state: UnsafeCell::new(NodeState::Channel(state)),
                 });
             }
+            Key::Track(t) => {
+                let plans = &by_track[t];
+                let key = Arc::new(TrackKey::new(plans.clone(), tempo.clone()));
+                let old = prev.tracks.get(t).filter(|o| reuse && *o.key == *key);
+                let state = if let Some(o) = old {
+                    transfers.push(Transfer::AudioTrack {
+                        from: o.node,
+                        to: idx,
+                    });
+                    None
+                } else {
+                    let mut warnings = Vec::new();
+                    Some(Box::new(build_track(
+                        *t,
+                        plans,
+                        &tempo,
+                        settings.sample_rate,
+                        n,
+                        settings.quality,
+                        audio,
+                        assets,
+                        &mut warnings,
+                    )))
+                };
+                shadow.tracks.insert(*t, TrackShadow { node: idx, key });
+                let name = project
+                    .tracks
+                    .get(*t as usize)
+                    .map_or_else(|| format!("Track {}", t + 1), |tr| tr.name.clone());
+                let stat = board.push(format!("{name} (audio clips)"), Some(ObjectPath::Track(*t)));
+                nodes.push(Node {
+                    def: NodeDef::AudioTrack,
+                    inputs: Vec::new(),
+                    dependents: Vec::new(),
+                    indegree: 0,
+                    live: true,
+                    stat,
+                    state: UnsafeCell::new(NodeState::AudioTrack(state)),
+                });
+            }
             Key::Insert(x) => {
                 let ins = &project.mixer[*x as usize];
                 let gain = strip_gain(ins.volume, ins.pan, ins.muted);
-                // inputs: channels (rack order), then inserts (by number)
+                // inputs: channels (rack order), audio tracks into the master (by track),
+                // then inserts (by number)
                 let mut inputs: Vec<Edge> = (0..n_ch)
                     .filter(|c| target(chans[*c]) == *x)
                     .map(|c| Edge { src: c, gain: 1.0 })
                     .collect();
+                if *x == 0 {
+                    inputs.extend((n_ch..n_ch + n_tr).map(|src| Edge { src, gain: 1.0 }));
+                }
                 for (y, g) in ins_inputs.get(x).into_iter().flatten() {
                     inputs.push(Edge {
                         src: ins_node[y],

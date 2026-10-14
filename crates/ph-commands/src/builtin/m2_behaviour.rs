@@ -51,6 +51,26 @@ impl Host for AudioHost {
             Err(CmdError::Host(format!("cannot read {reference}")))
         }
     }
+    /// Files with `loop` in their name are a 4-beat loop at 120 BPM with a transient per
+    /// beat (more with a high sensitivity); anything else has no clear tempo.
+    fn analyze_audio(&self, reference: &str, sensitivity: f32) -> CmdResult<AudioAnalysis> {
+        self.sample_info(reference)?;
+        let looped = reference.contains("loop");
+        let mut onsets = vec![0, 24_000, 48_000, 72_000];
+        if sensitivity > 0.8 {
+            onsets.extend([12_000, 36_000]);
+            onsets.sort();
+        }
+        Ok(AudioAnalysis {
+            bpm: looped.then_some(120.0),
+            confidence: if looped { 0.8 } else { 0.1 },
+            loop_beats: looped.then_some(4),
+            alternatives: vec![(60.0, 0.4), (240.0, 0.2)],
+            onsets,
+            sample_rate: 48_000,
+            key: "test/onsets/v1".into(),
+        })
+    }
 }
 
 struct Rig {
@@ -351,6 +371,97 @@ fn audio_split_and_fit_to_tempo() {
 }
 
 #[test]
+fn sample_detect_bpm_stores_a_detected_tempo_but_keeps_the_users() {
+    let mut r = Rig::new();
+    let out = r.run(
+        "audio.add_clip",
+        json!({ "track": 0, "start": 0, "path": "C:/loops/drumloop.wav" }),
+    );
+    let s = out["sample"].as_u64().unwrap() as u32;
+    let out = r.run("sample.detect_bpm", json!({ "sample": s }));
+    assert_eq!(out["bpm"], 120.0);
+    assert_eq!(out["loop_beats"], 4);
+    assert_eq!(out["onsets"], 4);
+    assert_eq!(out["kept_user_bpm"], Value::Null);
+    assert_eq!(out["alternatives"][0], json!({ "bpm": 60.0, "score": 0.4 }));
+    let e = r.p().sample(SampleId(s)).unwrap();
+    assert_eq!(
+        e.bpm,
+        Some(SampleBpm {
+            value: 120.0,
+            source: BpmSource::Detected
+        })
+    );
+    assert_eq!(e.analysis.onsets.as_deref(), Some("test/onsets/v1"));
+    // a tempo the user set is never overwritten
+    r.run("sample.set_bpm", json!({ "sample": s, "bpm": 95 }));
+    let out = r.run("sample.detect_bpm", json!({ "sample": s }));
+    assert_eq!(out["kept_user_bpm"], 95.0);
+    assert_eq!(r.p().sample(SampleId(s)).unwrap().bpm.unwrap().value, 95.0);
+    // no clear beat: nothing stored
+    let (other, _) = r.loop_clip();
+    assert!(matches!(
+        r.err("sample.detect_bpm", json!({ "sample": other })),
+        CmdError::Model(ModelError::Invalid(m)) if m.contains("no clear tempo")
+    ));
+    assert_eq!(r.p().sample(SampleId(other)).unwrap().bpm, None);
+}
+
+#[test]
+fn fit_to_tempo_detects_a_missing_tempo() {
+    let mut r = Rig::new();
+    r.run("project.set_tempo", json!({ "bpm": 100 }));
+    let out = r.run(
+        "audio.add_clip",
+        json!({ "track": 1, "start": 0, "path": "C:/loops/drumloop.wav" }),
+    );
+    let (s, clip) = (
+        out["sample"].as_u64().unwrap() as u32,
+        out["clip"].as_u64().unwrap() as u32,
+    );
+    let out = r.run("audio.fit_to_tempo", json!({ "clip": clip }));
+    // 2 s at the detected 120 BPM = 4 beats = 3840 ticks
+    assert_eq!(
+        out,
+        json!({ "clip": clip, "length": 3840, "mode": "stretch", "detected_bpm": 120.0 })
+    );
+    assert_eq!(
+        r.p().sample(SampleId(s)).unwrap().bpm.unwrap().source,
+        BpmSource::Detected
+    );
+    // one undo step takes back the tempo and the fit together
+    r.run("history.undo", json!({}));
+    assert_eq!(r.p().sample(SampleId(s)).unwrap().bpm, None);
+    assert!(!r.audio(clip).tempo_sync);
+}
+
+#[test]
+fn slicer_detect_returns_slice_points() {
+    let mut r = Rig::new();
+    let out = r.run(
+        "audio.add_clip",
+        json!({ "track": 0, "start": 0, "path": "C:/loops/drumloop.wav" }),
+    );
+    let s = out["sample"].as_u64().unwrap();
+    let out = r.run("slicer.detect", json!({ "sample": s }));
+    assert_eq!(out["slices"], json!([0, 24_000, 48_000, 72_000]));
+    assert_eq!(out["seconds"], json!([0.0, 0.5, 1.0, 1.5]));
+    assert_eq!(out["sensitivity"], 0.5);
+    let out = r.run("slicer.detect", json!({ "sample": s, "sensitivity": 0.9 }));
+    assert_eq!(out["slices"].as_array().unwrap().len(), 6);
+    assert!(matches!(
+        r.err("slicer.detect", json!({ "sample": s, "sensitivity": 2.0 })),
+        CmdError::Model(ModelError::Invalid(_))
+    ));
+    assert!(matches!(
+        r.err("slicer.detect", json!({ "sample": 77 })),
+        CmdError::Model(ModelError::NoSample(_))
+    ));
+    // read-only
+    assert_eq!(r.s.history().len(), 1);
+}
+
+#[test]
 fn automation_clips_and_points() {
     let mut r = Rig::new();
     // no points given: one point at the current value (like "create automation clip")
@@ -475,7 +586,7 @@ fn automation_clips_and_points() {
 #[test]
 fn m2_stubs_name_their_track() {
     let mut r = Rig::new();
-    let cases: [(&str, Value, &str); 16] = [
+    let cases: [(&str, Value, &str); 15] = [
         ("record.list_inputs", json!({}), "T8"),
         ("record.arm", json!({ "input": 0, "track": 2 }), "T8"),
         ("record.disarm", json!({ "input": 0 }), "T8"),
@@ -503,7 +614,6 @@ fn m2_stubs_name_their_track() {
         ),
         ("midi.unmap", json!({ "controller": 74 }), "T8"),
         ("midi.list_mappings", json!({}), "T8"),
-        ("slicer.detect", json!({ "sample": 0 }), "T1"),
         (
             "slicer.make_instrument",
             json!({ "sample": 0, "write_pattern": true }),

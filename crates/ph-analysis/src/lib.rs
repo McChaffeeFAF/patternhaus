@@ -8,6 +8,7 @@
 //! - [`spectrum`]: band energies and spectral centroid.
 //! - [`health`]: clipping, DC offset, phase correlation, mono compatibility, energy per bar.
 //! - [`onsets`]: onset detection with `bar.beat.tick` positions.
+//! - [`tempo`]: BPM, loop length and onsets of audio material (sample registry, slicer).
 //! - [`music`]: key and chord estimation from notes (exact) and from audio (chroma).
 //! - [`masking`]: spectral masking between stems and note clashes.
 //! - [`image`]: spectrogram, waveform, piano roll and playlist PNGs.
@@ -19,6 +20,7 @@ pub mod masking;
 pub mod music;
 pub mod onsets;
 pub mod spectrum;
+pub mod tempo;
 mod text;
 
 use ph_core::{PPQ, Tick, TimeSignature};

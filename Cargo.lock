@@ -2899,6 +2899,7 @@ dependencies = [
  "ph-instruments",
  "ph-node",
  "ph-plugin-host",
+ "ph-stretch",
  "rtrb",
  "tempfile",
  "thiserror 2.0.21",
@@ -2958,6 +2959,13 @@ dependencies = [
  "thiserror 2.0.21",
  "vst3",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ph-stretch"
+version = "0.1.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

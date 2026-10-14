@@ -4,6 +4,9 @@
 //! Between them they use both M1 instruments (Sampler one-shot and loop, Haus Synth presets),
 //! all seven M1 effects, sends, a sidechain, swing, a choke group, muted notes, a muted
 //! playlist track, a loop region of the playlist and a 3/4 bar with a tempo other than 120.
+//! `audio-clips` (M2/T1) plays a generated drum loop (`samples/loop.wav`, written by the
+//! builder) as tempo-synced audio clips in all three stretch modes, with fades, reverse,
+//! pitch and gain, through a tempo ramp, next to a pattern clip.
 //!
 //! For every project this test checks:
 //! - **determinism:** the offline render is bit-identical run to run, across block sizes
@@ -350,9 +353,116 @@ fn arrangement_waltz() -> Project {
     e.finish().0
 }
 
+/// The audio-clips project's loop: one bar of drums at 100 BPM (2.4 s), 48 kHz mono,
+/// synthesised (deterministic noise), written as 16-bit `samples/loop.wav`.
+fn golden_loop() -> Vec<f32> {
+    let sr = SR as f64;
+    let n = (2.4 * sr) as usize;
+    let mut x = vec![0.0f32; n];
+    let mut seed = 0x2545_f491u32;
+    let mut noise = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed as f64 / u32::MAX as f64 * 2.0 - 1.0
+    };
+    let step = n / 16;
+    for k in 0..16 {
+        let s0 = k * step;
+        for i in 0..step.min(n - s0) {
+            let t = i as f64 / sr;
+            let mut v = 0.0;
+            if k % 4 == 0 {
+                v += 0.7
+                    * (std::f64::consts::TAU * (48.0 + 110.0 * (-t * 35.0).exp()) * t).sin()
+                    * (-t * 9.0).exp();
+            }
+            if k == 4 || k == 12 {
+                v += 0.35 * noise() * (-t * 22.0).exp()
+                    + 0.2 * (std::f64::consts::TAU * 185.0 * t).sin() * (-t * 30.0).exp();
+            }
+            if k % 2 == 1 {
+                v += 0.12 * noise() * (-t * 90.0).exp();
+            }
+            x[s0 + i] += v as f32;
+        }
+    }
+    x
+}
+
+/// Audio clips (M2/T1): the loop in Stretch, Resample and Slice, tempo-synced at 120 BPM
+/// with a ramp to 132, plus fades, reverse, pitch and gain; a kick pattern alongside.
+fn audio_clips() -> Project {
+    let mut e = Edit::new(&Project::empty("audio-clips"));
+    e.update_settings(|s| s.bpm = 120.0).unwrap();
+    let bar = 4 * PPQ;
+    let pat = e.add_pattern("Kick").unwrap();
+    let kick = e.add_channel("Kick", drum("kick", &[])).unwrap();
+    e.update_channel(kick, |c| c.volume = 0.6).unwrap();
+    steps(&mut e, pat, kick, &[0, 4, 8, 12], 60, 0.8);
+    for b in 0..4 {
+        e.add_clip(0, pat, b * bar).unwrap();
+    }
+    let s = e
+        .add_sample(SampleEntry {
+            id: SampleId(0),
+            path: "samples/loop.wav".into(),
+            name: "loop.wav".into(),
+            frames: golden_loop().len() as u64,
+            sample_rate: SR,
+            channels: 1,
+            bpm: Some(SampleBpm {
+                value: 100.0,
+                source: BpmSource::User,
+            }),
+            root_key: None,
+            analysis: Default::default(),
+            provenance: Default::default(),
+        })
+        .unwrap();
+    let synced = |mode: StretchMode| {
+        let mut a = AudioClip::new(s);
+        a.tempo_sync = true;
+        a.stretch = mode;
+        a
+    };
+    e.add_audio_clip(1, 0, bar, synced(StretchMode::Stretch))
+        .unwrap();
+    let mut b = synced(StretchMode::Resample);
+    b.pitch_semitones = 2;
+    b.gain_db = -2.0;
+    e.add_audio_clip(1, bar, bar, b).unwrap();
+    e.add_audio_clip(2, 2 * bar, bar, synced(StretchMode::Slice))
+        .unwrap();
+    let mut d = synced(StretchMode::Stretch);
+    d.reverse = true;
+    d.pitch_semitones = -2;
+    d.gain_db = -3.0;
+    d.fade_in = Fade {
+        length: PPQ,
+        curve: FadeCurve::Exp,
+    };
+    d.fade_out = Fade {
+        length: PPQ,
+        curve: FadeCurve::SCurve,
+    };
+    e.add_audio_clip(2, 3 * bar, bar, d).unwrap();
+    // tempo: 120, a ramp to 132 over bar 3, then 132
+    let t = e
+        .add_automation_clip(3, 0, 4 * bar, ParamPath::Tempo)
+        .unwrap();
+    e.add_point(t, 0, 120.0, CurveKind::Hold, 0.0).unwrap();
+    e.add_point(t, 2 * bar, 120.0, CurveKind::Linear, 0.0)
+        .unwrap();
+    e.add_point(t, 3 * bar, 132.0, CurveKind::Hold, 0.0)
+        .unwrap();
+    e.finish().0
+}
+
 /// Every project, by folder name. Used only by `cargo xtask golden --update`.
 fn build_projects() -> Vec<(&'static str, Project)> {
     vec![
+        ("audio-clips", audio_clips()),
         ("drums-swing-choke", drums_swing_choke()),
         ("synth-chords", synth_chords()),
         ("mix-sidechain-sends", mix_sidechain_sends()),
@@ -532,6 +642,16 @@ fn write_projects() {
         std::fs::create_dir_all(&dir).unwrap();
         ph_formats::save_project(&p, &dir).unwrap();
     }
+    // generated material for audio-clips
+    let samples = projects_dir().join("audio-clips/samples");
+    std::fs::create_dir_all(&samples).unwrap();
+    ph_formats::encode::write_wav(
+        &samples.join("loop.wav"),
+        &[golden_loop()],
+        SR,
+        ph_formats::encode::WavFormat::Pcm16,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -541,7 +661,7 @@ fn golden_projects_render_deterministically_and_match_their_references() {
         std::fs::create_dir_all(golden_dir()).unwrap();
     }
     let names = project_names();
-    assert!(names.len() >= 4, "golden projects missing: {names:?}");
+    assert!(names.len() >= 5, "golden projects missing: {names:?}");
     let mut errors = Vec::new();
     for name in &names {
         let dir = projects_dir().join(name);

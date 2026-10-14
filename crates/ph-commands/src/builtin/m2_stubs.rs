@@ -1,6 +1,6 @@
 //! M2 command families whose implementation needs devices or DSP: `record.*` and `midi.*`
-//! (T8), `slicer.*` (T1, T6), `editor.*` (T6). (`plugin.*`, T3, is implemented in
-//! `plugin.rs`.)
+//! (T8), `slicer.make_instrument` and `editor.*` (T6). (`plugin.*`, T3, is implemented in
+//! `plugin.rs`; `slicer.detect`, T1, in `slicer.rs`.)
 //!
 //! Their names, scopes and parameter schemas are fixed here so agents, the coverage guard
 //! and the parallel tracks agree on them; each returns `CmdError::Unavailable` naming its
@@ -136,17 +136,7 @@ pub fn register(r: &mut Registry) {
         "MIDI learn",
         "T8"
     );
-    // ---- slicer
-    stub!(
-        r,
-        "slicer.detect",
-        "Find the transients of a sample and return slice points.",
-        Scope::Compose,
-        READ,
-        Detect,
-        "transient detection",
-        "T1"
-    );
+    // ---- slicer (`slicer.detect` is in `slicer.rs`, M2/T1)
     stub!(
         r,
         "slicer.make_instrument",
@@ -250,16 +240,6 @@ struct Unmap {
     /// Only this MIDI input device's mapping; omit for any.
     #[serde(default)]
     device: Option<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct Detect {
-    /// Sample registry id.
-    sample: SampleId,
-    /// 0..=1, higher finds more transients (default 0.5).
-    #[serde(default)]
-    sensitivity: Option<f32>,
 }
 
 #[derive(Deserialize, JsonSchema)]

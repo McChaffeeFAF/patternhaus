@@ -148,8 +148,46 @@ fn remove(ctx: &mut CommandCtx<'_>, p: SampleOnly) -> CmdResult<CommandOutput> {
 }
 
 fn detect_bpm(ctx: &mut CommandCtx<'_>, p: SampleOnly) -> CmdResult<CommandOutput> {
-    ctx.project.sample(p.sample)?;
-    unavailable("sample.detect_bpm", "BPM detection", "T1")
+    let entry = ctx.project.sample(p.sample)?.clone();
+    let a = ctx.host.analyze_audio(&entry.path, 0.5)?;
+    let Some(bpm) = a.bpm else {
+        return invalid(format!(
+            "no clear tempo found in {} (set one with sample.set_bpm)",
+            entry.name
+        ));
+    };
+    let user = entry.bpm.filter(|b| b.source == BpmSource::User);
+    let mut ed = Edit::new(ctx.project);
+    ed.update_sample(p.sample, |e| {
+        if user.is_none() {
+            e.bpm = Some(SampleBpm {
+                value: bpm,
+                source: BpmSource::Detected,
+            });
+        }
+        e.analysis.onsets = Some(a.key.clone());
+    })?;
+    let alternatives: Vec<_> = a
+        .alternatives
+        .iter()
+        .map(|(b, s)| json!({ "bpm": b, "score": s }))
+        .collect();
+    let summary = match user {
+        Some(u) => format!(
+            "{} sounds like {bpm} BPM; kept the tempo you set ({})",
+            entry.name, u.value
+        ),
+        None => format!("{} is {bpm} BPM", entry.name),
+    };
+    Ok(CommandOutput::from_edit(
+        ed,
+        json!({
+            "sample": p.sample, "bpm": bpm, "confidence": a.confidence,
+            "loop_beats": a.loop_beats, "alternatives": alternatives,
+            "onsets": a.onsets.len(), "kept_user_bpm": user.map(|u| u.value),
+        }),
+        summary,
+    ))
 }
 
 #[derive(Deserialize, JsonSchema)]
