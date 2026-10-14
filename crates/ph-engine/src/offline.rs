@@ -7,6 +7,7 @@
 
 use crate::control::Controller;
 use crate::plan::Settings;
+use crate::plugins::PluginEnv;
 use crate::rt::{Mailbox, Retire, enable_ftz_daz, restore_fp};
 use crate::runtime::{Command, Runtime};
 use crate::stats::Shared;
@@ -40,8 +41,20 @@ impl Offline {
         assets: &dyn AssetResolver,
         workers: usize,
     ) -> EngineResult<Self> {
+        Self::new_with(project, settings, assets, workers, None)
+    }
+
+    /// [`Self::new`] with plugin hosting (M2/T3).
+    pub fn new_with(
+        project: &Project,
+        settings: Settings,
+        assets: &dyn AssetResolver,
+        workers: usize,
+        plugins: Option<&PluginEnv>,
+    ) -> EngineResult<Self> {
         let mailbox = Arc::new(Mailbox::new());
         let mut ctl = Controller::new(settings, mailbox.clone());
+        ctl.opts.plugins = plugins.cloned();
         let plan = ctl.initial(project, assets)?;
         let (tx, rx) = rtrb::RingBuffer::new(1024);
         let rt = Runtime::new(
@@ -104,13 +117,24 @@ pub(crate) fn render(
     assets: &dyn AssetResolver,
     workers: usize,
 ) -> EngineResult<AudioBuffer> {
+    render_with(project, settings, assets, workers, None)
+}
+
+/// [`render`] with plugin hosting (M2/T3).
+pub(crate) fn render_with(
+    project: &Project,
+    settings: &RenderSettings,
+    assets: &dyn AssetResolver,
+    workers: usize,
+    plugins: Option<&PluginEnv>,
+) -> EngineResult<AudioBuffer> {
     let block = settings.block_frames.clamp(1, 16_384);
     let s = Settings {
         sample_rate: settings.sample_rate.max(1),
         max_frames: block,
         quality: settings.quality,
     };
-    let mut off = Offline::new(project, s, assets, workers)?;
+    let mut off = Offline::new_with(project, s, assets, workers, plugins)?;
     let bar = project.settings.time_signature.ticks_per_bar();
     let (a, b) = settings.range.unwrap_or(match settings.mode {
         PlayMode::Song => (0, project.song_length()),

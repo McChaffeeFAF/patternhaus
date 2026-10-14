@@ -21,6 +21,7 @@
 //! [`ParamSet`]s applied at the swap. Only new or changed instruments/effects get fresh,
 //! already-activated instances.
 
+use crate::plugins::{LivePlugin, PluginEnv, PluginSlot, effect_plugin, instrument_plugin};
 use crate::sched::Sched;
 use crate::stats::StatsBoard;
 use crate::tempo::TempoMap;
@@ -346,6 +347,8 @@ pub(crate) struct Shadow {
     pub settings: Option<Settings>,
     pub channels: BTreeMap<ChannelId, ChannelShadow>,
     pub inserts: BTreeMap<u16, InsertShadow>,
+    /// Plugin nodes of the plan (M2/T3), for the control side.
+    pub plugins: BTreeMap<PluginSlot, LivePlugin>,
 }
 
 #[derive(Clone)]
@@ -377,6 +380,7 @@ impl Shadow {
             settings: None,
             channels: BTreeMap::new(),
             inserts: BTreeMap::new(),
+            plugins: BTreeMap::new(),
         }
     }
 }
@@ -387,6 +391,8 @@ pub(crate) struct CompileOptions {
     /// Hook for solo (session-local, set by the UI later): when non-empty, channels not in
     /// the list are muted in the strip.
     pub solo_channels: Vec<ChannelId>,
+    /// Plugin hosting (M2/T3); `None` = plugin specs play silence / pass through.
+    pub plugins: Option<PluginEnv>,
 }
 
 fn instrument_identity(spec: &InstrumentSpec) -> Option<String> {
@@ -397,7 +403,16 @@ fn instrument_identity(spec: &InstrumentSpec) -> Option<String> {
         InstrumentSpec::Synth { preset, .. } => {
             Some(format!("synth:{}", preset.as_deref().unwrap_or("")))
         }
-        InstrumentSpec::MultiSampler { .. } | InstrumentSpec::Plugin { .. } => None,
+        InstrumentSpec::Plugin {
+            format,
+            plugin_id,
+            state,
+            ..
+        } => Some(format!(
+            "plugin:{format:?}:{plugin_id}:{}",
+            state.as_deref().unwrap_or("")
+        )),
+        InstrumentSpec::MultiSampler { .. } => None,
     }
 }
 
@@ -412,7 +427,7 @@ fn instrument_params(spec: &InstrumentSpec) -> BTreeMap<String, f64> {
         }
         InstrumentSpec::Synth { params, .. } => params.clone(),
         InstrumentSpec::MultiSampler { params, .. } => params.clone(),
-        InstrumentSpec::Plugin { .. } => BTreeMap::new(),
+        InstrumentSpec::Plugin { params, .. } => params.clone(),
     }
 }
 
@@ -421,14 +436,22 @@ fn effect_identity(spec: &EffectSpec) -> Option<String> {
         EffectSpec::Builtin { name, .. } => {
             Some(name.strip_prefix("ph.fx.").unwrap_or(name).to_string())
         }
-        EffectSpec::Plugin { .. } => None,
+        EffectSpec::Plugin {
+            format,
+            plugin_id,
+            state,
+            ..
+        } => Some(format!(
+            "plugin:{format:?}:{plugin_id}:{}",
+            state.as_deref().unwrap_or("")
+        )),
     }
 }
 
 fn effect_params(spec: &EffectSpec) -> BTreeMap<String, f64> {
     match spec {
         EffectSpec::Builtin { params, .. } => params.clone(),
-        EffectSpec::Plugin { .. } => BTreeMap::new(),
+        EffectSpec::Plugin { params, .. } => params.clone(),
     }
 }
 
@@ -691,6 +714,7 @@ pub(crate) fn compile(
         settings: Some(settings),
         channels: BTreeMap::new(),
         inserts: BTreeMap::new(),
+        plugins: BTreeMap::new(),
     };
     let info = |seed: u64| ActivateInfo {
         sample_rate: settings.sample_rate as f64,
@@ -722,6 +746,10 @@ pub(crate) fn compile(
                         from: o.node,
                         to: idx,
                     });
+                    let slot = PluginSlot::Channel(ch.id);
+                    if let Some(lp) = prev.plugins.get(&slot) {
+                        shadow.plugins.insert(slot, lp.clone());
+                    }
                     let desc = o.desc.clone().expect("filtered");
                     for (pid, v) in param_diff(&o.params, &ps, &desc) {
                         params.push(ParamSet {
@@ -733,12 +761,32 @@ pub(crate) fn compile(
                     }
                     (None, Some(desc))
                 } else {
-                    let proc = ph_instruments::create(&ch.instrument, assets)
-                        .ok()
-                        .map(|mut p| {
-                            p.activate(&info(seed(1, ch.id.0 as u64, 0)));
-                            p
-                        });
+                    let proc = match instrument_plugin(&ch.instrument) {
+                        Some((format, id, state_ref)) => {
+                            let slot = PluginSlot::Channel(ch.id);
+                            crate::plugins::create(
+                                opts.plugins.as_ref(),
+                                slot,
+                                format,
+                                id,
+                                state_ref,
+                                &ps,
+                                &info(seed(1, ch.id.0 as u64, 0)),
+                                assets,
+                            )
+                            .ok()
+                            .map(|(p, live)| {
+                                shadow.plugins.insert(slot, live);
+                                p
+                            })
+                        }
+                        None => ph_instruments::create(&ch.instrument, assets)
+                            .ok()
+                            .map(|mut p| {
+                                p.activate(&info(seed(1, ch.id.0 as u64, 0)));
+                                p
+                            }),
+                    };
                     let desc = proc.as_ref().map(|p| Arc::new(p.descriptor().clone()));
                     (Some(Box::new(new_channel_state(proc, n, gain))), desc)
                 };
@@ -801,11 +849,18 @@ pub(crate) fn compile(
                         s.identity.is_some() && s.identity == identity && s.desc.is_some()
                     });
                     let mix = slot.mix.clamp(0.0, 1.0);
+                    let pslot = PluginSlot::Effect {
+                        insert: *x as u32,
+                        slot: si as u32,
+                    };
                     let (proc, desc) = if let Some(os) = old_slot {
                         transfers.push(Transfer::Effect {
                             from: (old.unwrap().node, si),
                             to: (idx, si),
                         });
+                        if let Some(lp) = prev.plugins.get(&pslot) {
+                            shadow.plugins.insert(pslot, lp.clone());
+                        }
                         let desc = os.desc.clone().expect("filtered");
                         for (pid, v) in param_diff(&os.params, &ps, &desc) {
                             params.push(ParamSet {
@@ -817,10 +872,27 @@ pub(crate) fn compile(
                         }
                         (None, Some(desc))
                     } else {
-                        let p = ph_effects::create(&slot.effect).ok().map(|mut p| {
-                            p.activate(&info(seed(2, *x as u64, si as u64)));
-                            p
-                        });
+                        let p = match effect_plugin(&slot.effect) {
+                            Some((format, id, state_ref)) => crate::plugins::create(
+                                opts.plugins.as_ref(),
+                                pslot,
+                                format,
+                                id,
+                                state_ref,
+                                &ps,
+                                &info(seed(2, *x as u64, si as u64)),
+                                assets,
+                            )
+                            .ok()
+                            .map(|(p, live)| {
+                                shadow.plugins.insert(pslot, live);
+                                p
+                            }),
+                            None => ph_effects::create(&slot.effect).ok().map(|mut p| {
+                                p.activate(&info(seed(2, *x as u64, si as u64)));
+                                p
+                            }),
+                        };
                         let d = p.as_ref().map(|p| Arc::new(p.descriptor().clone()));
                         (p, d)
                     };

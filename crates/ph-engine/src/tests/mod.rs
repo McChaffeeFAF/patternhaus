@@ -5,6 +5,7 @@
 
 mod audition;
 mod oracle;
+mod plugins;
 mod routing;
 mod rt_miri;
 mod rt_safety;

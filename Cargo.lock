@@ -2896,6 +2896,7 @@ dependencies = [
  "ph-formats",
  "ph-instruments",
  "ph-node",
+ "ph-plugin-host",
  "rtrb",
  "tempfile",
  "thiserror 2.0.21",

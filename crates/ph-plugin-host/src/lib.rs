@@ -227,6 +227,59 @@ impl PluginState {
         }
     }
 
+    /// First line of a state file.
+    pub const FILE_MAGIC: &'static str = "PATTERNHAUS-PLUGIN-STATE 1";
+
+    /// The bytes of a `plugins/<file>` state file: a magic line, one JSON line naming the
+    /// plugin, then the plugin's own state bytes unchanged.
+    pub fn to_file_bytes(&self) -> Vec<u8> {
+        #[derive(Serialize)]
+        struct Header<'a> {
+            format: PluginFormat,
+            plugin_id: &'a str,
+            version: &'a str,
+            bytes: usize,
+        }
+        let header = serde_json::to_string(&Header {
+            format: self.format,
+            plugin_id: &self.plugin_id,
+            version: &self.version,
+            bytes: self.data.len(),
+        })
+        .expect("serialisable");
+        let mut out = format!("{}\n{header}\n", Self::FILE_MAGIC).into_bytes();
+        out.extend_from_slice(&self.data);
+        out
+    }
+
+    /// Reads [`Self::to_file_bytes`] output.
+    pub fn from_file_bytes(bytes: &[u8]) -> PluginResult<Self> {
+        #[derive(Deserialize)]
+        struct Header {
+            format: PluginFormat,
+            plugin_id: String,
+            version: String,
+            bytes: usize,
+        }
+        let bad = |m: &str| PluginError::Call(format!("not a plugin state file: {m}"));
+        let mut lines = bytes.splitn(3, |b| *b == b'\n');
+        if lines.next() != Some(Self::FILE_MAGIC.as_bytes()) {
+            return Err(bad("missing header"));
+        }
+        let header: Header = serde_json::from_slice(lines.next().ok_or_else(|| bad("no header"))?)
+            .map_err(|e| bad(&e.to_string()))?;
+        let data = lines.next().unwrap_or(&[]).to_vec();
+        if data.len() != header.bytes {
+            return Err(bad("truncated"));
+        }
+        Ok(Self {
+            format: header.format,
+            plugin_id: header.plugin_id,
+            version: header.version,
+            data,
+        })
+    }
+
     /// Loads into `instance` after checking it is the same plugin.
     pub fn load_into(
         &self,
