@@ -353,7 +353,7 @@ struct SetParam {
 fn set_param(ctx: &mut CommandCtx<'_>, p: SetParam) -> CmdResult<CommandOutput> {
     let ch = ctx.project.channel(p.channel)?;
     if matches!(ch.instrument, InstrumentSpec::Plugin { .. }) {
-        return invalid("plugin parameters are set through the plugin's own state");
+        return invalid("this channel plays a plugin: set its parameters with plugin.set_param");
     }
     if !p.value.is_finite() {
         return invalid("value must be a finite number");

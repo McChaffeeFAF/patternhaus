@@ -15,13 +15,16 @@
 //! Test plugins (`test-plugins/`) are deterministic, so live output must equal the offline
 //! render bit for bit; third-party plugins are exempt.
 
-use ph_core::{ChannelId, EffectSpec, InstrumentSpec, PluginFormat};
+pub use ph_core::PluginFormat;
+use ph_core::{ChannelId, EffectSpec, InstrumentSpec};
 use ph_node::{ActivateInfo, AssetResolver, NodeDescriptor, Processor};
+pub use ph_plugin_host::embed::{EMBEDDING, EditorFrame};
 pub use ph_plugin_host::manager::{HostConfig, ListedPlugin, PluginHost, find_scan_helper};
 pub use ph_plugin_host::scan::ScanProgress;
 pub use ph_plugin_host::{
     EditorSize, FaultHandle, PluginControl, PluginEditor, PluginError, PluginFault, PluginInfo,
-    PluginKind, PluginNode, PluginState, PluginStatus, RawWindowHandle, ScanFailure, ScanReport,
+    PluginInstance, PluginKind, PluginNode, PluginState, PluginStatus, RawWindowHandle,
+    ScanFailure, ScanReport,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

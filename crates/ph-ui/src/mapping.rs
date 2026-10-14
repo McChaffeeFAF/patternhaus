@@ -327,6 +327,48 @@ pub fn effect_add(insert: u32, name: &str) -> Request {
         json!({ "insert": insert, "effect": effect }),
     )
 }
+// ---- plugins (M2/T3) ------------------------------------------------------------------------
+
+pub fn plugin_scan() -> Request {
+    req("plugin.scan", json!({}))
+}
+pub fn plugin_add_instrument(format: ph_core::PluginFormat, id: &str) -> Request {
+    req(
+        "plugin.add_instrument",
+        json!({ "format": format, "plugin": id }),
+    )
+}
+pub fn plugin_add_effect(insert: u32, format: ph_core::PluginFormat, id: &str) -> Request {
+    req(
+        "plugin.add_effect",
+        json!({ "insert": insert, "format": format, "plugin": id }),
+    )
+}
+fn plugin_ref(t: ph_commands::PluginTarget) -> serde_json::Value {
+    match t {
+        ph_commands::PluginTarget::Channel(c) => json!({ "channel": c }),
+        ph_commands::PluginTarget::Effect { insert, slot } => {
+            json!({ "insert": insert, "slot": slot })
+        }
+    }
+}
+pub fn plugin_param(t: ph_commands::PluginTarget, param: &str, value: f64) -> Request {
+    let mut p = plugin_ref(t);
+    p["param"] = json!(param);
+    p["value"] = json!(value);
+    req("plugin.set_param", p)
+}
+pub fn plugin_editor(t: ph_commands::PluginTarget, open: bool) -> Request {
+    req(
+        if open {
+            "plugin.open_editor"
+        } else {
+            "plugin.close_editor"
+        },
+        plugin_ref(t),
+    )
+}
+
 pub fn effect_remove(insert: u32, index: usize) -> Request {
     req(
         "mixer.remove_effect",

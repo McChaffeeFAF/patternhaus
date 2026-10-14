@@ -7,6 +7,7 @@
 //! patternhaus-cli analyze --project ./song --what loudness,key
 //! patternhaus-cli mcp --headless --project ./song      # MCP over stdio
 //! patternhaus-cli mcp --connect                        # proxy to the running app
+//! patternhaus-cli plugin-scan --report report.md       # scan installed plugins
 //! ```
 //!
 //! Commands start a headless studio (silent audio) on `--project`, or talk to a running app
@@ -128,6 +129,25 @@ enum Cmd {
         #[command(flatten)]
         common: Common,
     },
+    /// Scan installed CLAP and VST3 plugins (each file in a helper process, one at a time, with
+    /// a timeout), update the plugin cache, and print counts or write a compatibility report.
+    PluginScan {
+        /// Folders or plugin files to scan; default: the standard plugin folders.
+        paths: Vec<PathBuf>,
+        /// Write a markdown compatibility report here. It lists the plugins installed on this
+        /// machine: keep it local (never commit it).
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// The scan cache file (default: the per-user plugin cache the app uses).
+        #[arg(long)]
+        cache: Option<PathBuf>,
+        /// Seconds one file may take before it is killed and blocked.
+        #[arg(long, default_value = "30")]
+        timeout: u64,
+        /// Rescan every file, even those the cache says did not change.
+        #[arg(long)]
+        fresh: bool,
+    },
     /// Serve MCP over stdio. `--headless` starts its own studio, `--connect` attaches to the
     /// running app; with neither, attach if an app is running, else go headless.
     Mcp {
@@ -186,6 +206,7 @@ impl Backend {
             },
             projects_dir: ph_control::default_projects_dir(),
             grant,
+            plugins: ph_control::default_plugin_config(),
         })?;
         Ok(Backend::Local {
             agent,
@@ -305,8 +326,82 @@ fn script_commands(text: &str) -> Result<(Vec<Value>, bool), String> {
     Ok((cmds, one))
 }
 
+/// `plugin-scan`: no studio, just the plugin host and its cache.
+fn plugin_scan(
+    paths: Vec<PathBuf>,
+    report: Option<PathBuf>,
+    cache: Option<PathBuf>,
+    timeout: u64,
+    fresh: bool,
+) -> Result<bool, String> {
+    use ph_engine::plugins::{PluginHost, PluginKind, PluginStatus};
+    let mut config = ph_control::default_plugin_config();
+    if cache.is_some() {
+        config.cache_file = cache;
+    }
+    config.timeout = Some(std::time::Duration::from_secs(timeout.max(1)));
+    let host = PluginHost::new(config);
+    if fresh {
+        host.forget_files();
+    }
+    let started = std::time::Instant::now();
+    let r = host.scan(&paths, |p| {
+        eprintln!(
+            "[{}/{}] {}{}",
+            p.index + 1,
+            p.total,
+            p.path.display(),
+            if p.cached { " (cached)" } else { "" }
+        );
+    })?;
+    let list = host.list();
+    let count =
+        |f: ph_engine::plugins::PluginFormat, st: Option<PluginStatus>, inst: Option<bool>| {
+            list.iter()
+                .filter(|p| p.info.format == f)
+                .filter(|p| st.is_none_or(|s| p.status == s))
+                .filter(|p| inst.is_none_or(|i| (p.info.kind == PluginKind::Instrument) == i))
+                .count()
+        };
+    let mut summary = json!({ "seconds": started.elapsed().as_secs_f64().round() });
+    for (name, f) in [
+        ("clap", ph_engine::plugins::PluginFormat::Clap),
+        ("vst3", ph_engine::plugins::PluginFormat::Vst3),
+    ] {
+        summary[name] = json!({
+            "plugins": count(f, None, None),
+            "ok": count(f, Some(PluginStatus::Ok), None),
+            "isolate": count(f, Some(PluginStatus::Isolate), None),
+            "blocked": count(f, Some(PluginStatus::Blocked), None),
+            "instruments": count(f, None, Some(true)),
+            "effects": count(f, None, Some(false)),
+        });
+    }
+    summary["files_failed"] = json!(r.failed.len());
+    if let Some(path) = report {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::write(&path, host.report_markdown())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        summary["report"] = json!(path.display().to_string());
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&summary).unwrap_or_default()
+    );
+    Ok(false)
+}
+
 async fn run(cmd: Cmd) -> Result<bool, String> {
     match cmd {
+        Cmd::PluginScan {
+            paths,
+            report,
+            cache,
+            timeout,
+            fresh,
+        } => plugin_scan(paths, report, cache, timeout, fresh),
         Cmd::Run {
             command,
             params,
@@ -428,6 +523,7 @@ async fn run(cmd: Cmd) -> Result<bool, String> {
                     },
                     projects_dir: ph_control::default_projects_dir(),
                     grant,
+                    plugins: ph_control::default_plugin_config(),
                 })?;
                 eprintln!(
                     "patternhaus: headless MCP on stdio, project {}",

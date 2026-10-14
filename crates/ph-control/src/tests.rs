@@ -14,6 +14,7 @@ fn studio(dir: &std::path::Path) -> Studio {
         projects_dir: None,
         engine: EngineConfig::default(),
         audio: AudioMode::Silent,
+        plugins: Default::default(),
     };
     Studio::start(config, Project::empty("t")).unwrap()
 }
@@ -32,6 +33,7 @@ fn studio_with(
         projects_dir: projects,
         engine: EngineConfig::default(),
         audio: AudioMode::Silent,
+        plugins: Default::default(),
     };
     Studio::start(config, Project::empty("t")).unwrap()
 }

@@ -30,6 +30,7 @@ pub fn studio(dir: &std::path::Path, project: Project) -> Studio {
             projects_dir: None,
             engine: EngineConfig::default(),
             audio: AudioMode::Silent,
+            plugins: Default::default(),
         },
         project,
     )

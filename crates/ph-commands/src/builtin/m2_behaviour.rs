@@ -475,30 +475,7 @@ fn automation_clips_and_points() {
 #[test]
 fn m2_stubs_name_their_track() {
     let mut r = Rig::new();
-    let cases: [(&str, Value, &str); 23] = [
-        ("plugin.scan", json!({}), "T3"),
-        ("plugin.list", json!({}), "T3"),
-        (
-            "plugin.add_instrument",
-            json!({ "format": "clap", "plugin": "com.x.synth" }),
-            "T3",
-        ),
-        (
-            "plugin.add_effect",
-            json!({ "insert": 1, "format": "vst3", "plugin": "ABCD" }),
-            "T3",
-        ),
-        (
-            "plugin.set_param",
-            json!({ "channel": 0, "param": "7", "value": 0.5 }),
-            "T3",
-        ),
-        ("plugin.open_editor", json!({ "channel": 0 }), "T3"),
-        (
-            "plugin.close_editor",
-            json!({ "insert": 1, "slot": 0 }),
-            "T3",
-        ),
+    let cases: [(&str, Value, &str); 16] = [
         ("record.list_inputs", json!({}), "T8"),
         ("record.arm", json!({ "input": 0, "track": 2 }), "T8"),
         ("record.disarm", json!({ "input": 0 }), "T8"),

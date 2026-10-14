@@ -1,11 +1,13 @@
 use crate::StudioConfig;
 use ph_commands::*;
 use ph_core::Project;
+use ph_engine::plugins::{ListedPlugin, PluginSlot};
 use ph_engine::{Engine, PlayMode, RenderSettings, TransportCommand, TransportStatus};
 use ph_formats::encode::{FlacDepth, WavFormat, write_flac, write_wav};
 use ph_node::{AssetResolver, Quality};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 
 /// `ph_commands::Host` over the engine and the filesystem.
@@ -20,6 +22,8 @@ pub struct EngineHost {
     recording: bool,
     /// The sample resolver the engine uses; moved along with the project folder on open.
     resolver: Option<Arc<ph_engine::assets::FileResolver>>,
+    /// Set while a UI takes `ui_requests` (plugin editors open only there).
+    ui_attached: Arc<AtomicBool>,
 }
 
 impl EngineHost {
@@ -39,7 +43,20 @@ impl EngineHost {
             ui,
             recording: false,
             resolver: None,
+            ui_attached: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Shares the flag that says a UI is attached (see `Studio::set_ui_attached`).
+    pub fn with_ui_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.ui_attached = flag;
+        self
+    }
+
+    fn plugin_env(&self) -> CmdResult<ph_engine::plugins::PluginEnv> {
+        self.engine
+            .plugin_env()
+            .ok_or_else(|| CmdError::Host("plugin hosting is off in this session".into()))
     }
 
     /// Lets [`Host::set_project_dir`] move the engine's project-relative sample lookup too.
@@ -155,8 +172,18 @@ impl Host for EngineHost {
             include_tail: req.include_tail,
             block_frames: 512,
         };
-        let audio = ph_engine::render_offline(project, &settings, self.assets.as_ref())
-            .map_err(|e| CmdError::Host(e.to_string()))?;
+        // plugins render from fresh instances loaded with the live session's states
+        let plugins = self
+            .engine
+            .plugin_env()
+            .map(|env| env.with_states(self.engine.plugin_states()));
+        let audio = ph_engine::render_offline_with(
+            project,
+            &settings,
+            self.assets.as_ref(),
+            plugins.as_ref(),
+        )
+        .map_err(|e| CmdError::Host(e.to_string()))?;
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
@@ -319,5 +346,252 @@ impl Host for EngineHost {
         if let Some(r) = &self.resolver {
             r.set_project_dir(dir);
         }
+        if let Some(env) = self.engine.plugin_env() {
+            env.set_project_dir(dir);
+        }
     }
+
+    fn plugin_scan(&mut self, paths: &[PathBuf]) -> CmdResult<PluginScanResult> {
+        let env = self.plugin_env()?;
+        let report = env.host.scan(paths, |_| {}).map_err(CmdError::Host)?;
+        Ok(PluginScanResult {
+            plugins: env.host.list().into_iter().map(entry).collect(),
+            failed: report
+                .failed
+                .into_iter()
+                .map(|f| PluginScanFailure {
+                    path: f.path.display().to_string(),
+                    error: f.error,
+                })
+                .collect(),
+        })
+    }
+
+    fn plugin_list(&self) -> CmdResult<Vec<PluginEntry>> {
+        Ok(self
+            .plugin_env()?
+            .host
+            .list()
+            .into_iter()
+            .map(entry)
+            .collect())
+    }
+
+    fn plugin_params(&self, project: &Project, target: PluginTarget) -> CmdResult<PluginParams> {
+        let env = self.plugin_env()?;
+        let (format, id, spec) = plugin_spec(project, target)?;
+        let slot = slot_of(target);
+        if let Some(lp) = self.engine.plugin(slot)
+            && lp.info.id == id
+            && lp.info.format == format
+            && !lp.fault.is_dead()
+        {
+            let values = lp.values();
+            let params = lp
+                .desc
+                .params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let value = values
+                        .as_ref()
+                        .and_then(|v| v.get(i).copied())
+                        .or_else(|| spec.get(&p.id).copied())
+                        .unwrap_or(p.default);
+                    let text = lp.control.as_ref().and_then(|c| c.param_text(i, value));
+                    param(p, value, text)
+                })
+                .collect();
+            return Ok(PluginParams {
+                target: Some(target),
+                format,
+                plugin_id: id,
+                name: lp.info.name.clone(),
+                live: values.is_some(),
+                latency: lp.latency(),
+                has_editor: lp.info.has_editor,
+                params,
+            });
+        }
+        let mut d = describe(&env, format, &id)?;
+        for p in &mut d.params {
+            if let Some(v) = spec.get(&p.id) {
+                p.value = *v;
+            }
+        }
+        d.target = Some(target);
+        Ok(d)
+    }
+
+    fn plugin_describe(&self, format: ph_core::PluginFormat, id: &str) -> CmdResult<PluginParams> {
+        describe(&self.plugin_env()?, format, id)
+    }
+
+    fn save_plugin_states(&mut self, project: &Project, dir: &Path) -> CmdResult<Vec<String>> {
+        let refs = state_refs(project);
+        if refs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let live = self.engine.plugin_states();
+        let mut written = Vec::new();
+        for r in refs {
+            let rel = Path::new(&r);
+            if rel.is_absolute() || rel.components().any(|c| c == Component::ParentDir) {
+                continue;
+            }
+            let target = dir.join(rel);
+            let bytes = match live.get(&r) {
+                Some(b) => b.clone(),
+                // not running (not loaded, isolated, crashed): keep the state it had
+                None => match std::fs::read(self.project_dir.join(rel)) {
+                    Ok(b) => b,
+                    Err(_) => continue,
+                },
+            };
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| CmdError::Host(format!("{}: {e}", parent.display())))?;
+            }
+            std::fs::write(&target, bytes)
+                .map_err(|e| CmdError::Host(format!("{}: {e}", target.display())))?;
+            written.push(r);
+        }
+        Ok(written)
+    }
+
+    fn plugin_editor(&mut self, target: PluginTarget, open: bool) -> CmdResult<bool> {
+        let _ = self.ui.send(UiRequest::PluginEditor { target, open });
+        Ok(self.ui_attached.load(Ordering::Relaxed))
+    }
+}
+
+fn entry(p: ListedPlugin) -> PluginEntry {
+    PluginEntry {
+        format: p.info.format,
+        id: p.info.id,
+        name: p.info.name,
+        vendor: p.info.vendor,
+        version: p.info.version,
+        kind: match p.info.kind {
+            ph_engine::plugins::PluginKind::Instrument => "instrument",
+            ph_engine::plugins::PluginKind::Effect => "effect",
+            ph_engine::plugins::PluginKind::NoteEffect => "note_effect",
+        }
+        .into(),
+        has_editor: p.info.has_editor,
+        status: match p.status {
+            ph_engine::plugins::PluginStatus::Ok => "ok",
+            ph_engine::plugins::PluginStatus::Isolate => "isolate",
+            ph_engine::plugins::PluginStatus::Blocked => "blocked",
+        }
+        .into(),
+        reason: p.reason,
+        path: p.info.path.display().to_string(),
+    }
+}
+
+/// The engine's name for a command target.
+pub fn slot_of(target: PluginTarget) -> PluginSlot {
+    match target {
+        PluginTarget::Channel(c) => PluginSlot::Channel(c),
+        PluginTarget::Effect { insert, slot } => PluginSlot::Effect { insert, slot },
+    }
+}
+
+type Spec = (
+    ph_core::PluginFormat,
+    String,
+    std::collections::BTreeMap<String, f64>,
+);
+
+fn plugin_spec(project: &Project, target: PluginTarget) -> CmdResult<Spec> {
+    let not = || CmdError::Host(format!("no plugin at {target}"));
+    match target {
+        PluginTarget::Channel(c) => match &project.channel(c).map_err(|_| not())?.instrument {
+            ph_core::InstrumentSpec::Plugin {
+                format,
+                plugin_id,
+                params,
+                ..
+            } => Ok((*format, plugin_id.clone(), params.clone())),
+            _ => Err(not()),
+        },
+        PluginTarget::Effect { insert, slot } => match project
+            .mixer
+            .get(insert as usize)
+            .and_then(|i| i.effects.get(slot as usize))
+            .map(|e| &e.effect)
+        {
+            Some(ph_core::EffectSpec::Plugin {
+                format,
+                plugin_id,
+                params,
+                ..
+            }) => Ok((*format, plugin_id.clone(), params.clone())),
+            _ => Err(not()),
+        },
+    }
+}
+
+fn param(p: &ph_node::ParamInfo, value: f64, text: Option<String>) -> PluginParam {
+    PluginParam {
+        id: p.id.clone(),
+        name: p.name.clone(),
+        min: p.min,
+        max: p.max,
+        default: p.default,
+        value,
+        text,
+        stepped: p.stepped,
+        choices: p.choices.clone(),
+        automatable: p.automatable,
+    }
+}
+
+/// A scanned plugin's declared parameters, from a short-lived instance (off the audio thread).
+fn describe(
+    env: &ph_engine::plugins::PluginEnv,
+    format: ph_core::PluginFormat,
+    id: &str,
+) -> CmdResult<PluginParams> {
+    let inst = env
+        .host
+        .instantiate(format, id)
+        .map_err(|e| CmdError::Host(e.to_string()))?;
+    let info = inst.info().clone();
+    let latency = inst.control().map_or(0, |c| c.latency());
+    let params = inst
+        .descriptor()
+        .params
+        .iter()
+        .map(|p| param(p, p.default, None))
+        .collect();
+    Ok(PluginParams {
+        target: None,
+        format,
+        plugin_id: id.to_string(),
+        name: info.name,
+        live: false,
+        latency,
+        has_editor: info.has_editor,
+        params,
+    })
+}
+
+/// Every `plugins/<file>` reference of the project.
+fn state_refs(p: &Project) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for ch in p.channels.values() {
+        if let ph_core::InstrumentSpec::Plugin { state: Some(s), .. } = &ch.instrument {
+            out.insert(s.clone());
+        }
+    }
+    for ins in p.mixer.iter() {
+        for e in &ins.effects {
+            if let ph_core::EffectSpec::Plugin { state: Some(s), .. } = &e.effect {
+                out.insert(s.clone());
+            }
+        }
+    }
+    out
 }

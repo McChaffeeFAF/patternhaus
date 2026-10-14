@@ -86,6 +86,7 @@ async fn proxy_attaches_to_the_running_app_with_grants_and_live_events() {
         audio: ph_control::AudioMode::Silent,
         projects_dir: None,
         grant: Grant::full(),
+        plugins: Default::default(),
     })
     .unwrap();
 

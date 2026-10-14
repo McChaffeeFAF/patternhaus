@@ -30,6 +30,7 @@
 //!    panic already did) because it happens at most once per node.
 
 pub mod clap;
+pub mod embed;
 pub mod fake;
 pub mod guard;
 mod main_thread;

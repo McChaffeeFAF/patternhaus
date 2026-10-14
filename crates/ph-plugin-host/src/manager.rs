@@ -160,6 +160,14 @@ impl PluginHost {
         Ok(report)
     }
 
+    /// Forgets every scanned file (not the plugin statuses), so the next scan reads all files
+    /// again.
+    pub fn forget_files(&self) {
+        let mut c = self.lock();
+        c.files.clear();
+        self.persist(&c);
+    }
+
     /// Every known plugin with its status.
     pub fn list(&self) -> Vec<ListedPlugin> {
         let cache = self.lock();

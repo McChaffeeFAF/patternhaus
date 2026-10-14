@@ -16,7 +16,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 pub struct Event {
     /// Monotonic sequence number.
     pub seq: u64,
-    /// `edit`, `project_replaced`, `transport`, `overload` or `warnings`.
+    /// `edit`, `project_replaced`, `transport`, `overload`, `warnings` or `plugin_fault`.
     pub kind: &'static str,
     /// `human` or `agent:<name>` for edits.
     pub author: Option<String>,
@@ -93,6 +93,7 @@ impl EventHub {
             .spawn(move || {
                 let (mut playing, mut overloads, mut warned) =
                     (engine.status().playing, engine.stats().overloads, 0usize);
+                let mut faults = engine.plugin_faults().len();
                 loop {
                     std::thread::sleep(Duration::from_millis(200));
                     let Some(h) = weak.upgrade() else { return };
@@ -131,6 +132,24 @@ impl EventHub {
                         );
                     }
                     overloads = stats.overloads;
+                    // a plugin crashed: it plays silence and is isolated (M2/T3)
+                    let all = engine.plugin_faults();
+                    for f in all.iter().skip(faults) {
+                        h.publish(
+                            "plugin_fault",
+                            None,
+                            None,
+                            f.message(),
+                            json!({
+                                "plugin": f.plugin.id,
+                                "name": f.plugin.name,
+                                "where": f.slot.to_string(),
+                                "call": format!("{:?}", f.fault.call),
+                                "message": f.fault.message,
+                            }),
+                        );
+                    }
+                    faults = all.len();
                     if stats.warnings.len() != warned {
                         warned = stats.warnings.len();
                         if warned > 0 {

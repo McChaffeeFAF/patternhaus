@@ -23,6 +23,7 @@ pub mod paint;
 pub mod panels;
 pub mod piano_roll;
 pub mod playlist;
+pub mod plugin_ui;
 pub mod settings;
 pub mod splash;
 pub mod steps;
