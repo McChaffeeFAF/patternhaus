@@ -433,6 +433,16 @@ impl Agent {
 
     // ---- running ----------------------------------------------------------------------
 
+    /// The session's project right now. `Studio::project` is the engine's snapshot, which a
+    /// bridge thread updates a moment after each command, so a read straight after an edit
+    /// could miss it.
+    fn current(&self) -> Arc<Project> {
+        self.studio
+            .session
+            .project()
+            .unwrap_or_else(|_| self.studio.project())
+    }
+
     /// Runs requests as one transaction and diffs the project across it, atomically on the
     /// control thread so nobody else's edit is attributed to this one.
     fn exec(
@@ -617,7 +627,7 @@ impl Agent {
     fn get_state(&self, caller: &Caller, args: &Value) -> ToolOutput {
         let view = args["view"].as_str().unwrap_or("overview");
         let a = args.get("args").cloned().unwrap_or(json!({}));
-        let p = self.studio.project();
+        let p = self.current();
         let warnings = self.studio.engine.stats().warnings;
         let r: Result<Value, String> = match view {
             "overview" => Ok(views::overview(&p, &warnings)),
@@ -776,7 +786,7 @@ impl Agent {
     }
 
     fn render_tool(&self, args: &Value) -> ToolOutput {
-        let p = self.studio.project();
+        let p = self.current();
         let range = match self.parse_range(&p, &args["range"]) {
             Ok(r) => r,
             Err(e) => return ToolOutput::error(e),
@@ -837,7 +847,7 @@ impl Agent {
     }
 
     fn analyze_tool(&self, args: &Value) -> ToolOutput {
-        let p = self.studio.project();
+        let p = self.current();
         let range = match self.parse_range(&p, &args["range"]) {
             Ok(r) => r,
             Err(e) => return ToolOutput::error(e),
@@ -1004,7 +1014,7 @@ impl Agent {
                 "kind is required: waveform, spectrogram, piano_roll, playlist",
             );
         };
-        let p = self.studio.project();
+        let p = self.current();
         let range = match self.parse_range(&p, &args["range"]) {
             Ok(r) => r,
             Err(e) => return ToolOutput::error(e),
