@@ -27,6 +27,7 @@ mod playlist;
 mod project;
 mod query;
 mod sample;
+mod slicer;
 mod step;
 #[cfg(test)]
 mod tests;
@@ -56,5 +57,6 @@ pub fn register_builtin(r: &mut Registry) {
     sample::register(r);
     audio::register(r);
     automation::register(r);
+    slicer::register(r);
     m2_stubs::register(r);
 }

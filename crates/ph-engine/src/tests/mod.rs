@@ -3,6 +3,8 @@
 //! The test binary installs `AllocDisabler`, so every `rt::no_alloc` section (the device
 //! callback, worker processing) aborts on allocation in these tests.
 
+mod audio;
+mod audio_oracle;
 mod audition;
 mod oracle;
 mod routing;
@@ -17,7 +19,7 @@ use crate::runtime::Command;
 use crate::{Engine, EngineConfig, SimulatedDevice, TransportCommand};
 use ph_core::*;
 use ph_dsp::Rng;
-use ph_node::{AssetResolver, Quality, SampleData};
+use ph_node::{AssetResolver, Quality, SampleData, SampleStream, StreamError};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -35,8 +37,139 @@ pub const SR: u32 = 48_000;
 /// `gen:silence`.
 pub struct GenAssets;
 
+/// Generated audio-clip material (M2/T1), `[channel][frame]` at 48 kHz:
+/// - `gen:tone`: stereo 440 Hz sine at 0.5, 3 s;
+/// - `gen:harm`: a 220 Hz tone with five harmonics, mono, 3 s;
+/// - `gen:clicks`: mono 2 ms decaying clicks every 0.5 s (120 BPM quarters), 4 s;
+/// - `gen:loop`: a stereo two-bar drum loop at 100 BPM (4.8 s);
+/// - `gen:long`: 12 s stereo (long enough to stream from "disk"), also streamable;
+/// - `gen:ramp`: stereo, left = frame / 48000, right = −left, 2 s.
+pub fn gen_audio(reference: &str) -> Option<Vec<Vec<f32>>> {
+    let sr = SR as f64;
+    let tau = std::f64::consts::TAU;
+    Some(match reference {
+        "gen:tone" => {
+            let l: Vec<f32> = (0..3 * SR as usize)
+                .map(|i| (0.5 * (tau * 440.0 * i as f64 / sr).sin()) as f32)
+                .collect();
+            vec![l.clone(), l]
+        }
+        "gen:harm" => vec![
+            (0..3 * SR as usize)
+                .map(|i| {
+                    let t = i as f64 / sr;
+                    (1..=6)
+                        .map(|h| 0.3 / h as f64 * (tau * 220.0 * h as f64 * t).sin())
+                        .sum::<f64>() as f32
+                })
+                .collect(),
+        ],
+        "gen:clicks" => {
+            let mut x = vec![0.0f32; 4 * SR as usize];
+            let mut rng = Rng::new(5);
+            for k in 0..8 {
+                let s = k * SR as usize / 2;
+                for i in 0..(0.01 * sr) as usize {
+                    x[s + i] = rng.bipolar() * 0.8 * (-(i as f32) / 96.0).exp();
+                }
+            }
+            vec![x]
+        }
+        "gen:loop" => {
+            let n = (4.8 * sr) as usize;
+            let (mut l, mut r) = (vec![0.0f32; n], vec![0.0f32; n]);
+            let mut rng = Rng::new(11);
+            let step = (0.15 * sr) as usize; // a 16th at 100 BPM
+            for k in 0..32 {
+                let s = k * step;
+                let kick = k % 4 == 0;
+                let snare = k % 8 == 4;
+                for i in 0..(0.12 * sr) as usize {
+                    if s + i >= n {
+                        break;
+                    }
+                    let t = i as f64 / sr;
+                    let mut v = 0.0f64;
+                    if kick {
+                        v += 0.8
+                            * (tau * (55.0 + 90.0 * (-t * 40.0).exp()) * t).sin()
+                            * (-t * 18.0).exp();
+                    }
+                    if snare {
+                        v += 0.4 * rng.bipolar() as f64 * (-t * 30.0).exp();
+                    }
+                    v += 0.08 * rng.bipolar() as f64 * (-t * 120.0).exp();
+                    l[s + i] += v as f32;
+                    r[s + i] += (v * 0.9) as f32;
+                }
+            }
+            vec![l, r]
+        }
+        "gen:long" => {
+            let n = 12 * SR as usize;
+            vec![
+                (0..n).map(|i| long_frame(0, i as u64)).collect(),
+                (0..n).map(|i| long_frame(1, i as u64)).collect(),
+            ]
+        }
+        "gen:ramp" => {
+            let l: Vec<f32> = (0..2 * SR as usize).map(|i| i as f32 / sr as f32).collect();
+            let r = l.iter().map(|v| -v).collect();
+            vec![l, r]
+        }
+        _ => return None,
+    })
+}
+
+/// `gen:long`, frame by frame (so the stream and the decoded copy agree exactly).
+pub fn long_frame(ch: usize, i: u64) -> f32 {
+    let t = i as f64 / SR as f64;
+    let tau = std::f64::consts::TAU;
+    let f = if ch == 0 { 220.0 } else { 330.0 };
+    let beat = (t * 2.0).fract();
+    (0.3 * (tau * f * t).sin() * (0.6 + 0.4 * (-beat * 8.0).exp())) as f32
+}
+
+/// `gen:long` as a stream (a "file" read in blocks).
+pub struct GenStream;
+
+impl SampleStream for GenStream {
+    fn frames(&self) -> u64 {
+        12 * SR as u64
+    }
+    fn sample_rate(&self) -> f64 {
+        SR as f64
+    }
+    fn channels(&self) -> usize {
+        2
+    }
+    fn read(&mut self, start: u64, out: &mut [&mut [f32]]) -> Result<usize, StreamError> {
+        let n = out.iter().map(|c| c.len()).min().unwrap_or(0);
+        let frames = self.frames();
+        for (c, o) in out.iter_mut().enumerate() {
+            for i in 0..n {
+                let f = start + i as u64;
+                o[i] = if f < frames { long_frame(c, f) } else { 0.0 };
+            }
+        }
+        Ok(n.min(frames.saturating_sub(start) as usize))
+    }
+}
+
 impl AssetResolver for GenAssets {
+    fn stream(&self, reference: &str) -> Option<Result<Box<dyn SampleStream>, String>> {
+        (reference == "gen:long").then(|| Ok(Box::new(GenStream) as Box<dyn SampleStream>))
+    }
+
     fn sample(&self, reference: &str) -> Result<Arc<SampleData>, String> {
+        if let Some(channels) = gen_audio(reference) {
+            return Ok(Arc::new(SampleData {
+                sample_rate: SR as f64,
+                channels,
+                loop_range: None,
+                root_key: None,
+            }));
+        }
         let sr = SR as f64;
         let mut rng = Rng::new(9);
         let data: Vec<f32> = match reference {

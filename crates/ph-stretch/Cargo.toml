@@ -1,0 +1,15 @@
+[package]
+name = "ph-stretch"
+description = "Patternhaus binding of Signalsmith Stretch (MIT): time-stretch and pitch-shift, through a small hand-written C wrapper (no bindgen)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+links = "ph_stretch"
+build = "build.rs"
+
+[dependencies]
+
+[build-dependencies]
+cc = "1"

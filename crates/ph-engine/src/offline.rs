@@ -10,6 +10,7 @@ use crate::plan::Settings;
 use crate::rt::{Mailbox, Retire, enable_ftz_daz, restore_fp};
 use crate::runtime::{Command, Runtime};
 use crate::stats::Shared;
+use crate::stream::StreamPolicy;
 use crate::{AudioBuffer, EngineResult, PlayMode, RenderSettings, TransportCommand};
 use ph_core::{MIXER_INSERTS, Project};
 use ph_node::AssetResolver;
@@ -40,8 +41,19 @@ impl Offline {
         assets: &dyn AssetResolver,
         workers: usize,
     ) -> EngineResult<Self> {
+        Self::with_policy(project, settings, assets, workers, StreamPolicy::Sync)
+    }
+
+    /// [`Offline::new`] with another streaming policy (tests of the live paths).
+    pub fn with_policy(
+        project: &Project,
+        settings: Settings,
+        assets: &dyn AssetResolver,
+        workers: usize,
+        policy: StreamPolicy,
+    ) -> EngineResult<Self> {
         let mailbox = Arc::new(Mailbox::new());
-        let mut ctl = Controller::new(settings, mailbox.clone());
+        let mut ctl = Controller::new(settings, mailbox.clone(), policy);
         let plan = ctl.initial(project, assets)?;
         let (tx, rx) = rtrb::RingBuffer::new(1024);
         let rt = Runtime::new(
@@ -64,6 +76,14 @@ impl Offline {
         assets: &dyn AssetResolver,
     ) -> EngineResult<()> {
         self.ctl.submit(project, assets)
+    }
+
+    /// Audio-clip stream underruns so far.
+    pub fn underruns(&self) -> u64 {
+        self.ctl
+            .audio
+            .underruns
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Queues a command for the next block.

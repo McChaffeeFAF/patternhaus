@@ -35,6 +35,8 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("ph-audio-io", &[]),
     ("ph-plugin-host", &["ph-core", "ph-node"]),
     ("ph-plugin-server", &["ph-node", "ph-plugin-host"]),
+    // vendored Signalsmith Stretch (C++) behind a hand-written C binding (M2/T1)
+    ("ph-stretch", &[]),
     // engine
     (
         "ph-engine",
@@ -48,6 +50,7 @@ const LAYERS: &[(&str, &[&str])] = &[
             "ph-audio-io",
             "ph-plugin-host",
             "ph-formats",
+            "ph-stretch",
         ],
     ),
     // commands and perception

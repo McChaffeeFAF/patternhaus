@@ -11,7 +11,7 @@
 //! samples are cached by canonical path and shared as `Arc<SampleData>`. Called only off
 //! the audio thread (plan compilation).
 
-use ph_node::{AssetResolver, SampleData};
+use ph_node::{AssetResolver, SampleData, SampleStream};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
@@ -136,6 +136,26 @@ impl AssetResolver for FileResolver {
             .map_err(|e| e.to_string())?
             .insert(path, data.clone());
         Ok(data)
+    }
+
+    /// WAV files stream from disk (`ph_formats::wav_stream`); other formats return `None` and
+    /// are decoded whole.
+    fn stream(&self, reference: &str) -> Option<Result<Box<dyn SampleStream>, String>> {
+        let path = match self.resolve_path(reference) {
+            Ok(p) => p,
+            Err(e) => return Some(Err(e)),
+        };
+        let wav = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("wav") || e.eq_ignore_ascii_case("wave"));
+        if !wav {
+            return None;
+        }
+        // an unusual WAV this reader does not handle is decoded whole instead
+        ph_formats::wav_stream::WavStream::open(&path)
+            .ok()
+            .map(|s| Ok(Box::new(s) as Box<dyn SampleStream>))
     }
 }
 

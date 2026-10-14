@@ -465,27 +465,57 @@ struct ClipOnly {
 
 fn fit_to_tempo(ctx: &mut CommandCtx<'_>, p: ClipOnly) -> CmdResult<CommandOutput> {
     let (_, a) = audio_of(ctx.project, p.clip)?;
-    let entry = ctx.project.sample(a.sample)?.clone();
+    let mut entry = ctx.project.sample(a.sample)?.clone();
+    let mut ed = Edit::new(ctx.project);
+    let mut detected = None;
     if entry.bpm.is_none() {
-        return invalid(format!(
-            "{} has no tempo: set it with sample.set_bpm (detection arrives in M2/T1)",
-            entry.name
-        ));
+        // detect it first (stored like sample.detect_bpm would)
+        let bpm = ctx
+            .host
+            .analyze_audio(&entry.path, 0.5)
+            .ok()
+            .and_then(|r| r.bpm.map(|b| (b, r.key)));
+        let Some((bpm, key)) = bpm else {
+            return invalid(format!(
+                "{} has no tempo and none could be detected: set it with sample.set_bpm",
+                entry.name
+            ));
+        };
+        ed.update_sample(a.sample, |e| {
+            e.bpm = Some(SampleBpm {
+                value: bpm,
+                source: BpmSource::Detected,
+            });
+            e.analysis.onsets = Some(key);
+        })?;
+        entry = ed.project().sample(a.sample)?.clone();
+        detected = Some(bpm);
     }
     let mut fitted = a.clone();
     fitted.tempo_sync = true;
     if fitted.stretch == StretchMode::Resample {
         fitted.stretch = StretchMode::Stretch;
     }
-    let length = natural_length(ctx.project, &entry, &fitted);
-    let mut ed = Edit::new(ctx.project);
+    // the loop's length in ticks, to the nearest tick (a loop is a whole number of beats
+    // give or take a rounded frame; `ceil` would add a tick)
+    let length = {
+        let bpm = ctx.project.settings.bpm;
+        let frames = entry.frames.saturating_sub(fitted.source_offset);
+        let seconds =
+            frames as f64 / entry.sample_rate.max(1) as f64 / fitted.time_ratio(&entry, bpm);
+        (seconds_to_ticks(seconds, bpm).round() as Tick).max(1)
+    };
     update_audio(&mut ed, p.clip, |c, a| {
         *a = fitted.clone();
         c.length = length;
     })?;
+    let mut result = json!({ "clip": p.clip, "length": length, "mode": fitted.stretch });
+    if let Some(bpm) = detected {
+        result["detected_bpm"] = json!(bpm);
+    }
     Ok(CommandOutput::from_edit(
         ed,
-        json!({ "clip": p.clip, "length": length, "mode": fitted.stretch }),
+        result,
         format!("fitted {} to the project tempo", entry.name),
     ))
 }

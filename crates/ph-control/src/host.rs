@@ -304,6 +304,27 @@ impl Host for EngineHost {
         })
     }
 
+    fn analyze_audio(&self, reference: &str, sensitivity: f32) -> CmdResult<AudioAnalysis> {
+        let d = self
+            .assets
+            .sample(reference)
+            .map_err(|e| CmdError::Host(format!("cannot read {reference}: {e}")))?;
+        let t = ph_analysis::tempo::estimate(&d.channels, d.sample_rate);
+        let onsets = ph_analysis::tempo::onsets(&d.channels, d.sample_rate, sensitivity as f64);
+        Ok(AudioAnalysis {
+            bpm: t.as_ref().map(|t| t.bpm),
+            confidence: t.as_ref().map_or(0.0, |t| t.confidence),
+            loop_beats: t.as_ref().and_then(|t| t.loop_beats),
+            alternatives: t
+                .as_ref()
+                .map(|t| t.alternatives.iter().map(|a| (a.bpm, a.score)).collect())
+                .unwrap_or_default(),
+            onsets,
+            sample_rate: d.sample_rate.round() as u32,
+            key: ph_analysis::tempo::ONSETS_KEY.into(),
+        })
+    }
+
     fn ui(&mut self, request: UiRequest) -> CmdResult<()> {
         // A closed receiver just means no UI is attached (headless).
         let _ = self.ui.send(request);

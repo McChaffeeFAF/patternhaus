@@ -147,3 +147,123 @@ fn swap_on_every_single_block_single_threaded() {
     }
     assert!(l.iter().chain(&r).all(|v| v.is_finite()));
 }
+
+/// Variant `k` of the audio song: clip gains, stretch modes, reverse and a clip that comes
+/// and goes, so audio-track nodes are rebuilt, kept and dropped while playing.
+fn audio_variant(base: &Project, k: usize) -> Project {
+    let mut e = Edit::new(base);
+    let ids: Vec<ClipId> = base
+        .clips
+        .values()
+        .filter(|c| c.audio().is_some())
+        .map(|c| c.id)
+        .collect();
+    let id = ids[k % ids.len()];
+    e.update_clip(id, |c| {
+        if let ClipKind::Audio(a) = &mut c.kind {
+            a.gain_db = -((k % 9) as f32);
+            if k.is_multiple_of(3) {
+                a.stretch = [
+                    StretchMode::Resample,
+                    StretchMode::Stretch,
+                    StretchMode::Slice,
+                ][k / 3 % 3];
+            }
+            if k % 4 == 1 {
+                a.reverse = !a.reverse;
+            }
+        }
+    })
+    .unwrap();
+    if k % 5 == 2 {
+        super::audio::clip(
+            &mut e,
+            "gen:long",
+            None,
+            9,
+            (k as Tick % 8) * PPQ,
+            4 * PPQ,
+            |a| {
+                a.source_offset = 48_000 * (k as u64 % 5);
+            },
+        );
+    }
+    e.finish().0
+}
+
+#[test]
+fn callback_never_allocates_with_streaming_audio_clips_while_plans_swap() {
+    let base = super::audio_oracle::audio_song();
+    let variants: Vec<Arc<Project>> = (0..30).map(|k| Arc::new(audio_variant(&base, k))).collect();
+    let (engine, mut dev) = sim(128, 4);
+    engine.set_project(Arc::new(base.clone())).unwrap();
+    engine.transport(TransportCommand::Play);
+    let mut l = vec![0.0f32; 128];
+    let mut r = vec![0.0f32; 128];
+    let mut loud = 0usize;
+    let blocks = 3000;
+    for b in 0..blocks {
+        if b % 3 == 0 {
+            engine
+                .set_project(variants[(b / 3) % variants.len()].clone())
+                .unwrap();
+        }
+        if b % 400 == 7 {
+            // land inside clips: voices restart (stretch warm-up, stream seeks)
+            engine.transport(TransportCommand::Seek((b as Tick % 12) * PPQ + 123));
+        }
+        if b == 1500 {
+            engine.transport(TransportCommand::SetLoop(Some((2 * PPQ, 6 * PPQ))));
+        }
+        // `pull_into` wraps the callback in `assert_no_alloc`
+        dev.pull_into(&mut l, &mut r);
+        assert!(
+            l.iter().chain(&r).all(|v| v.is_finite()),
+            "non-finite output"
+        );
+        if peak(&l) > 1e-3 {
+            loud += 1;
+        }
+    }
+    assert!(loud > blocks / 2, "mostly silent ({loud} loud blocks)");
+    let st = engine.stats();
+    assert_eq!(st.underruns, 0, "the simulated device waits for the disk");
+    assert!(
+        st.nodes
+            .iter()
+            .any(|n| matches!(n.owner, Some(ObjectPath::Track(_)))),
+        "audio tracks are in the CPU meters"
+    );
+}
+
+/// `assert_no_alloc` sees Rust allocations only; the stretcher is C++. Serial device (the
+/// callback runs on this thread), so the C++ allocation counter of this thread covers it.
+#[test]
+fn the_stretcher_never_allocates_in_the_callback() {
+    let base = super::audio_oracle::audio_song();
+    let variants: Vec<Arc<Project>> = (0..12)
+        .map(|k| Arc::new(audio_variant(&base, k * 3)))
+        .collect();
+    let (engine, mut dev) = sim(256, 1);
+    engine.set_project(Arc::new(base.clone())).unwrap();
+    engine.transport(TransportCommand::Play);
+    let mut l = vec![0.0f32; 256];
+    let mut r = vec![0.0f32; 256];
+    for b in 0..1200 {
+        if b % 50 == 0 {
+            engine
+                .set_project(variants[(b / 50) % variants.len()].clone())
+                .unwrap();
+        }
+        if b % 300 == 150 {
+            engine.transport(TransportCommand::Seek(3 * PPQ + 77));
+        }
+        let before = ph_stretch::cpp_allocations();
+        dev.pull_into(&mut l, &mut r);
+        assert_eq!(
+            ph_stretch::cpp_allocations(),
+            before,
+            "C++ allocated in block {b}"
+        );
+    }
+}

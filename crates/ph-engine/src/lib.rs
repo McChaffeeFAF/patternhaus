@@ -27,12 +27,14 @@ mod device;
 mod loom_models;
 mod offline;
 mod plan;
+mod player;
 mod pool;
 pub mod record;
 mod rt;
 mod runtime;
 mod sched;
 mod stats;
+mod stream;
 mod sync;
 pub mod tempo;
 #[cfg(all(test, not(loom)))]
@@ -167,6 +169,9 @@ pub struct EngineStats {
     /// Things that compile to silence or a pass-through: a sample that cannot be loaded, an
     /// unsupported instrument or effect. Empty when the project is fully playable.
     pub warnings: Vec<String>,
+    /// Audio-clip disk reads that were not ready in time (silence was played), since the
+    /// engine started (M2/T1). Stays 0 while streaming keeps up.
+    pub underruns: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -247,6 +252,7 @@ struct Parts {
 }
 
 /// Builds a runtime for `settings` with `project` loaded and the transport in `status`.
+#[allow(clippy::too_many_arguments)]
 fn build(
     project: &Project,
     settings: Settings,
@@ -255,9 +261,10 @@ fn build(
     workers: usize,
     max_shed: u8,
     status: &TransportStatus,
+    policy: audio_clips::StreamPolicy,
 ) -> EngineResult<Parts> {
     let mailbox = Arc::new(Mailbox::new());
-    let mut ctl = Controller::new(settings, mailbox.clone());
+    let mut ctl = Controller::new(settings, mailbox.clone(), policy);
     let plan = ctl.initial(project, assets)?;
     let (tx, rx) = rtrb::RingBuffer::new(COMMAND_RING);
     let (collector, retire) = Collector::spawn(RETIRE_RING);
@@ -332,7 +339,16 @@ impl Engine {
                 max_frames: frames.max(16) as usize,
                 quality: Quality::Live,
             };
-            let parts = build(&p, settings, &*a, sh, workers, 3, &st)?;
+            let parts = build(
+                &p,
+                settings,
+                &*a,
+                sh,
+                workers,
+                3,
+                &st,
+                audio_clips::StreamPolicy::Live,
+            )?;
             let _ = tx.send((parts.ctl, parts.cmds, parts.collector, parts.audition));
             Ok(parts.rt)
         })?;
@@ -379,6 +395,8 @@ impl Engine {
             worker_count(config.threads),
             1,
             &status,
+            // the simulated device waits for the prefetch thread, so it matches offline
+            audio_clips::StreamPolicy::Wait,
         )?;
         let inner = Inner {
             sample_rate: settings.sample_rate,
@@ -501,6 +519,7 @@ impl Engine {
             nodes,
             shedding: sh.shedding.load(Relaxed),
             warnings,
+            underruns: g.ctl.audio.underruns.load(Relaxed),
         }
     }
 
@@ -713,18 +732,33 @@ pub fn project_warnings(project: &Project, assets: &dyn AssetResolver) -> Vec<St
             }
         }
     }
-    // M2 objects whose playback arrives in later tracks
-    let tempo = tempo::TempoMap::constant(project.settings.bpm, 48_000);
+    // audio clips: registry problems, unsynced clips, unreadable files
+    let automation = automation::AutomationEvaluator::new(project);
+    let tempo = automation.tempo_map(project.settings.bpm, 48_000, plan::TEMPO_RESOLUTION);
     let (plans, warnings) = audio_clips::plan_audio_clips(project, &tempo);
     out.extend(warnings);
-    if !plans.is_empty() {
-        out.push(format!(
-            "{} audio clip(s) play silence until M2/T1 (audio clip playback)",
-            plans.len()
-        ));
+    let mut checked = std::collections::BTreeSet::new();
+    for p in &plans {
+        if !checked.insert(p.path.as_str()) {
+            continue;
+        }
+        let readable = match assets.stream(&p.path) {
+            Some(Ok(_)) => Ok(()),
+            Some(Err(e)) => Err(e),
+            None => assets.sample(&p.path).map(|_| ()),
+        };
+        if let Err(e) = readable {
+            out.push(format!(
+                "audio clip {}: {} cannot be read ({e}); it plays silence",
+                p.clip, p.path
+            ));
+        }
     }
-    let automation = automation::AutomationEvaluator::new(project);
-    if automation.targets().next().is_some() {
+    // automation other than tempo arrives with M2/T7
+    if automation
+        .targets()
+        .any(|t| *t != ph_core::ParamPath::Tempo)
+    {
         out.push("automation clips are not applied until M2/T7 (automation playback)".into());
     }
     out

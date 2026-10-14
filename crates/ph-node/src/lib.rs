@@ -346,6 +346,40 @@ impl SampleData {
 /// [`Processor::load_state`], never on the audio thread.
 pub trait AssetResolver: Send + Sync {
     fn sample(&self, reference: &str) -> Result<std::sync::Arc<SampleData>, String>;
+
+    /// Opens `reference` for disk streaming (M2/T1): long audio-clip sources are read in
+    /// blocks by the engine's prefetch thread instead of being decoded whole. `None` when this
+    /// resolver cannot stream the reference (the engine then decodes it with
+    /// [`AssetResolver::sample`]). Additive default: resolvers that never stream need nothing.
+    fn stream(&self, reference: &str) -> Option<Result<Box<dyn SampleStream>, String>> {
+        let _ = reference;
+        None
+    }
+}
+
+/// A seekable reader of one audio file (M2/T1 disk streaming). Opened off the audio thread;
+/// read by the engine's prefetch thread, or by an offline render's own thread.
+/// [`SampleStream::read`] must not allocate (buffers are allocated when the stream opens).
+pub trait SampleStream: Send {
+    /// Length in frames.
+    fn frames(&self) -> u64;
+    /// The file's own sample rate, in Hz.
+    fn sample_rate(&self) -> f64;
+    /// 1 = mono, 2 = stereo, ...
+    fn channels(&self) -> usize;
+    /// Reads frames `start..start + n` into `out[c][..n]` (`n` = the shortest `out` slice,
+    /// one slice per channel, at most [`SampleStream::channels`]). Frames past the end are
+    /// zero. Returns the frames read from the file.
+    fn read(&mut self, start: u64, out: &mut [&mut [f32]]) -> Result<usize, StreamError>;
+}
+
+/// Why a [`SampleStream`] read failed (no message: reads must not allocate).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum StreamError {
+    /// The file could not be read (moved, unplugged drive, permissions).
+    Io,
+    /// The file's contents are not what its header promised.
+    Malformed,
 }
 
 /// Fill every output channel with silence. Real-time safe.

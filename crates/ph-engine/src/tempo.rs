@@ -81,12 +81,7 @@ impl TempoMap {
     /// Song position in (fractional) ticks of a sample position. Inverse of
     /// [`Self::sample_at`] up to rounding.
     pub fn tick_at(&self, sample: i64) -> f64 {
-        let seg = self
-            .segments
-            .iter()
-            .rev()
-            .find(|s| s.sample <= sample)
-            .unwrap_or(&self.segments[0]);
+        let seg = self.segment_for_sample(sample);
         let ticks_per_sample = seg.mbpm as f64 * PPQ as f64 / (self.sample_rate as f64 * 60_000.0);
         seg.tick as f64 + (sample - seg.sample) as f64 * ticks_per_sample
     }
@@ -96,12 +91,7 @@ impl TempoMap {
         if sample <= 0 {
             return 0;
         }
-        let seg = self
-            .segments
-            .iter()
-            .rev()
-            .find(|s| s.sample <= sample)
-            .unwrap_or(&self.segments[0]);
+        let seg = self.segment_for_sample(sample);
         // ticks = (sample - seg.sample) * mbpm * PPQ / (sr * 60000), floored, exact
         let num = (sample - seg.sample) as u128 * seg.mbpm as u128 * PPQ as u128;
         let den = self.sample_rate as u128 * 60_000;
@@ -123,12 +113,21 @@ impl TempoMap {
         ((2 * n + d) / (2 * d)) as i64
     }
 
+    /// The last segment starting at or before `tick` (binary search: tempo automation can
+    /// make thousands of segments, and the audio-clip player converts every frame).
     fn segment_for_tick(&self, tick: Tick) -> &Segment {
-        self.segments
-            .iter()
-            .rev()
-            .find(|s| s.tick <= tick)
-            .unwrap_or(&self.segments[0])
+        let i = self.segments.partition_point(|s| s.tick <= tick);
+        &self.segments[i.saturating_sub(1)]
+    }
+
+    fn segment_for_sample(&self, sample: i64) -> &Segment {
+        let i = self.segments.partition_point(|s| s.sample <= sample);
+        &self.segments[i.saturating_sub(1)]
+    }
+
+    /// Number of constant-tempo segments (1 without tempo changes).
+    pub fn segments(&self) -> usize {
+        self.segments.len()
     }
 }
 

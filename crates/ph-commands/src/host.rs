@@ -47,6 +47,15 @@ pub trait Host {
         Err(CmdError::Host("this host cannot read audio files".into()))
     }
 
+    /// Analyses an audio file's tempo and transients (M2/T1: `sample.detect_bpm`,
+    /// `audio.fit_to_tempo`, `slicer.detect`). `sensitivity` (0..=1, higher finds more) sets
+    /// the onset list; the tempo always uses the default. Additive default: hosts that cannot
+    /// read audio refuse.
+    fn analyze_audio(&self, reference: &str, sensitivity: f32) -> CmdResult<AudioAnalysis> {
+        let _ = (reference, sensitivity);
+        Err(CmdError::Host("this host cannot analyse audio".into()))
+    }
+
     /// Ask the UI to show something (`ui.*` commands). Headless hosts may ignore it.
     fn ui(&mut self, request: UiRequest) -> CmdResult<()>;
 
@@ -74,6 +83,25 @@ pub struct SampleInfo {
     pub channels: u16,
     /// Root key stored in the file (WAV `smpl`), if any.
     pub root_key: Option<u8>,
+}
+
+/// Tempo and transients of an audio file, from [`Host::analyze_audio`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct AudioAnalysis {
+    /// Estimated tempo, 60..=200 BPM; `None` when the material has no clear beat.
+    pub bpm: Option<f64>,
+    /// 0..1: how sure the estimate is (above about 0.5 is reliable).
+    pub confidence: f64,
+    /// The sample is a loop of this many beats at `bpm`.
+    pub loop_beats: Option<u32>,
+    /// Half and double tempo readings, with scores relative to `bpm` (1.0 = as good).
+    pub alternatives: Vec<(f64, f64)>,
+    /// Onsets (transients) in frames of the file.
+    pub onsets: Vec<u64>,
+    /// The file's sample rate (to turn frames into seconds).
+    pub sample_rate: u32,
+    /// Version key of the analysis (stored in `SampleEntry::analysis.onsets`).
+    pub key: String,
 }
 
 /// What [`Host::import_file`] brings into the project folder.

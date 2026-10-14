@@ -3,9 +3,13 @@
 //! `tests/loom.rs` exercise the same code the engine runs.
 
 #[cfg(loom)]
-pub(crate) use loom::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize};
+pub(crate) use loom::sync::atomic::{
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, fence,
+};
 #[cfg(not(loom))]
-pub(crate) use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize};
+pub(crate) use std::sync::atomic::{
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, fence,
+};
 
 /// Busy-wait hint. Under loom it yields, so the model checker can schedule the thread being
 /// waited on.

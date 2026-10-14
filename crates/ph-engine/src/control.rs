@@ -2,8 +2,10 @@
 
 use crate::EngineResult;
 use crate::plan::{CompileOptions, Plan, Settings, Shadow, compile};
+use crate::player::AudioCtx;
 use crate::rt::Mailbox;
 use crate::stats::StatsBoard;
+use crate::stream::StreamPolicy;
 use ph_core::Project;
 use ph_node::AssetResolver;
 use std::sync::Arc;
@@ -23,10 +25,14 @@ pub(crate) struct Controller {
     next_id: u64,
     pub opts: CompileOptions,
     pub board: Arc<StatsBoard>,
+    /// Audio-clip sources, streams and the prefetch thread (M2/T1).
+    pub audio: AudioCtx,
 }
 
 impl Controller {
-    pub fn new(settings: Settings, mailbox: Arc<Mailbox<Plan>>) -> Self {
+    /// `policy`: how audio-clip streams treat a block that is not loaded yet (the real
+    /// device never waits, the simulated device waits, offline renders read synchronously).
+    pub fn new(settings: Settings, mailbox: Arc<Mailbox<Plan>>, policy: StreamPolicy) -> Self {
         Self {
             settings,
             mailbox,
@@ -35,6 +41,7 @@ impl Controller {
             next_id: 1,
             opts: CompileOptions::default(),
             board: Arc::new(StatsBoard::default()),
+            audio: AudioCtx::new(policy),
         }
     }
 
@@ -50,6 +57,7 @@ impl Controller {
             self.settings,
             &self.opts,
             assets,
+            &mut self.audio,
             self.next_id,
         )?;
         self.next_id += 1;
@@ -86,12 +94,17 @@ impl Controller {
             }
         }
         let empty = Shadow::empty();
+        if fresh {
+            // relative sample paths now mean files in another folder
+            self.audio.clear();
+        }
         let (plan, shadow) = compile(
             project,
             if fresh { &empty } else { &self.installed },
             self.settings,
             &self.opts,
             assets,
+            &mut self.audio,
             self.next_id,
         )?;
         self.next_id += 1;
