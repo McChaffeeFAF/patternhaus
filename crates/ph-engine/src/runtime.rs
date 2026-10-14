@@ -58,6 +58,8 @@ pub(crate) struct ChunkCtx {
     pub song: bool,
     /// Timeline sample where an offline range ends (audio clips are silent from there).
     pub limit: i64,
+    /// The song loop region in samples while the transport loops (audio-clip pre-warm).
+    pub looping: Option<(i64, i64)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -148,6 +150,7 @@ impl Runtime {
             meters: true,
             song: true,
             limit: i64::MAX,
+            looping: None,
         };
         Self {
             plan,
@@ -477,6 +480,11 @@ impl Runtime {
             meters: self.shed.level < 1,
             song: self.tr.mode == PlayMode::Song,
             limit: self.tr.end.unwrap_or(i64::MAX),
+            looping: if self.tr.mode == PlayMode::Song {
+                self.loop_samples().filter(|(a, b)| b > a)
+            } else {
+                None
+            },
         };
         self.run_graph(ctx);
         let m = self.plan.master();
@@ -909,7 +917,7 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
             st.micros += (t0.elapsed().as_secs_f32() * 1e6 - st.micros) * 0.05;
         }
         (NodeDef::AudioTrack, NodeState::AudioTrack(Some(st))) => {
-            st.render(ctx.pos, n, ctx.playing && ctx.song, ctx.limit);
+            st.render(ctx.pos, n, ctx.playing && ctx.song, ctx.limit, ctx.looping);
             st.micros += (t0.elapsed().as_secs_f32() * 1e6 - st.micros) * 0.05;
         }
         (NodeDef::Insert(def), NodeState::Insert(st)) => {

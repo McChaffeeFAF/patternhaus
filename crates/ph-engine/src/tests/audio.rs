@@ -530,3 +530,83 @@ fn an_unchanged_track_keeps_its_voices_across_plan_swaps() {
         assert_close(tone_swapped, tone_plain, 1e-5, &format!("frame {i}"));
     }
 }
+
+#[test]
+fn stretch_voices_are_prewarmed_before_the_loop_wraps() {
+    // a stretched clip from the loop start: the second pass (pre-warmed during the first)
+    // is bit-identical to the first (started at the clip start), at any block size
+    let p = audio_project(120.0, |e| {
+        clip(e, "gen:tone", Some(100.0), 0, 0, 8 * PPQ, |a| {
+            a.tempo_sync = true;
+            a.stretch = StretchMode::Stretch;
+        });
+        clip(e, "gen:loop", Some(100.0), 1, 0, 8 * PPQ, |a| {
+            a.tempo_sync = true;
+            a.stretch = StretchMode::Stretch;
+            a.reverse = true;
+        });
+    });
+    let b = beat(120.0);
+    let sc = vec![
+        (0, Act::T(TransportCommand::SetLoop(Some((0, 4 * PPQ))))),
+        (0, Act::T(TransportCommand::Play)),
+    ];
+    let mut first = None;
+    for block in [64, 512, 37] {
+        let out = run_offline(&p, &sc, 12 * b, block, 0);
+        assert!(peak(&out[0]) > 0.1);
+        for ch in &out {
+            assert_eq!(ch[..4 * b], ch[4 * b..8 * b], "second pass, block {block}");
+            assert_eq!(ch[..4 * b], ch[8 * b..], "third pass, block {block}");
+        }
+        match &first {
+            None => first = Some(out),
+            Some(f) => assert_bits_eq(f, &out, &format!("block {block}")),
+        }
+    }
+}
+
+#[test]
+fn the_loop_wrap_does_not_warm_every_stretch_voice_in_one_block() {
+    // four stretched clips from the loop start: without pre-warming, the wrap block would
+    // compute an output latency of quanta for each of them at once
+    let p = audio_project(120.0, |e| {
+        for t in 0..4 {
+            clip(
+                e,
+                "gen:tone",
+                Some(90.0 + 10.0 * t as f64),
+                t,
+                0,
+                8 * PPQ,
+                |a| {
+                    a.tempo_sync = true;
+                    a.stretch = StretchMode::Stretch;
+                },
+            );
+        }
+    });
+    let mut off = crate::offline::Offline::new(&p, settings(256), &GenAssets, 0).unwrap();
+    off.transport(TransportCommand::SetLoop(Some((0, 4 * PPQ))));
+    off.transport(TransportCommand::Play);
+    let lead_quanta = {
+        let mut st = crate::audio_clips::stretcher_for(StretchMode::Stretch).unwrap();
+        st.configure(1, SR as f64, 256);
+        st.output_latency() / crate::player::QUANTUM
+    };
+    let mut worst = 0;
+    // the first block warms everything up from the start (playback starts there); measure
+    // the next 3 passes
+    off.render(256, 256);
+    for _ in 0..(3 * 4 * beat(120.0) / 256) {
+        let before = crate::player::QUANTA.with(|q| q.get());
+        off.render(256, 256);
+        worst = worst.max(crate::player::QUANTA.with(|q| q.get()) - before);
+    }
+    assert!(lead_quanta >= 8, "latency {lead_quanta} quanta");
+    // each voice: its own quantum plus at most a 3-quantum pre-warm budget
+    assert!(
+        worst <= 4 * 4,
+        "{worst} quanta in one block (one warm-up is {lead_quanta})"
+    );
+}

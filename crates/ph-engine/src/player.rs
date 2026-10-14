@@ -13,10 +13,18 @@
 //!   the host splits blocks never changes what the stretcher sees.
 //!
 //! A voice starts when its clip starts, or wherever playback lands inside it (a seek, a
-//! loop wrap, a plan swap that rebuilt the track): the node notices any jump in the song
-//! position and restarts its voices there. A Stretch voice starts `output latency` frames
-//! *before* its clip during continuous playback, so the stretcher is warmed up exactly at
-//! the clip start without a burst of work; after a jump into a clip it warms up at once.
+//! plan swap that rebuilt the track): the node notices any jump in the song position and
+//! restarts its voices there. A Stretch voice starts `output latency` frames *before* its
+//! clip during continuous playback, so the stretcher is warmed up exactly at the clip start
+//! without a burst of work; after a seek into a clip it warms up at once.
+//!
+//! **Loop wrap.** While the transport loops, the Stretch clips playing at the loop start
+//! are **pre-warmed** during the last [`PREWARM_LEADS`] output latencies before the loop
+//! end: extra voices run them on a virtual timeline shifted back by the loop length, at no
+//! more than about twice real time each, so the warm-up is spread over many blocks. At the
+//! wrap they take over seamlessly. A pre-warmed voice always starts at the same virtual
+//! position (`loop start − window`), so what it computes does not depend on when, or in how
+//! many blocks, the work was done: live and offline stay bit-identical.
 
 use crate::audio_clips::{AudioClipPlan, SignalsmithStretcher, Stretcher};
 use crate::stream::{Cache, Prefetcher, STREAM_MIN_SECONDS, Source, StreamPolicy};
@@ -45,6 +53,14 @@ const SLICE_PRE_ONSET_S: f64 = 0.002;
 const MAX_VOICES: usize = 16;
 /// The sinc kernel stretches (anti-aliases) up to this read speed.
 const MAX_KERNEL_STRETCH: f64 = 4.0;
+#[cfg(test)]
+thread_local! {
+    /// Stretch quanta computed on this thread (tests of how warm-up work is spread).
+    pub(crate) static QUANTA: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Pre-warming starts this many output latencies before the loop end.
+pub(crate) const PREWARM_LEADS: i64 = 3;
 
 /// Where a clip's audio comes from.
 pub(crate) enum Src {
@@ -199,6 +215,11 @@ struct StretchVoice {
 struct Voice {
     clip: Option<usize>,
     stretch: Option<StretchVoice>,
+    /// Pre-warming for the next loop pass (output discarded, work budgeted).
+    prewarm: bool,
+    /// Song samples this voice's timeline runs behind the playhead (the loop length while
+    /// pre-warming, else 0).
+    shift: i64,
 }
 
 /// Audio-thread state of a track node; moves between plans while the track is unchanged.
@@ -212,13 +233,23 @@ pub(crate) struct AudioTrackState {
     sinc: SincInterpolator,
     pos: Vec<f64>,
     scr: [Vec<f32>; 2],
+    /// The loop region the current pre-warm voices were started for.
+    prewarmed: Option<(i64, i64)>,
 }
 
 impl AudioTrackState {
     /// Real-time. Renders `n` frames from song sample `a` into `self.out` (overwritten).
     /// `playing` is false when the transport is stopped or not in song mode; frames at or
-    /// after `limit` are silent (the end of an offline range).
-    pub fn render(&mut self, a: i64, n: usize, playing: bool, limit: i64) {
+    /// after `limit` are silent (the end of an offline range). `looping` is the song loop
+    /// region in samples while the transport loops.
+    pub fn render(
+        &mut self,
+        a: i64,
+        n: usize,
+        playing: bool,
+        limit: i64,
+        looping: Option<(i64, i64)>,
+    ) {
         let Self {
             data,
             voices,
@@ -227,6 +258,7 @@ impl AudioTrackState {
             sinc,
             pos,
             scr,
+            prewarmed,
             ..
         } = self;
         let data: &TrackData = data;
@@ -237,19 +269,39 @@ impl AudioTrackState {
         if !playing {
             stop_all(data, voices);
             *expected = None;
+            *prewarmed = None;
             return;
         }
-        if *expected != Some(a) {
+        let wrap = matches!(looping, Some((l0, l1)) if *expected == Some(l1) && a == l0);
+        if wrap {
+            // the pre-warmed voices take over; the others stop
+            for (vi, v) in voices.iter_mut().enumerate() {
+                if v.prewarm {
+                    v.prewarm = false;
+                    v.shift = 0;
+                } else if v.clip.take().is_some() {
+                    data.release(vi);
+                }
+            }
+            *prewarmed = None;
+        } else if *expected != Some(a) {
             stop_all(data, voices);
+            *prewarmed = None;
+        } else if prewarmed.is_some() && *prewarmed != looping {
+            // the loop region changed: what was pre-warmed is for another loop start
+            stop_prewarm(data, voices);
+            *prewarmed = None;
         }
         let b = a + n as i64;
         *expected = Some(b);
         // free voices whose clip is over
         for (vi, v) in voices.iter_mut().enumerate() {
             if let Some(ci) = v.clip
-                && data.clips[ci].plan.end <= a
+                && data.clips[ci].plan.end <= a - v.shift
             {
                 v.clip = None;
+                v.prewarm = false;
+                v.shift = 0;
                 data.release(vi);
             }
         }
@@ -259,7 +311,7 @@ impl AudioTrackState {
                 break;
             }
             let (w0, w1) = (c.plan.start - c.lead, c.plan.end);
-            if w1 <= a || w0 >= b || voices.iter().any(|v| v.clip == Some(ci)) {
+            if w1 <= a || w0 >= b || voices.iter().any(|v| v.clip == Some(ci) && !v.prewarm) {
                 continue;
             }
             let Some(vi) = voices.iter().position(|v| v.clip.is_none()) else {
@@ -268,13 +320,51 @@ impl AudioTrackState {
             let fs = (a - c.plan.start).max(0);
             start_voice(data, vi, &mut voices[vi], ci, fs);
         }
+        // pre-warm the Stretch clips that play at the loop start
+        if let Some((l0, l1)) = looping
+            && prewarmed.is_none()
+            && data.max_lead > 0
+            && l1 > l0
+            && a >= l1 - PREWARM_LEADS * data.max_lead
+        {
+            let v0 = l0 - PREWARM_LEADS * data.max_lead;
+            for (ci, c) in data.clips.iter().enumerate() {
+                if c.plan.stretch != StretchMode::Stretch
+                    || c.plan.start - c.lead >= l0
+                    || c.plan.end <= l0
+                {
+                    continue;
+                }
+                let Some(vi) = voices
+                    .iter()
+                    .position(|v| v.clip.is_none() && v.stretch.is_some())
+                else {
+                    continue;
+                };
+                let fs = (v0 - c.plan.start).max(0);
+                start_voice(data, vi, &mut voices[vi], ci, fs);
+                voices[vi].prewarm = true;
+                voices[vi].shift = l1 - l0;
+            }
+            *prewarmed = looping;
+        }
         // render
+        let q = QUANTUM as i64;
         for (vi, v) in voices.iter_mut().enumerate() {
             let Some(ci) = v.clip else { continue };
             let c = &data.clips[ci];
             if c.plan.stretch == StretchMode::Stretch {
+                // a pre-warming voice works at most about twice real time per chunk
+                let budget = v.prewarm.then(|| 2 * (n as i64 + q - 1) / q + 1);
+                let (shift, audible) = (v.shift, !v.prewarm);
                 if let Some(sv) = v.stretch.as_mut() {
-                    render_stretch(data, vi, c, sv, a, b, ol, or);
+                    let span = Span {
+                        a: a - shift,
+                        b: b - shift,
+                        audible,
+                        budget,
+                    };
+                    render_stretch(data, vi, c, sv, span, ol, or);
                 }
             } else {
                 let [s0, s1] = &mut *scr;
@@ -284,9 +374,11 @@ impl AudioTrackState {
         // free voices whose clip ended in this chunk
         for (vi, v) in voices.iter_mut().enumerate() {
             if let Some(ci) = v.clip
-                && data.clips[ci].plan.end <= b
+                && data.clips[ci].plan.end <= b - v.shift
             {
                 v.clip = None;
+                v.prewarm = false;
+                v.shift = 0;
                 data.release(vi);
             }
         }
@@ -300,10 +392,34 @@ impl AudioTrackState {
 
 fn stop_all(data: &TrackData, voices: &mut [Voice]) {
     for (vi, v) in voices.iter_mut().enumerate() {
+        v.prewarm = false;
+        v.shift = 0;
         if v.clip.take().is_some() {
             data.release(vi);
         }
     }
+}
+
+fn stop_prewarm(data: &TrackData, voices: &mut [Voice]) {
+    for (vi, v) in voices.iter_mut().enumerate() {
+        if v.prewarm {
+            v.prewarm = false;
+            v.shift = 0;
+            v.clip = None;
+            data.release(vi);
+        }
+    }
+}
+
+/// What a Stretch voice renders in one chunk, on its own timeline.
+struct Span {
+    /// Song frames `a..b` (already shifted for a pre-warming voice).
+    a: i64,
+    b: i64,
+    /// False: compute but discard (pre-warming).
+    audible: bool,
+    /// Most quanta to compute in this chunk (`None` = all that are due).
+    budget: Option<i64>,
 }
 
 /// Starts voice `vi` on clip `ci` at clip frame `fs` (0 = the clip start).
@@ -339,24 +455,33 @@ fn start_voice(data: &TrackData, vi: usize, v: &mut Voice, ci: usize, fs: i64) {
     sv.fed = e0;
 }
 
-/// Adds a Stretch voice's output for song frames `a..b` (only those inside the clip).
-#[allow(clippy::too_many_arguments)]
+/// Adds a Stretch voice's output for song frames `span.a..span.b` (only those inside the
+/// clip). A budgeted (pre-warming) voice may stay behind; it catches up in later chunks,
+/// computing exactly the same quanta.
 fn render_stretch(
     data: &TrackData,
     vi: usize,
     c: &ClipPlay,
     sv: &mut StretchVoice,
-    a: i64,
-    b: i64,
+    span: Span,
     ol: &mut [f32],
     or: &mut [f32],
 ) {
+    let Span {
+        a,
+        b,
+        audible,
+        budget,
+    } = span;
     let s = c.plan.start;
     let len = c.plan.end - s;
     let first = a - s; // clip frame of out[0]
     let target = (b - s).min(len); // produce through this clip frame (exclusive)
     let q = QUANTUM as i64;
     let emit = |f: i64, l: f32, r: f32, ol: &mut [f32], or: &mut [f32]| {
+        if !audible {
+            return;
+        }
         let i = (f - first) as usize;
         let g = c.plan.gain * c.plan.fade_gain(f as u64) as f32;
         ol[i] += l * g;
@@ -374,7 +499,11 @@ fn render_stretch(
     }
     // 2. new quanta
     let p = |f: i64| c.plan.pos(&data.tempo, s + f);
-    while sv.anchor + sv.k * q < target {
+    let mut done = 0i64;
+    while sv.anchor + sv.k * q < target && budget.is_none_or(|m| done < m) {
+        done += 1;
+        #[cfg(test)]
+        QUANTA.with(|n| n.set(n.get() + 1));
         let g0 = sv.anchor + sv.k * q;
         let e = p(g0 + q + sv.out_lat).round() as i64 + sv.in_lat;
         let mut n_in = (e - sv.fed).max(0);
@@ -757,7 +886,8 @@ pub(crate) fn build_track(
         cur += d;
         most = most.max(cur);
     }
-    let voices = (most.max(1) as usize).min(MAX_VOICES);
+    // Stretch tracks get as many again for pre-warming at a loop wrap
+    let voices = (most.max(1) as usize).min(MAX_VOICES) * if stretch_channels > 0 { 2 } else { 1 };
     let cache = if stream_sources.is_empty() {
         None
     } else {
@@ -785,6 +915,8 @@ pub(crate) fn build_track(
     let voices = (0..data.voices)
         .map(|v| Voice {
             clip: None,
+            prewarm: false,
+            shift: 0,
             stretch: (stretch_channels > 0).then(|| {
                 let st = make_stretcher(voice_seed(track, v));
                 StretchVoice {
@@ -816,6 +948,7 @@ pub(crate) fn build_track(
         sinc: SincInterpolator::new(half_width, MAX_KERNEL_STRETCH),
         pos: vec![0.0; SUB + 1],
         scr: [vec![0.0; SCRATCH], vec![0.0; SCRATCH]],
+        prewarmed: None,
     }
 }
 
