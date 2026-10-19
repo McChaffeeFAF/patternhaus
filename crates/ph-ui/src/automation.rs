@@ -150,10 +150,10 @@ pub fn display_range(project: &Project, clip: &Clip) -> (f64, f64) {
             if let Some(r) = t.fixed_range() {
                 return r;
             }
-            if let Some(info) = param_info(project, t) {
-                if info.max > info.min {
-                    return (info.min, info.max);
-                }
+            if let Some(info) = param_info(project, t)
+                && info.max > info.min
+            {
+                return (info.min, info.max);
             }
             match pts {
                 Some((l, h)) => pad(l, h),

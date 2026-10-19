@@ -11,7 +11,7 @@ use serde_json::json;
 pub fn register(r: &mut Registry) {
     r.register(typed(
         "automation.add_clip",
-        "Place an automation clip for a parameter (tempo, channel or mixer volume/pan, send level, an instrument or effect parameter), optionally with points. Without a track it goes on the first track that is free over the clip.",
+        "Place an automation clip for a parameter (tempo, volume, pan, send, instrument or effect parameter), optionally with points; without a track it takes the first free one.",
         Scope::Mix,
         MUTATES,
         add_clip,
@@ -53,7 +53,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "automation.record",
-        "Write recorded knob movements of a parameter as a new automation clip: the samples are thinned to a reasonable point density (one undo step). The UI collects them while the song plays with record armed; an agent can pass any sampled curve.",
+        "Write recorded knob movements of a parameter as one new automation clip, thinned to a reasonable point density (one undo step).",
         Scope::Mix,
         MUTATES,
         record,

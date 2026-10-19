@@ -244,7 +244,7 @@ fn mixer_volume_pan_mute_and_send_automation_drive_the_inserts() {
     let base = level(&out, 0, 0, 2);
     assert!(base > 0.01);
     assert_ratio(level(&out, 0, 2, 4) / base, 0.25, 0.02, "send level");
-    let model = p.mixer[2].volume as f32;
+    let model = p.mixer[2].volume;
     assert_ratio(
         level(&out, 0, 4, 6) / base,
         0.5 / model,
