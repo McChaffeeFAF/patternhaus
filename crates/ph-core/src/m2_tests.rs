@@ -270,6 +270,10 @@ fn param_paths_round_trip_and_reject_bad_forms() {
         ParamPath::InsertVolume(InsertId(2)),
         ParamPath::InsertPan(InsertId(2)),
         ParamPath::InsertMute(InsertId(2)),
+        ParamPath::InsertSend {
+            insert: InsertId(2),
+            to: InsertId(5),
+        },
         ParamPath::EffectParam {
             insert: InsertId(2),
             slot: 1,
@@ -284,6 +288,7 @@ fn param_paths_round_trip_and_reject_bad_forms() {
         "insert/2/volume",
         "insert/2/pan",
         "insert/2/mute",
+        "insert/2/send/5",
         "insert/2/slot/1/param/mix",
     ];
     for (p, s) in all.iter().zip(strings) {
