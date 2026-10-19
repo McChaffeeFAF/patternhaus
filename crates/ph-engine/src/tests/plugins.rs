@@ -298,3 +298,51 @@ fn a_crashing_plugin_is_caught_reported_isolated_and_the_session_keeps_playing()
     assert!(peak(&after[0]) > 0.01, "the rest of the mix still plays");
     let _ = hs;
 }
+
+#[test]
+fn plugin_parameters_are_automated_through_param_events() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path());
+    let (p, _, _) = song(None);
+    let mut e = Edit::new(&p);
+    let c = e
+        .add_automation_clip(
+            1,
+            4 * PPQ,
+            4 * PPQ,
+            ParamPath::EffectParam {
+                insert: InsertId(1),
+                slot: 0,
+                param: "0".into(),
+            },
+        )
+        .unwrap();
+    e.add_point(c, 0, 0.1, CurveKind::Hold, 0.0).unwrap();
+    let auto = e.finish().0;
+    let plain = render(&p, Some(&env));
+    let out = render(&auto, Some(&env));
+    let bar = (SR as f64 * 60.0 / p.settings.bpm * 4.0).round() as usize;
+    let part = |x: &[Vec<f32>; 2], b: usize| rms(&x[0][b * bar..(b + 1) * bar]);
+    // the first bar is untouched; the second plays through the automated gain
+    assert_eq!(plain[0][..bar], out[0][..bar]);
+    let ratio = (part(&out, 1) / part(&plain, 1)) as f64;
+    assert!(
+        (ratio - 1.0).abs() > 0.2,
+        "the plugin parameter was not automated: ratio {ratio}"
+    );
+    // live equals offline with automation on a plugin node
+    let frames = out[0].len();
+    let (engine, mut dev) = sim(256, 2);
+    engine.set_plugins(Some(env.clone())).unwrap();
+    engine.set_project(Arc::new(auto.clone())).unwrap();
+    engine.transport(TransportCommand::Play);
+    let mut live = [vec![0.0f32; frames], vec![0.0f32; frames]];
+    let mut at = 0;
+    while at < frames {
+        let n = 256.min(frames - at);
+        let [l, r] = &mut live;
+        dev.pull_into(&mut l[at..at + n], &mut r[at..at + n]);
+        at += n;
+    }
+    assert_bits_eq(&out, &live, "automated plugin: live vs offline");
+}

@@ -888,12 +888,37 @@ pub fn project_warnings_with(
             ));
         }
     }
-    // automation other than tempo arrives with M2/T7
-    if automation
-        .targets()
-        .any(|t| *t != ph_core::ParamPath::Tempo)
-    {
-        out.push("automation clips are not applied until M2/T7 (automation playback)".into());
+    // automation aimed at something that is not there plays nothing
+    for t in automation.targets() {
+        let gone = match t {
+            ph_core::ParamPath::Tempo => None,
+            ph_core::ParamPath::ChannelVolume(c)
+            | ph_core::ParamPath::ChannelPan(c)
+            | ph_core::ParamPath::ChannelParam(c, _) => (!project.channels.contains_key(c))
+                .then(|| format!("channel {} does not exist", c.0)),
+            ph_core::ParamPath::InsertVolume(i)
+            | ph_core::ParamPath::InsertPan(i)
+            | ph_core::ParamPath::InsertMute(i) => project
+                .insert(*i)
+                .is_err()
+                .then(|| format!("insert {} does not exist", i.0)),
+            ph_core::ParamPath::InsertSend { insert, to } => match project.insert(*insert) {
+                Ok(x) if x.sends.iter().any(|s| s.to == *to) => None,
+                Ok(_) => Some(format!(
+                    "insert {} has no send to insert {}",
+                    insert.0, to.0
+                )),
+                Err(_) => Some(format!("insert {} does not exist", insert.0)),
+            },
+            ph_core::ParamPath::EffectParam { insert, slot, .. } => match project.insert(*insert) {
+                Ok(x) if (*slot as usize) < x.effects.len() => None,
+                Ok(_) => Some(format!("insert {} has no effect slot {slot}", insert.0)),
+                Err(_) => Some(format!("insert {} does not exist", insert.0)),
+            },
+        };
+        if let Some(why) = gone {
+            out.push(format!("automation of {t}: {why}; it is ignored"));
+        }
     }
     out
 }

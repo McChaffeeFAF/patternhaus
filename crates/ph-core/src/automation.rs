@@ -4,7 +4,8 @@
 //!
 //! - **Values are plain**, in the target's own unit: BPM for `tempo`, 0..=1 channel volume,
 //!   -1..=1 pan, 0..=2 insert volume, 0/1 mute, and a processor parameter's own range
-//!   (`ph_node::ParamInfo::min..=max`). The engine clamps on apply, like `set_param`.
+//!   (`ph_node::ParamInfo::min..=max`), 0..=2 send level. The engine clamps on apply, like
+//!   `set_param`.
 //! - **Points are separate objects** (`point/<clip>/<point>`), so editing one point is one
 //!   small patch and two authors can edit different points of one clip without conflict.
 //!   A clip's patch value never carries points.
@@ -29,7 +30,7 @@ use std::str::FromStr;
 ///
 /// String form (what agents use): `tempo`, `channel/<id>/volume`, `channel/<id>/pan`,
 /// `channel/<id>/param/<param>`, `insert/<n>/volume`, `insert/<n>/pan`, `insert/<n>/mute`,
-/// `insert/<n>/slot/<s>/param/<param>`. `<param>` is the processor's stable parameter id
+/// `insert/<n>/send/<m>`, `insert/<n>/slot/<s>/param/<param>`. `<param>` is the processor's stable parameter id
 /// (`ph_node::ParamInfo::id`; for plugins, the plugin's own parameter id as text). It may
 /// not contain `/`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -48,6 +49,8 @@ pub enum ParamPath {
     InsertPan(InsertId),
     /// Mixer insert mute: 0 = on, ≥ 0.5 = muted.
     InsertMute(InsertId),
+    /// Level of insert `insert`'s send to insert `to`, 0..=2.
+    InsertSend { insert: InsertId, to: InsertId },
     /// A parameter of the effect in `slot` (index into the insert's effect list) of `insert`.
     EffectParam {
         insert: InsertId,
@@ -67,6 +70,7 @@ impl ParamPath {
             ParamPath::InsertVolume(i)
             | ParamPath::InsertPan(i)
             | ParamPath::InsertMute(i)
+            | ParamPath::InsertSend { insert: i, .. }
             | ParamPath::EffectParam { insert: i, .. } => ObjectPath::Insert(*i),
         }
     }
@@ -78,7 +82,7 @@ impl ParamPath {
             ParamPath::Tempo => Some((10.0, 999.0)),
             ParamPath::ChannelVolume(_) => Some((0.0, 1.0)),
             ParamPath::ChannelPan(_) | ParamPath::InsertPan(_) => Some((-1.0, 1.0)),
-            ParamPath::InsertVolume(_) => Some((0.0, 2.0)),
+            ParamPath::InsertVolume(_) | ParamPath::InsertSend { .. } => Some((0.0, 2.0)),
             ParamPath::InsertMute(_) => Some((0.0, 1.0)),
             ParamPath::ChannelParam(..) | ParamPath::EffectParam { .. } => None,
         }
@@ -94,6 +98,13 @@ impl ParamPath {
             ParamPath::InsertVolume(i) => p.insert(*i).ok().map(|x| x.volume as f64),
             ParamPath::InsertPan(i) => p.insert(*i).ok().map(|x| x.pan as f64),
             ParamPath::InsertMute(i) => p.insert(*i).ok().map(|x| x.muted as u8 as f64),
+            ParamPath::InsertSend { insert, to } => p
+                .insert(*insert)
+                .ok()?
+                .sends
+                .iter()
+                .find(|s| s.to == *to)
+                .map(|s| s.level as f64),
             ParamPath::ChannelParam(c, id) => match &p.channels.get(c)?.instrument {
                 InstrumentSpec::Sampler { params, .. }
                 | InstrumentSpec::Synth { params, .. }
@@ -123,6 +134,7 @@ impl fmt::Display for ParamPath {
             ParamPath::InsertVolume(i) => write!(f, "insert/{i}/volume"),
             ParamPath::InsertPan(i) => write!(f, "insert/{i}/pan"),
             ParamPath::InsertMute(i) => write!(f, "insert/{i}/mute"),
+            ParamPath::InsertSend { insert, to } => write!(f, "insert/{insert}/send/{to}"),
             ParamPath::EffectParam {
                 insert,
                 slot,
@@ -155,6 +167,10 @@ impl FromStr for ParamPath {
             ["insert", _, "volume"] => ParamPath::InsertVolume(InsertId(num(1)?)),
             ["insert", _, "pan"] => ParamPath::InsertPan(InsertId(num(1)?)),
             ["insert", _, "mute"] => ParamPath::InsertMute(InsertId(num(1)?)),
+            ["insert", _, "send", _] => ParamPath::InsertSend {
+                insert: InsertId(num(1)?),
+                to: InsertId(num(3)?),
+            },
             ["insert", _, "slot", _, "param", _] => ParamPath::EffectParam {
                 insert: InsertId(num(1)?),
                 slot: num(3)?,
@@ -186,9 +202,29 @@ impl JsonSchema for ParamPath {
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
             "type": "string",
-            "description": "Automation target: tempo | channel/<id>/volume | channel/<id>/pan | channel/<id>/param/<param> | insert/<n>/volume | insert/<n>/pan | insert/<n>/mute | insert/<n>/slot/<s>/param/<param>",
-            "pattern": "^(tempo|channel/\\d+/(volume|pan|param/[^/]+)|insert/\\d+/(volume|pan|mute|slot/\\d+/param/[^/]+))$"
+            "description": "Automation target: tempo | channel/<id>/volume | channel/<id>/pan | channel/<id>/param/<param> | insert/<n>/volume | insert/<n>/pan | insert/<n>/mute | insert/<n>/send/<m> | insert/<n>/slot/<s>/param/<param>",
+            "pattern": "^(tempo|channel/\\d+/(volume|pan|param/[^/]+)|insert/\\d+/(volume|pan|mute|send/\\d+|slot/\\d+/param/[^/]+))$"
         })
+    }
+}
+
+impl Project {
+    /// The value automation gives `target` at song tick `tick`, or `None` when no
+    /// (unmuted-track) automation clip covers it. The clip that starts latest wins (then the
+    /// higher id), exactly as the engine plays it. For the UI's knobs and for tests.
+    pub fn automated_value(&self, target: &ParamPath, tick: f64) -> Option<f64> {
+        let clip = self
+            .clips
+            .values()
+            .filter(|c| {
+                c.automation().is_some_and(|a| a.target == *target)
+                    && c.start as f64 <= tick
+                    && tick < (c.start + c.length) as f64
+                    && !self.tracks.get(c.track as usize).is_some_and(|t| t.muted)
+            })
+            .max_by_key(|c| (c.start, c.id))?;
+        let a = clip.automation()?;
+        a.value_at(tick - clip.start as f64 + clip.offset as f64)
     }
 }
 

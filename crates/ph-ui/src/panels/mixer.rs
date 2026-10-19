@@ -8,7 +8,7 @@ use crate::icons::Icon;
 use crate::mapping;
 use crate::theme::caps;
 use crate::theme::rgb;
-use crate::widgets::{self, Edit, fader, icon_button, knob, menu_item, param_grid, toggle};
+use crate::widgets::{self, Edit, fader, icon_button, knob, menu_item, toggle};
 use crate::workspace::WindowId;
 use egui::{
     Align2, CornerRadius, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
@@ -262,7 +262,10 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         &widgets::Ctl::new(
             &format!("{} volume", insert_label(i, &m)),
             &widgets::fmt_gain_db,
-        ),
+        )
+        .target(ph_core::ParamPath::InsertVolume(ph_core::InsertId(
+            i as u32,
+        ))),
         FADER_TICKS,
     );
     if let Some(v) = e.commit() {
@@ -297,7 +300,8 @@ fn strip(ui: &mut Ui, core: &mut AppCore, i: usize, h: f32, live: &crate::live::
         0.0,
         26.0,
         &theme,
-        &widgets::Ctl::new(&format!("{} pan", insert_label(i, &m)), &widgets::fmt_pan),
+        &widgets::Ctl::new(&format!("{} pan", insert_label(i, &m)), &widgets::fmt_pan)
+            .target(ph_core::ParamPath::InsertPan(ph_core::InsertId(i as u32))),
     );
     if let Some(v) = e.commit() {
         core.send(mapping::mixer_pan(i as u32, v as f32));
@@ -570,7 +574,12 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
                             0.5,
                             24.0,
                             &theme,
-                            &widgets::Ctl::new("Send level", &widgets::fmt_gain_db),
+                            &widgets::Ctl::new("Send level", &widgets::fmt_gain_db).target(
+                                ph_core::ParamPath::InsertSend {
+                                    insert: InsertId(ins as u32),
+                                    to: ph_core::InsertId(to),
+                                },
+                            ),
                         );
                         if let Some(v) = e.commit() {
                             core.send(mapping::send_level(ins as u32, to, v as f32));
@@ -680,12 +689,19 @@ fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effe
         _ => Default::default(),
     };
     // Group equaliser-style prefixed params (b1_, b2_...) into rows of their own.
-    let changes = param_grid(
+    let changes = widgets::param_grid_with(
         ui,
         Id::new(("fx", insert, index)),
         &desc,
         &|_| true,
         &|info| overrides.get(&info.id).copied().unwrap_or(info.default),
+        &|info| {
+            Some(ph_core::ParamPath::EffectParam {
+                insert: InsertId(insert),
+                slot: index as u32,
+                param: info.id.clone(),
+            })
+        },
         &theme,
     );
     for (param, value) in changes {

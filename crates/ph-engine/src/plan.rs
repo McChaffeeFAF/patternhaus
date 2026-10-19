@@ -22,7 +22,7 @@
 //! already-activated instances.
 
 use crate::audio_clips::{AudioClipPlan, plan_audio_clips};
-use crate::automation::AutomationEvaluator;
+use crate::automation::{AutomationEvaluator, BoundTarget};
 use crate::player::{AudioCtx, AudioTrackState, TrackKey, build_track};
 use crate::plugins::{LivePlugin, PluginEnv, PluginSlot, effect_plugin, instrument_plugin};
 use crate::sched::Sched;
@@ -30,7 +30,7 @@ use crate::stats::StatsBoard;
 use crate::tempo::TempoMap;
 use crate::{EngineError, EngineResult};
 use ph_core::{
-    ChannelId, EffectSpec, InstrumentSpec, ObjectPath, PatternId, Project, STEP, Tick,
+    ChannelId, EffectSpec, InstrumentSpec, ObjectPath, ParamPath, PatternId, Project, STEP, Tick,
     TimeSignature,
 };
 use ph_node::{ActivateInfo, AssetResolver, Event, NodeDescriptor, ParamId, Processor, Quality};
@@ -46,6 +46,10 @@ pub(crate) const ACTIVE_CAP: usize = 256;
 pub(crate) const PREVIEW_CAP: usize = 64;
 /// Length of gain/mix ramps in frames (click-free volume, pan, mute and mix changes).
 pub(crate) const RAMP_FRAMES: u32 = 64;
+/// Events one effect slot can receive in one block (automation only).
+pub(crate) const EFFECT_EVENT_CAP: usize = 1024;
+/// Free event slots automation leaves in a channel's list for note-offs.
+pub(crate) const EVENT_RESERVE: usize = 160;
 /// Choke groups are numbered 1..=16 (sampler `choke_group`; 0 = none).
 pub(crate) const CHOKE_GROUPS: usize = 16;
 /// Tempo automation becomes a tempo map with one constant step per this many ticks (a 64th
@@ -171,6 +175,8 @@ pub(crate) struct BusState {
 
 pub(crate) struct EffectState {
     pub proc: Option<Box<dyn Processor>>,
+    /// Automation events for this block (cleared and refilled by the scheduler).
+    pub events: Vec<Event>,
     pub mix: Ramp,
     pub micros: f32,
 }
@@ -178,6 +184,8 @@ pub(crate) struct EffectState {
 pub(crate) struct InsertState {
     pub bus: Option<Box<BusState>>,
     pub effects: Vec<EffectState>,
+    /// Smoothing of automated send levels, one per input edge.
+    pub edge_ramps: Vec<Ramp>,
 }
 
 pub(crate) enum NodeState {
@@ -191,6 +199,13 @@ pub(crate) struct ChannelDef {
     /// Strip gains `[left, right]` (volume × pan balance; 0 when muted).
     pub gain: [f32; 2],
     pub choke: u8,
+    /// The model's values, for blocks where automation drives volume or pan.
+    pub volume: f32,
+    pub pan: f32,
+    pub muted: bool,
+    /// Automation targets (indices into [`Plan::autos`]).
+    pub auto_vol: Option<usize>,
+    pub auto_pan: Option<usize>,
 }
 
 pub(crate) struct SlotDef {
@@ -203,6 +218,12 @@ pub(crate) struct SlotDef {
 pub(crate) struct InsertDef {
     pub insert: u16,
     pub gain: [f32; 2],
+    pub volume: f32,
+    pub pan: f32,
+    pub muted: bool,
+    pub auto_vol: Option<usize>,
+    pub auto_pan: Option<usize>,
+    pub auto_mute: Option<usize>,
     pub slots: Vec<SlotDef>,
     /// Node whose output feeds the effects' sidechain port.
     pub sidechain: Option<usize>,
@@ -219,6 +240,8 @@ pub(crate) enum NodeDef {
 pub(crate) struct Edge {
     pub src: usize,
     pub gain: f32,
+    /// Send-level automation (index into [`Plan::autos`]).
+    pub auto: Option<usize>,
 }
 
 pub(crate) struct Node {
@@ -265,6 +288,59 @@ pub(crate) struct ParamSet {
     pub value: f64,
 }
 
+/// How an automated target reaches the audio.
+pub(crate) enum AutoKind {
+    /// Tempo: already part of the tempo map.
+    Tempo,
+    /// Per-frame values in [`AutoRt::buf`], read by strips and send edges.
+    Buffer,
+    /// `Param` events into a processor: a channel's instrument (`slot` is `None`) or an
+    /// effect slot of an insert node. `model` is the project's value (the value automation
+    /// returns to).
+    Param {
+        node: usize,
+        slot: Option<usize>,
+        id: ParamId,
+        model: f64,
+    },
+    /// The target does not exist (any more): ignored.
+    Unresolved,
+}
+
+/// Audio-thread state of one automated target; written only in the serial scheduling phase.
+pub(crate) struct AutoRt {
+    pub buf: Vec<f64>,
+    /// `buf` holds at least one value this block.
+    pub has: bool,
+    /// The last value sent as a `Param` event (`NAN` = none yet).
+    pub last: f64,
+}
+
+pub(crate) struct AutoTarget {
+    pub bound: BoundTarget,
+    pub kind: AutoKind,
+    pub rt: UnsafeCell<AutoRt>,
+}
+
+impl AutoTarget {
+    /// # Safety
+    /// No other reference to this target's runtime state may be live (the scheduling phase
+    /// is serial; during the graph the buffers are only read).
+    #[allow(clippy::mut_from_ref)]
+    pub unsafe fn rt_mut(&self) -> &mut AutoRt {
+        unsafe { &mut *self.rt.get() }
+    }
+
+    /// The block's per-frame values, if any frame has one.
+    ///
+    /// # Safety
+    /// The scheduling phase must be finished.
+    pub unsafe fn frames(&self) -> Option<&[f64]> {
+        let rt = unsafe { &*self.rt.get() };
+        rt.has.then_some(&rt.buf[..])
+    }
+}
+
 pub(crate) struct PatternStream {
     pub id: PatternId,
     pub len_samples: i64,
@@ -295,6 +371,10 @@ pub(crate) struct Plan {
     pub bar_samples: i64,
     pub transfers: Vec<Transfer>,
     pub params: Vec<ParamSet>,
+    /// Automated targets (M2/T7), sorted by path.
+    pub autos: Vec<AutoTarget>,
+    /// Effect slots `(insert node, slot)` that automation sends events to.
+    pub effect_events: Vec<(usize, usize)>,
     pub roots: Vec<u32>,
     pub sched: Sched,
     pub board: Arc<StatsBoard>,
@@ -364,6 +444,9 @@ pub(crate) struct Shadow {
     pub tracks: BTreeMap<u32, TrackShadow>,
     /// Plugin nodes of the plan (M2/T3), for the control side.
     pub plugins: BTreeMap<PluginSlot, LivePlugin>,
+    /// Processor parameters automation drove in this plan (M2/T7): when a later plan no
+    /// longer automates one, it is set back to the project's value at the swap.
+    pub auto_params: Vec<ParamPath>,
 }
 
 /// An audio-track node: reused while its clips (and the tempo map) are unchanged.
@@ -404,6 +487,7 @@ impl Shadow {
             inserts: BTreeMap::new(),
             tracks: BTreeMap::new(),
             plugins: BTreeMap::new(),
+            auto_params: Vec::new(),
         }
     }
 }
@@ -533,7 +617,7 @@ pub(crate) fn channel_gain(volume: f32, pan: f32, muted: bool) -> [f32; 2] {
 
 /// A mixer insert: linear fader gain and a balance pan. FL's fader scale and mixer pan
 /// law are owner checks OC-6..OC-9 (fl-behaviour-notes §3, §4), so this stays as it was.
-fn strip_gain(volume: f32, pan: f32, muted: bool) -> [f32; 2] {
+pub(crate) fn strip_gain(volume: f32, pan: f32, muted: bool) -> [f32; 2] {
     if muted {
         return [0.0, 0.0];
     }
@@ -602,11 +686,15 @@ pub(crate) fn compile(
     let n = settings.max_frames.max(1);
     let reuse = prev.settings == Some(settings);
     // tempo automation (if any) is part of the tempo map: notes and synced audio follow it
-    let tempo = AutomationEvaluator::new(project).tempo_map(
-        project.settings.bpm,
-        settings.sample_rate,
-        TEMPO_RESOLUTION,
-    );
+    let evaluator = AutomationEvaluator::new(project);
+    let tempo = evaluator.tempo_map(project.settings.bpm, settings.sample_rate, TEMPO_RESOLUTION);
+    let bound = evaluator.bind(&tempo);
+    let auto_idx: BTreeMap<ParamPath, usize> = bound
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.target.clone(), i))
+        .collect();
+    let auto_of = |p: ParamPath| auto_idx.get(&p).copied();
     // audio clips, by playlist track
     let (clip_plans, _) = plan_audio_clips(project, &tempo);
     let mut by_track: BTreeMap<u32, Vec<AudioClipPlan>> = BTreeMap::new();
@@ -658,17 +746,20 @@ pub(crate) fn compile(
 
     // ---- edges between inserts (main and sidechain), master excluded as a source
     // main inputs of insert x: (source insert, gain), in source order
-    let mut ins_inputs: BTreeMap<u16, Vec<(u16, f32)>> = BTreeMap::new();
+    let mut ins_inputs: BTreeMap<u16, Vec<(u16, f32, bool)>> = BTreeMap::new();
     let mut sidechain: BTreeMap<u16, u16> = BTreeMap::new();
     for &y in &ins_list {
         let ins = &project.mixer[y as usize];
         if ins.route_to_master {
-            ins_inputs.entry(0).or_default().push((y, 1.0));
+            ins_inputs.entry(0).or_default().push((y, 1.0, false));
         }
         for s in &ins.sends {
             let t = s.to.0 as usize;
             if t < n_inserts && t != y as usize && used[t] {
-                ins_inputs.entry(t as u16).or_default().push((y, s.level));
+                ins_inputs
+                    .entry(t as u16)
+                    .or_default()
+                    .push((y, s.level, true));
             }
         }
     }
@@ -692,7 +783,7 @@ pub(crate) fn compile(
         if x == 0 {
             continue;
         }
-        for (y, _) in srcs {
+        for (y, _, _) in srcs {
             *indeg.get_mut(&x).unwrap() += 1;
             outs.entry(*y).or_default().push(x);
         }
@@ -754,6 +845,7 @@ pub(crate) fn compile(
         inserts: BTreeMap::new(),
         tracks: BTreeMap::new(),
         plugins: BTreeMap::new(),
+        auto_params: Vec::new(),
     };
     let info = |seed: u64| ActivateInfo {
         sample_rate: settings.sample_rate as f64,
@@ -840,7 +932,15 @@ pub(crate) fn compile(
                 );
                 let stat = board.push(ch.name.clone(), Some(ObjectPath::Channel(ch.id)));
                 nodes.push(Node {
-                    def: NodeDef::Channel(ChannelDef { gain, choke }),
+                    def: NodeDef::Channel(ChannelDef {
+                        gain,
+                        choke,
+                        volume: ch.volume,
+                        pan: ch.pan,
+                        muted,
+                        auto_vol: auto_of(ParamPath::ChannelVolume(ch.id)),
+                        auto_pan: auto_of(ParamPath::ChannelPan(ch.id)),
+                    }),
                     inputs: Vec::new(),
                     dependents: Vec::new(),
                     indegree: 0,
@@ -896,17 +996,34 @@ pub(crate) fn compile(
                 // then inserts (by number)
                 let mut inputs: Vec<Edge> = (0..n_ch)
                     .filter(|c| target(chans[*c]) == *x)
-                    .map(|c| Edge { src: c, gain: 1.0 })
+                    .map(|c| Edge {
+                        src: c,
+                        gain: 1.0,
+                        auto: None,
+                    })
                     .collect();
                 if *x == 0 {
-                    inputs.extend((n_ch..n_ch + n_tr).map(|src| Edge { src, gain: 1.0 }));
+                    inputs.extend((n_ch..n_ch + n_tr).map(|src| Edge {
+                        src,
+                        gain: 1.0,
+                        auto: None,
+                    }));
                 }
-                for (y, g) in ins_inputs.get(x).into_iter().flatten() {
+                for (y, g, is_send) in ins_inputs.get(x).into_iter().flatten() {
                     inputs.push(Edge {
                         src: ins_node[y],
                         gain: *g,
+                        auto: is_send
+                            .then(|| {
+                                auto_of(ParamPath::InsertSend {
+                                    insert: ph_core::InsertId(*y as u32),
+                                    to: ph_core::InsertId(*x as u32),
+                                })
+                            })
+                            .flatten(),
                     });
                 }
+                let edge_ramps: Vec<Ramp> = inputs.iter().map(|e| Ramp::new(e.gain)).collect();
                 let sc = sidechain.get(x).map(|s| ins_node[s]);
                 let old = prev.inserts.get(x).filter(|_| reuse);
                 let bus = if let Some(o) = old {
@@ -999,6 +1116,7 @@ pub(crate) fn compile(
                     });
                     effects.push(EffectState {
                         proc,
+                        events: Vec::with_capacity(EFFECT_EVENT_CAP),
                         mix: Ramp::new(mix),
                         micros: 0.0,
                     });
@@ -1019,6 +1137,12 @@ pub(crate) fn compile(
                     def: NodeDef::Insert(InsertDef {
                         insert: *x,
                         gain,
+                        volume: ins.volume,
+                        pan: ins.pan,
+                        muted: ins.muted,
+                        auto_vol: auto_of(ParamPath::InsertVolume(ph_core::InsertId(*x as u32))),
+                        auto_pan: auto_of(ParamPath::InsertPan(ph_core::InsertId(*x as u32))),
+                        auto_mute: auto_of(ParamPath::InsertMute(ph_core::InsertId(*x as u32))),
                         slots,
                         sidechain: sc,
                     }),
@@ -1027,9 +1151,63 @@ pub(crate) fn compile(
                     indegree: 0,
                     live: true,
                     stat,
-                    state: UnsafeCell::new(NodeState::Insert(InsertState { bus, effects })),
+                    state: UnsafeCell::new(NodeState::Insert(InsertState {
+                        bus,
+                        effects,
+                        edge_ramps,
+                    })),
                 });
             }
+        }
+    }
+
+    // ---- automation targets: how each reaches the audio
+    let mut autos = Vec::with_capacity(bound.len());
+    let mut effect_events: Vec<(usize, usize)> = Vec::new();
+    for b in bound {
+        let kind = resolve_auto(&shadow, project, &b.target);
+        let mut buf = Vec::new();
+        match &kind {
+            AutoKind::Buffer => buf = vec![f64::NAN; n],
+            AutoKind::Param { node, slot, .. } => {
+                shadow.auto_params.push(b.target.clone());
+                if let Some(s) = slot
+                    && !effect_events.contains(&(*node, *s))
+                {
+                    effect_events.push((*node, *s));
+                }
+            }
+            AutoKind::Tempo | AutoKind::Unresolved => {}
+        }
+        autos.push(AutoTarget {
+            bound: b,
+            kind,
+            rt: UnsafeCell::new(AutoRt {
+                buf,
+                has: false,
+                last: f64::NAN,
+            }),
+        });
+    }
+    // a parameter the old plan automated and this one does not goes back to the project's
+    // value at the swap (the processor is reused and still holds the automated one)
+    for path in &prev.auto_params {
+        if auto_idx.contains_key(path) {
+            continue;
+        }
+        if let AutoKind::Param {
+            node,
+            slot,
+            id,
+            model,
+        } = resolve_auto(&shadow, project, path)
+        {
+            params.push(ParamSet {
+                node,
+                slot,
+                id,
+                value: model,
+            });
         }
     }
 
@@ -1189,11 +1367,64 @@ pub(crate) fn compile(
         patterns,
         transfers,
         params,
+        autos,
+        effect_events,
         roots,
         sched: Sched::new(count),
         board: Arc::new(board),
     };
     Ok((Box::new(plan), shadow))
+}
+
+/// Where an automation target lands in the plan just built (`shadow`).
+fn resolve_auto(shadow: &Shadow, project: &Project, target: &ParamPath) -> AutoKind {
+    match target {
+        ParamPath::Tempo => AutoKind::Tempo,
+        ParamPath::ChannelVolume(_)
+        | ParamPath::ChannelPan(_)
+        | ParamPath::InsertVolume(_)
+        | ParamPath::InsertPan(_)
+        | ParamPath::InsertMute(_)
+        | ParamPath::InsertSend { .. } => AutoKind::Buffer,
+        ParamPath::ChannelParam(c, name) => shadow
+            .channels
+            .get(c)
+            .and_then(|cs| {
+                let d = cs.desc.as_ref()?;
+                let id = d.param_id(name)?;
+                let model = target
+                    .model_value(project)
+                    .unwrap_or(d.params[id.0 as usize].default);
+                Some(AutoKind::Param {
+                    node: cs.node,
+                    slot: None,
+                    id,
+                    model,
+                })
+            })
+            .unwrap_or(AutoKind::Unresolved),
+        ParamPath::EffectParam {
+            insert,
+            slot,
+            param,
+        } => u16::try_from(insert.0)
+            .ok()
+            .and_then(|i| shadow.inserts.get(&i))
+            .and_then(|is| {
+                let d = is.slots.get(*slot as usize)?.desc.as_ref()?;
+                let id = d.param_id(param)?;
+                let model = target
+                    .model_value(project)
+                    .unwrap_or(d.params[id.0 as usize].default);
+                Some(AutoKind::Param {
+                    node: is.node,
+                    slot: Some(*slot as usize),
+                    id,
+                    model,
+                })
+            })
+            .unwrap_or(AutoKind::Unresolved),
+    }
 }
 
 fn note_ev(start: i64, end: i64, n: &ph_core::Note) -> NoteEv {

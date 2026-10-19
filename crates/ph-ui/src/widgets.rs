@@ -13,6 +13,7 @@ use egui::{
     StrokeKind, Ui, Vec2,
 };
 use ph_control::UiHint;
+use ph_core::ParamPath;
 use ph_node::{NodeDescriptor, ParamInfo, ParamUnit};
 
 /// What a continuous control did this frame.
@@ -51,11 +52,46 @@ struct DragState {
 pub struct Ctl<'a> {
     pub name: &'a str,
     pub fmt: &'a dyn Fn(f64) -> String,
+    /// What automation drives through this control, if anything (M2/T7): the control shows an
+    /// accent ring when a clip automates it, follows the automated value while the song
+    /// plays, offers "Create automation clip", and records its drags when armed.
+    pub target: Option<ParamPath>,
 }
 
 impl<'a> Ctl<'a> {
     pub fn new(name: &'a str, fmt: &'a dyn Fn(f64) -> String) -> Self {
-        Self { name, fmt }
+        Self {
+            name,
+            fmt,
+            target: None,
+        }
+    }
+
+    pub fn target(mut self, target: ParamPath) -> Self {
+        self.target = Some(target);
+        self
+    }
+
+    pub fn target_opt(mut self, target: Option<ParamPath>) -> Self {
+        self.target = target;
+        self
+    }
+}
+
+/// What a control does about its automation this frame: the value to show (the automated one
+/// while it plays), and whether a clip drives it.
+fn auto_state(ui: &Ui, ctl: &Ctl, dragging: bool) -> (Option<f64>, bool) {
+    let Some(t) = ctl.target.as_ref() else {
+        return (None, false);
+    };
+    let st = crate::automation::knob_state(ui.ctx(), t);
+    (if dragging { None } else { st.value }, st.automated)
+}
+
+/// Remembers an edit for automation recording (armed and playing only).
+fn record_edit(ui: &Ui, ctl: &Ctl, edit: Edit) {
+    if let (Some(t), Edit::Live(v) | Edit::Commit(v)) = (ctl.target.as_ref(), edit) {
+        crate::automation::note_value(ui.ctx(), t, v);
     }
 }
 
@@ -101,6 +137,8 @@ pub fn knob(
 ) -> (Response, Edit) {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(diameter), Sense::click_and_drag());
     let (mut edit, shown) = drag_logic(ui, &resp, id, value, min, max, default, 160.0);
+    let (followed, automated) = auto_state(ui, ctl, resp.dragged());
+    let shown = followed.map_or(shown, |v| v.clamp(min, max));
     let uh = UiHint {
         name: ctl.name.into(),
         value: (ctl.fmt)(shown),
@@ -108,9 +146,11 @@ pub fn knob(
     };
     resp.widget_info(|| egui::WidgetInfo::slider(true, shown, ctl.name));
     let resp = resp.hint(&uh.name, &uh.value, &uh.gestures);
-    if hint::standard_menu(&resp, true, &uh) == MenuChoice::Reset {
+    let menu_target = ctl.target.as_ref().map(|t| (t, shown));
+    if hint::standard_menu_auto(&resp, true, &uh, menu_target) == MenuChoice::Reset {
         edit = Edit::Commit(default.clamp(min, max));
     }
+    record_edit(ui, ctl, edit);
     let shown = edit.shown(shown);
     let active = resp.dragged();
     let c = &theme.colors;
@@ -135,10 +175,11 @@ pub fn knob(
         -min / (max - min),
         resp.hovered(),
         active,
+        automated,
         theme,
     );
     if resp.hovered() || active {
-        readout(&ctx, id, rect, &uh.value, theme);
+        readout(&ctx, id, rect, &(ctl.fmt)(shown), theme);
     }
     let _ = c;
     (resp, edit)
@@ -154,10 +195,19 @@ fn paint_knob(
     zero_at: f64,
     hovered: bool,
     active: bool,
+    automated: bool,
     theme: &Theme,
 ) {
     let c = &theme.colors;
     let centre = rect.center();
+    if automated {
+        // the automation ring: a clip drives this control
+        p.circle_stroke(
+            centre,
+            rect.width() * 0.5 - 0.4,
+            Stroke::new(1.2, c.accent_hot),
+        );
+    }
     let d = rect.width();
     let r = d * 0.5 - 1.5;
     let width = (d * 0.11).clamp(2.0, 3.5);
@@ -325,6 +375,8 @@ pub fn fader(
         default,
         size.y as f64 - 16.0,
     );
+    let (followed, automated) = auto_state(ui, ctl, resp.dragged());
+    let shown = followed.map_or(shown, |v| v.clamp(min, max));
     let uh = UiHint {
         name: ctl.name.into(),
         value: (ctl.fmt)(shown),
@@ -332,9 +384,11 @@ pub fn fader(
     };
     resp.widget_info(|| egui::WidgetInfo::slider(true, shown, ctl.name));
     let resp = resp.hint(&uh.name, &uh.value, &uh.gestures);
-    if hint::standard_menu(&resp, true, &uh) == MenuChoice::Reset {
+    let menu_target = ctl.target.as_ref().map(|t| (t, shown));
+    if hint::standard_menu_auto(&resp, true, &uh, menu_target) == MenuChoice::Reset {
         edit = Edit::Commit(default.clamp(min, max));
     }
+    record_edit(ui, ctl, edit);
     let shown = edit.shown(shown);
     let c = &theme.colors;
     let p = ui.painter();
@@ -402,9 +456,26 @@ pub fn fader(
     p.rect_stroke(
         cap,
         CornerRadius::same(3),
-        Stroke::new(1.0, if active { c.accent } else { c.line }),
+        Stroke::new(
+            1.0,
+            if active {
+                c.accent
+            } else if automated {
+                c.accent_hot
+            } else {
+                c.line
+            },
+        ),
         StrokeKind::Inside,
     );
+    if automated {
+        p.rect_stroke(
+            cap.expand(2.0),
+            CornerRadius::same(4),
+            Stroke::new(1.0, c.accent_hot),
+            StrokeKind::Outside,
+        );
+    }
     for dy in [-3.5f32, 3.5] {
         p.line_segment(
             [
@@ -1080,6 +1151,20 @@ pub fn param_grid(
     value_of: &dyn Fn(&ParamInfo) -> f64,
     theme: &Theme,
 ) -> Vec<(String, f64)> {
+    param_grid_with(ui, salt, desc, filter, value_of, &|_| None, theme)
+}
+
+/// [`param_grid`] whose knobs are automatable: `target_of` gives the automation target of a
+/// parameter (`None` for ones that cannot be automated).
+pub fn param_grid_with(
+    ui: &mut Ui,
+    salt: Id,
+    desc: &NodeDescriptor,
+    filter: &dyn Fn(&ParamInfo) -> bool,
+    value_of: &dyn Fn(&ParamInfo) -> f64,
+    target_of: &dyn Fn(&ParamInfo) -> Option<ParamPath>,
+    theme: &Theme,
+) -> Vec<(String, f64)> {
     let mut changes = Vec::new();
     // Each cell is a vertical block, which egui's wrapping layout cannot wrap on its own, so
     // the rows are cut here from the width that is available.
@@ -1176,7 +1261,7 @@ pub fn param_grid(
                                 info.default,
                                 34.0,
                                 theme,
-                                &Ctl::new(&info.name, &fmt),
+                                &Ctl::new(&info.name, &fmt).target_opt(target_of(info)),
                             );
                             if let Some(v) = edit.commit() {
                                 changes.push((info.id.clone(), v));

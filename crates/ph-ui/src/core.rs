@@ -23,7 +23,7 @@ use ph_commands::{
     Change, CmdError, HistoryEntry, Pending, Request, Scope, UiRequest, UndoConflict,
 };
 use ph_control::Studio;
-use ph_core::{ChannelId, InstrumentSpec, NoteId, ObjectPath, PatternId, Project};
+use ph_core::{ChannelId, ClipId, InstrumentSpec, NoteId, ObjectPath, PatternId, Project, Tick};
 use ph_engine::{EngineConfig, PlayMode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -313,6 +313,13 @@ pub struct AppCore {
     pub drop_zones: Vec<(egui::Rect, crate::dnd::DropZone)>,
     /// What a drag of files over the window would do, while one is hovering.
     pub drop_hover: Option<crate::dnd::DropHover>,
+    /// Automation-clip editors' view state, by clip (M2/T7).
+    pub auto_editors: HashMap<ClipId, crate::auto_editor::AutoEditorState>,
+    /// Record armed: knob drags are written as automation while the song plays.
+    pub auto_armed: bool,
+    /// Knob movements collected since the last flush, by target: (song tick, value).
+    pub auto_rec: std::collections::BTreeMap<ph_core::ParamPath, Vec<(Tick, f64)>>,
+    auto_last_pos: Tick,
 }
 
 /// A window's scroll area, as last drawn.
@@ -422,6 +429,10 @@ impl AppCore {
             toolbar: Default::default(),
             drop_zones: Vec::new(),
             drop_hover: None,
+            auto_editors: HashMap::new(),
+            auto_armed: false,
+            auto_rec: std::collections::BTreeMap::new(),
+            auto_last_pos: 0,
         };
         core.fix_selection();
         Ok(core)
@@ -532,6 +543,79 @@ impl AppCore {
         }
     }
 
+    /// Automation, once a frame: what the controls may show (published to them), their
+    /// "Create automation clip" requests, and the recorder for armed knob drags.
+    pub fn update_automation(&mut self, ctx: &egui::Context) {
+        let live = self.link.snapshot();
+        let pos = live.status.position;
+        let playing = live.status.playing;
+        for r in crate::automation::take_create_requests(ctx) {
+            self.create_automation_clip(r.target, r.value);
+        }
+        for (t, tick, v) in crate::automation::take_samples(ctx) {
+            self.auto_rec.entry(t).or_default().push((tick, v));
+        }
+        // a pass ends when the song stops, recording is disarmed, or the loop wraps
+        let wrapped = pos + 960 < self.auto_last_pos;
+        if (!playing || !self.auto_armed || wrapped) && !self.auto_rec.is_empty() {
+            self.flush_automation();
+        }
+        self.auto_last_pos = pos;
+        crate::automation::publish(
+            ctx,
+            crate::automation::AutoView::new(
+                self.project.clone(),
+                pos as f64,
+                playing,
+                self.auto_armed,
+            ),
+        );
+    }
+
+    /// Writes what the recorder collected as automation clips (one per target, one undo step
+    /// each; the command thins the samples).
+    pub fn flush_automation(&mut self) {
+        for (target, samples) in std::mem::take(&mut self.auto_rec) {
+            if samples.is_empty() {
+                continue;
+            }
+            self.send(mapping::automation_record(&target, &samples));
+        }
+    }
+
+    /// "Create automation clip" on a control: a clip for `target` on the first free playlist
+    /// track, over the loop region, else over the selected clips, else the bar at the playhead.
+    /// It starts at the control's value, and its editor opens.
+    pub fn create_automation_clip(&mut self, target: ph_core::ParamPath, value: f64) {
+        let bar = self.project.settings.time_signature.ticks_per_bar().max(1);
+        let live = self.link.snapshot();
+        let selected: Vec<_> = self
+            .playlist
+            .selection
+            .iter()
+            .filter_map(|id| self.project.clips.get(id))
+            .collect();
+        let (start, end) = if let Some((a, b)) = live.status.loop_range {
+            (a, b)
+        } else if !selected.is_empty() {
+            (
+                selected.iter().map(|c| c.start).min().unwrap_or(0),
+                selected
+                    .iter()
+                    .map(|c| c.start + c.length)
+                    .max()
+                    .unwrap_or(bar),
+            )
+        } else {
+            let s = live.status.position / bar * bar;
+            (s, s + bar)
+        };
+        let length = end.saturating_sub(start).max(1);
+        let req =
+            mapping::automation_add_clip(&target, start, length, &[(0, value), (length, value)]);
+        self.send_follow(req, Follow::OpenAutomation);
+    }
+
     fn on_change(&mut self, c: Change) {
         self.project = c.project.clone();
         self.history_dirty = true;
@@ -611,6 +695,12 @@ impl AppCore {
                         .filter_map(|v| v.as_u64())
                         .map(|n| NoteId(n as u32))
                         .collect();
+                }
+                if d.follow == Follow::OpenAutomation
+                    && let Some(c) = ex.result.get("clip").and_then(|v| v.as_u64())
+                {
+                    self.window_requests
+                        .push((WindowId::Automation(ClipId(c as u32)), PanelAction::Open));
                 }
                 if d.request.command == "file.save" || d.request.command == "file.save_as" {
                     self.dirty = false;
@@ -761,6 +851,9 @@ impl AppCore {
                 PlOut::Cmd(r) => self.send(r),
                 PlOut::Batch(reqs) => self.send_batch(reqs),
                 PlOut::Seek(t) => self.send(mapping::seek(t)),
+                PlOut::OpenAutomation(c) => self
+                    .window_requests
+                    .push((WindowId::Automation(c), PanelAction::Open)),
                 PlOut::OpenPattern(p) => {
                     self.sel.pattern = Some(p);
                     self.fix_selection();

@@ -28,6 +28,9 @@ struct Lane {
     offset: Tick,
     /// In evaluation order (tick, id); never empty.
     points: Vec<AutomationPoint>,
+    /// Song samples covered, `start_s..end_s`: set by [`AutomationEvaluator::bind`].
+    start_s: i64,
+    end_s: i64,
 }
 
 impl Lane {
@@ -73,6 +76,8 @@ impl AutomationEvaluator {
                 end: c.start + c.length,
                 offset: c.offset,
                 points: a.points_in_order().into_iter().cloned().collect(),
+                start_s: 0,
+                end_s: 0,
             });
         }
         Self { lanes }
@@ -155,6 +160,45 @@ impl AutomationEvaluator {
         n
     }
 
+    /// Binds every automated target to `tempo` for sample-domain playback (off the audio
+    /// thread). Targets are sorted by [`ParamPath`]; tempo is included (it is played through
+    /// the tempo map, so the engine skips it).
+    pub fn bind(&self, tempo: &TempoMap) -> Vec<BoundTarget> {
+        self.lanes
+            .iter()
+            .map(|(target, lanes)| {
+                let lanes: Vec<Lane> = lanes
+                    .iter()
+                    .map(|l| Lane {
+                        start_s: tempo.sample_at(l.start),
+                        end_s: tempo.sample_at(l.end),
+                        ..l.clone()
+                    })
+                    .collect();
+                let mut marks = Vec::new();
+                for l in &lanes {
+                    marks.push(l.start_s);
+                    marks.push(l.end_s);
+                    for p in &l.points {
+                        let Some(song) = (l.start + p.tick).checked_sub(l.offset) else {
+                            continue;
+                        };
+                        if song >= l.start && song < l.end {
+                            marks.push(tempo.sample_at(song));
+                        }
+                    }
+                }
+                marks.sort_unstable();
+                marks.dedup();
+                BoundTarget {
+                    target: target.clone(),
+                    lanes,
+                    marks,
+                }
+            })
+            .collect()
+    }
+
     /// The tempo map with tempo automation applied. The automated tempo is sampled every
     /// `resolution` ticks (one constant step each, clamped to 10..=999 BPM); outside tempo
     /// clips the tempo is `bpm`. Without tempo automation this is `TempoMap::constant`.
@@ -180,6 +224,116 @@ impl AutomationEvaluator {
             t += step;
         }
         map
+    }
+}
+
+/// One automated target bound to a tempo map: what the render plan plays (M2/T7).
+///
+/// Everything is in the sample domain and anchored to the song timeline, never to a block:
+/// the events and values it produces for a sample do not depend on how the callback
+/// is split, which is what keeps live output bit-identical to the offline render.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoundTarget {
+    pub target: ParamPath,
+    lanes: Vec<Lane>,
+    /// Song samples where the value can change other than by a curve: clip starts and
+    /// ends, and points. Sorted, unique.
+    marks: Vec<i64>,
+}
+
+impl BoundTarget {
+    /// The automated value at song sample `s`, or `None` outside every clip. Allocation-free.
+    pub fn value_at(&self, tempo: &TempoMap, s: i64) -> Option<f64> {
+        let lane = self
+            .lanes
+            .iter()
+            .rev()
+            .find(|l| l.start_s <= s && s < l.end_s)?;
+        Some(lane.value(tempo.tick_at(s)))
+    }
+
+    /// The first mark after sample `s`.
+    fn next_mark(&self, s: i64) -> Option<i64> {
+        let i = self.marks.partition_point(|m| *m <= s);
+        self.marks.get(i).copied()
+    }
+
+    /// Real-time: fills `out` with the per-frame values for the block starting at song
+    /// sample `start` (`NAN` where no clip covers the frame, and everywhere when `active` is
+    /// false). Returns whether any frame has a value.
+    pub fn fill(&self, tempo: &TempoMap, start: i64, active: bool, out: &mut [f64]) -> bool {
+        let mut any = false;
+        for (i, o) in out.iter_mut().enumerate() {
+            *o = match active
+                .then(|| self.value_at(tempo, start + i as i64))
+                .flatten()
+            {
+                Some(v) => {
+                    any = true;
+                    v
+                }
+                None => f64::NAN,
+            };
+        }
+        any
+    }
+
+    /// Real-time: the parameter changes of a processor parameter in the block
+    /// `a..b` (song samples), as `emit(frame, value)` calls in frame order.
+    ///
+    /// The ph-node contract (a change at each point, at least every
+    /// [`AUTOMATION_INTERVAL`] frames, exact curve values) with two refinements that keep
+    /// the output independent of block boundaries: the 32-frame grid is anchored to song
+    /// sample 0, and a value equal to the last one sent is not sent again. `last` is the
+    /// caller's memory of the last value sent. `active` is false while the transport is
+    /// stopped (or not in song mode): the parameter then returns to `model`, the project's
+    /// value. `resync` (first block after a seek, loop wrap, start, stop or plan swap) sends
+    /// the value at the block start whatever was sent before.
+    #[allow(clippy::too_many_arguments)]
+    pub fn schedule(
+        &self,
+        tempo: &TempoMap,
+        model: f64,
+        a: i64,
+        b: i64,
+        active: bool,
+        resync: bool,
+        last: &mut f64,
+        mut emit: impl FnMut(u32, f64),
+    ) {
+        if resync {
+            *last = f64::NAN;
+        }
+        let mut put = |s: i64, last: &mut f64| {
+            let v = if active {
+                self.value_at(tempo, s).unwrap_or(model)
+            } else {
+                model
+            };
+            if v.to_bits() != last.to_bits() {
+                *last = v;
+                emit((s - a) as u32, v);
+            }
+        };
+        if !active {
+            put(a, last);
+            return;
+        }
+        let mut s = if resync {
+            put(a, last);
+            a
+        } else {
+            a - 1
+        };
+        loop {
+            let grid = (s.div_euclid(AUTOMATION_INTERVAL as i64) + 1) * AUTOMATION_INTERVAL as i64;
+            let next = self.next_mark(s).map_or(grid, |m| m.min(grid));
+            if next >= b {
+                break;
+            }
+            put(next, last);
+            s = next;
+        }
     }
 }
 
