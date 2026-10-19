@@ -7,7 +7,7 @@
 //!
 //! Coordinates are workspace-local: `(0, 0)` is the top-left of the area the windows live in.
 
-use ph_core::{ChannelId, InsertId};
+use ph_core::{ChannelId, ClipId, InsertId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -79,12 +79,17 @@ pub enum WindowId {
     Instrument(ChannelId),
     /// One window per effect slot of an insert.
     Effect(InsertId, u32),
+    /// The editor of one automation clip (M2/T7).
+    Automation(ClipId),
 }
 
 impl WindowId {
     /// Instrument and effect windows belong to a project object.
     pub fn is_object(self) -> bool {
-        matches!(self, WindowId::Instrument(_) | WindowId::Effect(..))
+        matches!(
+            self,
+            WindowId::Instrument(_) | WindowId::Effect(..) | WindowId::Automation(_)
+        )
     }
 
     /// Parses the object-window names `ui.open_panel` accepts: `instrument:<channel>` and
@@ -92,6 +97,9 @@ impl WindowId {
     pub fn parse(name: &str) -> Option<WindowId> {
         if let Some(c) = name.strip_prefix("instrument:") {
             return c.parse().ok().map(|c| WindowId::Instrument(ChannelId(c)));
+        }
+        if let Some(c) = name.strip_prefix("automation:") {
+            return c.parse().ok().map(|c| WindowId::Automation(ClipId(c)));
         }
         let (i, s) = name.strip_prefix("effect:")?.split_once(':')?;
         Some(WindowId::Effect(InsertId(i.parse().ok()?), s.parse().ok()?))
@@ -106,6 +114,7 @@ impl WindowId {
             WindowId::History | WindowId::Agents => (240.0, 140.0),
             WindowId::Instrument(_) => (280.0, 180.0),
             WindowId::Effect(..) => (240.0, 140.0),
+            WindowId::Automation(_) => (360.0, 220.0),
         }
     }
 
@@ -119,6 +128,7 @@ impl WindowId {
             WindowId::Agents => (420.0, 380.0),
             WindowId::Instrument(_) => (500.0, 480.0),
             WindowId::Effect(..) => (420.0, 360.0),
+            WindowId::Automation(_) => (680.0, 340.0),
         }
     }
 }
@@ -493,7 +503,7 @@ impl Workspace {
             WindowId::Mixer => (a.w * 0.04, a.h * 0.42),
             WindowId::History => (a.w * 0.58, a.h * 0.1),
             WindowId::Agents => (a.w * 0.5, a.h * 0.2),
-            WindowId::Instrument(_) | WindowId::Effect(..) => {
+            WindowId::Instrument(_) | WindowId::Effect(..) | WindowId::Automation(_) => {
                 // cascade past the object windows already known
                 let n = self.windows.keys().filter(|k| k.is_object()).count() as f32;
                 (a.w * 0.34 + 28.0 * (n % 8.0), 40.0 + 28.0 * (n % 8.0))
@@ -589,6 +599,20 @@ impl Workspace {
     }
 
     // ---- project snapshots -----------------------------------------------------------------
+
+    /// Forget automation editors whose clip is gone. Returns the ids that were removed.
+    pub fn prune_clips(&mut self, clip_exists: impl Fn(ClipId) -> bool) -> Vec<WindowId> {
+        let gone: Vec<_> = self
+            .windows
+            .keys()
+            .copied()
+            .filter(|id| matches!(id, WindowId::Automation(c) if !clip_exists(*c)))
+            .collect();
+        for id in &gone {
+            self.windows.remove(id);
+        }
+        gone
+    }
 
     /// Forget instrument and effect windows whose object no longer exists (a deleted channel,
     /// a removed effect), closing them. Returns the ids that were removed.

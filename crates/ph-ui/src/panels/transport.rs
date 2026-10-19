@@ -128,6 +128,20 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         {
             core.send(mapping::set_metronome(!live.status.metronome));
         }
+        if icon_button_coloured(
+            ui,
+            &theme,
+            Icon::Record,
+            core.auto_armed,
+            true,
+            "Record automation",
+            "while the song plays, knob moves are written as automation clips",
+            c.error,
+        )
+        .clicked()
+        {
+            core.auto_armed = !core.auto_armed;
+        }
         ui.add_space(6.0);
 
         tempo_lcd(ui, core, &theme, project.settings.bpm);

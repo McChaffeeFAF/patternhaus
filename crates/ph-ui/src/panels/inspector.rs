@@ -6,7 +6,7 @@ use crate::core::AppCore;
 use crate::hint::HintExt;
 use crate::mapping;
 use crate::theme::{Theme, rgb};
-use crate::widgets::{self, param_grid};
+use crate::widgets;
 use egui::{CollapsingHeader, CornerRadius, Id, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
 use ph_core::{ChannelId, InstrumentSpec};
 use std::collections::HashMap;
@@ -323,12 +323,13 @@ fn sampler(
         }
     });
     if let Some(d) = desc {
-        let changes = param_grid(
+        let changes = widgets::param_grid_with(
             ui,
             Id::new(("smp", ch.id)),
             d,
             &|p| p.id != "root_key",
             &|p| params.get(&p.id).copied().unwrap_or(p.default),
+            &|p| Some(ph_core::ParamPath::ChannelParam(ch.id, p.id.clone())),
             theme,
         );
         for (id, v) in changes {
@@ -378,12 +379,13 @@ fn synth(
             .id_salt(("synth_sec", ch.id, section))
             .default_open(matches!(section, "Oscillators" | "Filters" | "Envelopes"))
             .show(ui, |ui| {
-                let changes = param_grid(
+                let changes = widgets::param_grid_with(
                     ui,
                     Id::new(("syn", ch.id, section)),
                     d,
                     &|p| synth_section(&p.id) == section,
                     &|p| params.get(&p.id).copied().unwrap_or(p.default),
+                    &|p| Some(ph_core::ParamPath::ChannelParam(ch.id, p.id.clone())),
                     theme,
                 );
                 for (id, v) in changes {

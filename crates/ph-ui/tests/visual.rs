@@ -238,7 +238,7 @@ fn right_clicking_a_knob_offers_the_shared_menu_and_reset_works() {
     right_click(&mut h, at);
     // (the Help menu of the menu bar is also called Help)
     assert!(h.query_all_by_label("Help").count() >= 2);
-    for entry in ["Reset to default", "Automate…", "MIDI learn…"] {
+    for entry in ["Reset to default", "Create automation clip", "MIDI learn…"] {
         assert!(h.query_by_label(entry).is_some(), "the menu has {entry:?}");
     }
     h.get_by_label("Reset to default").click();

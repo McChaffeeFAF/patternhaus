@@ -57,7 +57,7 @@ pub trait HintExt: Sized {
     /// A tooltip that is also the hint: `"Undo your last change (Ctrl+Z)"` becomes the name
     /// `Undo your last change` with the gesture `Ctrl+Z`.
     fn tip(self, text: &str) -> Self;
-    /// A hint, plus the shared right-click menu (Automate, MIDI learn, Help) for a control
+    /// A hint, plus the shared right-click menu (Create automation clip, MIDI learn, Help) for a control
     /// that has no menu of its own.
     fn hint_menu(self, name: &str, value: &str, gestures: &str) -> Self;
 }
@@ -119,18 +119,45 @@ pub enum MenuChoice {
 }
 
 /// The entries every control's right-click menu ends with: Reset (when the control has a
-/// default), Automate and MIDI learn (placeholders, disabled until they exist) and Help.
+/// default), Create automation clip (when the control has a target), MIDI learn (a placeholder,
+/// disabled until it exists) and Help.
 /// Call from inside a `context_menu` closure, after any entries of the control's own.
 pub fn standard_entries(ui: &mut Ui, can_reset: bool, hint: &UiHint) -> MenuChoice {
+    standard_entries_auto(ui, can_reset, hint, None)
+}
+
+/// What "Create automation clip" would automate: the control's target and its value now.
+pub type AutoTarget<'a> = (&'a ph_core::ParamPath, f64);
+
+/// [`standard_entries`] for a control that can be automated: "Create automation clip" makes a
+/// clip for `auto` (the core places it, see `AppCore::create_automation_clip`).
+pub fn standard_entries_auto(
+    ui: &mut Ui,
+    can_reset: bool,
+    hint: &UiHint,
+    auto: Option<AutoTarget<'_>>,
+) -> MenuChoice {
     let mut choice = MenuChoice::None;
     if can_reset && crate::widgets::menu_item(ui, "Reset to default", "").clicked() {
         choice = MenuChoice::Reset;
         ui.close();
     }
-    for (label, why) in [
-        ("Automate…", "Automation lands in a later milestone"),
-        ("MIDI learn…", "MIDI mapping lands in a later milestone"),
-    ] {
+    match auto {
+        Some((target, value)) => {
+            if crate::widgets::menu_item(ui, "Create automation clip", "").clicked() {
+                crate::automation::request_create(ui.ctx(), target.clone(), value);
+                ui.close();
+            }
+        }
+        None => {
+            let label = "Create automation clip";
+            let r = ui.add_enabled(false, egui::Button::new(crate::theme::caps(label)));
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, false, label));
+            r.on_disabled_hover_text("This control cannot be automated");
+        }
+    }
+    {
+        let (label, why) = ("MIDI learn…", "MIDI mapping lands in a later milestone");
         let r = ui.add_enabled(false, egui::Button::new(crate::theme::caps(label)));
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, false, label));
         r.on_disabled_hover_text(why);
@@ -145,9 +172,19 @@ pub fn standard_entries(ui: &mut Ui, can_reset: bool, hint: &UiHint) -> MenuChoi
 
 /// The standard right-click menu on a response (no entries of its own).
 pub fn standard_menu(resp: &Response, can_reset: bool, hint: &UiHint) -> MenuChoice {
+    standard_menu_auto(resp, can_reset, hint, None)
+}
+
+/// [`standard_menu`] for a control that can be automated.
+pub fn standard_menu_auto(
+    resp: &Response,
+    can_reset: bool,
+    hint: &UiHint,
+    auto: Option<AutoTarget<'_>>,
+) -> MenuChoice {
     let mut choice = MenuChoice::None;
     resp.context_menu(|ui| {
-        choice = standard_entries(ui, can_reset, hint);
+        choice = standard_entries_auto(ui, can_reset, hint, auto);
     });
     choice
 }

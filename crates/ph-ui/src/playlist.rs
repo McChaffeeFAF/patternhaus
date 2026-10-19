@@ -24,6 +24,8 @@ pub enum PlOut {
     Seek(Tick),
     /// Open the piano roll for the first channel of this pattern's clip (double-click).
     OpenPattern(PatternId),
+    /// Open the editor of this automation clip (double-click).
+    OpenAutomation(ClipId),
 }
 
 #[derive(Clone, Debug)]
@@ -376,8 +378,11 @@ impl PlaylistState {
             .selection
             .iter()
             .filter_map(|id| self.clip(*id))
-            // audio and automation clips get their own duplicate in M2/T6 and T7
+            // audio clips get their own duplicate in M2/T6
             .filter_map(|c| {
+                if c.automation().is_some() {
+                    return Some(mapping::automation_duplicate(c));
+                }
                 let pat = c.pattern()?;
                 Some(mapping::clip_add(
                     c.track,
@@ -560,9 +565,12 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             if resp.double_clicked()
                 && grid.contains(pp)
                 && let Some((id, _)) = st.clip_at(rel)
-                && let Some(pat) = st.clip(id).and_then(|c| c.pattern())
             {
-                res.out.push(PlOut::OpenPattern(pat));
+                if let Some(pat) = st.clip(id).and_then(|c| c.pattern()) {
+                    res.out.push(PlOut::OpenPattern(pat));
+                } else if st.clip(id).is_some_and(|c| c.automation().is_some()) {
+                    res.out.push(PlOut::OpenAutomation(id));
+                }
             }
         }
     }
@@ -696,10 +704,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
         }
         r = r.shrink2(Vec2::new(0.0, 1.0));
         let name = cx.project.clip_label(c);
-        let base = c
-            .pattern()
-            .and_then(|p| cx.project.patterns.get(&p))
-            .map_or(col.ghost, |p| rgb(p.color));
+        let is_auto = c.automation().is_some();
+        let base = if is_auto {
+            col.accent_dim
+        } else {
+            c.pattern()
+                .and_then(|p| cx.project.patterns.get(&p))
+                .map_or(col.ghost, |p| rgb(p.color))
+        };
         let sel = st.selection.contains(&c.id);
         gp.rect_filled(r, CornerRadius::same(3), lerp(col.bg2, base, 0.85));
         gp.rect_filled(
@@ -718,9 +730,19 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             Align2::LEFT_TOP,
             &name,
             FontId::new(11.0, crate::fonts::body_medium()),
-            col.accent_ink,
+            if is_auto { col.text } else { col.accent_ink },
             r.width() - 8.0,
         );
+        if is_auto {
+            crate::automation::paint_clip_curve(
+                &gp.with_clip_rect(r.intersect(grid)),
+                r,
+                cx.project,
+                c,
+                st.px_per_tick,
+                cx.theme,
+            );
+        }
         if sel {
             gp.rect_stroke(
                 r,

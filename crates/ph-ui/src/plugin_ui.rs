@@ -380,7 +380,7 @@ pub fn plugin_panel(ui: &mut Ui, core: &mut AppCore, target: PluginTarget) {
     };
     let values = live_values(core, slot);
     let desc = live.desc.clone();
-    let changes = widgets::param_grid(
+    let changes = widgets::param_grid_with(
         ui,
         Id::new(("plugin", slot)),
         &desc,
@@ -390,6 +390,16 @@ pub fn plugin_panel(ui: &mut Ui, core: &mut AppCore, target: PluginTarget) {
                 desc.param_id(&info.id)
                     .and_then(|i| values.as_ref().and_then(|v| v.get(i.0 as usize)).copied())
                     .unwrap_or(info.default)
+            })
+        },
+        &|info| {
+            Some(match target {
+                PluginTarget::Channel(c) => ph_core::ParamPath::ChannelParam(c, info.id.clone()),
+                PluginTarget::Effect { insert, slot } => ph_core::ParamPath::EffectParam {
+                    insert: ph_core::InsertId(insert),
+                    slot,
+                    param: info.id.clone(),
+                },
             })
         },
         &theme,
