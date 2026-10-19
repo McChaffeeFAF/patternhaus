@@ -211,6 +211,8 @@ impl PlaylistState {
                     };
                 }
                 None if mods.ctrl => self.drag = Drag::Box { from: pos, to: pos },
+                // the split tool only cuts: an empty click does not place a pattern
+                None if self.audio.slice_tool => self.selection.clear(),
                 None => {
                     self.selection.clear();
                     let track = self.track_at(pos.y).clamp(0, self.n_tracks as i32 - 1) as u32;
@@ -835,6 +837,11 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
                 );
             }
         }
+    }
+    // columns of clips that are gone are forgotten
+    {
+        let live = &st.audio_views;
+        st.audio.cols.retain(|id| live.contains_key(&ClipId(id as u32)));
     }
     // what the pointer is over on an audio clip: the handles light up, the cursor says what
     // a drag would do
