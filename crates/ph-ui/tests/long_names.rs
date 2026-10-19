@@ -73,7 +73,13 @@ struct Stress {
     _dir: tempfile::TempDir,
     sampler: ph_core::ChannelId,
     synth: ph_core::ChannelId,
+    /// A real (decodable) audio file with a long name, placed as an audio clip.
+    audio: ph_core::SampleId,
 }
+
+/// The file name of the long-named audio clip.
+const AUDIO_FILE: &str =
+    "Lng Audio Clip Tronicbo with a very very long file name that goes on and on and on.wav";
 
 fn stress() -> Stress {
     let (fx, _) = fixture(false);
@@ -171,6 +177,35 @@ fn stress() -> Stress {
     ] {
         std::fs::write(samples.join(n), b"x").unwrap();
     }
+    // a real audio file with a long name, as an audio clip with a fade
+    let tone: Vec<f32> = (0..96_000)
+        .map(|i| (i as f32 * 0.03).sin() * 0.6 * (1.0 - i as f32 / 96_000.0))
+        .collect();
+    ph_formats::encode::write_wav(
+        &samples.join(AUDIO_FILE),
+        &[tone],
+        48_000,
+        ph_formats::encode::WavFormat::Float32,
+    )
+    .unwrap();
+    let added = run(
+        &mut app,
+        Request::new(
+            "audio.add_clip",
+            serde_json::json!({ "track": 3, "start": 0, "path": format!("samples/{AUDIO_FILE}") }),
+        ),
+    );
+    let audio = ph_core::SampleId(added["sample"].as_u64().unwrap() as u32);
+    run(
+        &mut app,
+        Request::new(
+            "audio.set_fade",
+            serde_json::json!({ "clip": added["clip"], "fade_in": { "length": 480, "curve": "s_curve" } }),
+        ),
+    );
+    pump_until(&mut app, 800, |a| {
+        a.core.project.samples.contains_key(&audio)
+    });
     app.core.browser.tab = 2;
     app.core.browser.filter = "lng".into();
     app.core.browser.rescan();
@@ -181,6 +216,7 @@ fn stress() -> Stress {
         _dir: fx.dir,
         sampler: chans[0],
         synth: chans[1],
+        audio,
     }
 }
 
@@ -335,7 +371,7 @@ fn shots() -> PathBuf {
 
 fn run_theme(theme: &str, prefix: &str) {
     let s = stress();
-    let (sampler, synth) = (s.sampler, s.synth);
+    let (sampler, synth, audio) = (s.sampler, s.synth, s.audio);
     let _keep = s._dir;
     let mut h = harness(s.app);
     h.state_mut().set_theme(theme);
@@ -352,11 +388,47 @@ fn run_theme(theme: &str, prefix: &str) {
         ("synth", vec![WindowId::Instrument(synth)]),
         ("effect", vec![WindowId::Effect(InsertId(1), 0)]),
         ("effect-2", vec![WindowId::Effect(InsertId(2), 0)]),
+        ("audio-editor", vec![WindowId::AudioEditor(audio)]),
+        ("audio-menu", vec![WindowId::Playlist]),
         ("docked-only", vec![]),
     ];
     for (name, wins) in scenes {
         only(&mut h, &wins);
         step(&mut h, 6);
+        if name == "audio-menu" {
+            // the clip's settings menu, with its long name at the top
+            let clip = h
+                .state()
+                .core
+                .project
+                .clips
+                .values()
+                .find(|c| c.audio().is_some())
+                .map(|c| c.id)
+                .unwrap();
+            h.state_mut()
+                .core
+                .playlist
+                .open_audio_menu(clip, Pos2::new(420.0, 300.0));
+            step(&mut h, 4);
+        }
+        if name == "audio-editor" {
+            // the editor reads the file in the background: wait for it, then show the slicer
+            // row too, with a marker or two
+            pump_until(h.state_mut(), 8000, |a| {
+                a.core
+                    .waves
+                    .lock()
+                    .unwrap()
+                    .request(&format!("samples/{AUDIO_FILE}"), true)
+                    .is_some_and(|l| l.data.is_some())
+            });
+            let st = h.state_mut().core.audio_editors.entry(audio).or_default();
+            st.slicer = true;
+            st.markers = vec![20_000, 50_000];
+            st.select(10_000, 30_000, 96_000);
+            step(&mut h, 4);
+        }
         let seen = collect(&h.output().shapes);
         let win = wins
             .first()
@@ -370,8 +442,9 @@ fn run_theme(theme: &str, prefix: &str) {
             });
         // the scene really shows long names (or the checks above would pass on an empty frame)
         let users = seen.iter().filter(|s| is_user(&s.text)).count();
+        let need = if name == "audio-editor" { 2 } else { 3 };
         assert!(
-            users >= 3,
+            users >= need,
             "{theme}/{name}: only {users} user texts on screen"
         );
         check(name, theme, &seen, win, &mut fails);

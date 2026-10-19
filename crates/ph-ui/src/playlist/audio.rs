@@ -551,21 +551,12 @@ pub fn paint_clip(
     let base = clip_colour(cx.theme);
     let corner = CornerRadius::same(3);
     gp.rect_filled(r, corner, lerp(col.bg2, base, 0.30));
-    let head = Rect::from_min_size(r.min, Vec2::new(r.width(), HEADER_H.min(r.height())));
-    gp.rect_filled(
-        head,
-        CornerRadius {
-            nw: 3,
-            ne: 3,
-            sw: 0,
-            se: 0,
-        },
-        base,
-    );
     let entry = cx.project.sample(a.sample).ok();
-    // ---- waveform
+    // ---- waveform: the label strip is drawn over it on a short clip
+    // (a taller clip keeps the strip clear of it)
+    let tall = r.height() >= 44.0;
     let wave = Rect::from_min_max(
-        Pos2::new(r.left(), r.top() + HEADER_H),
+        Pos2::new(r.left(), r.top() + if tall { HEADER_H } else { 1.0 }),
         Pos2::new(r.right(), r.bottom() - 1.0),
     );
     let view = entry.map(|e| AudioView::new(c, a, e, cx.project.settings.bpm));
@@ -640,6 +631,18 @@ pub fn paint_clip(
         gp.add(Shape::mesh(mesh));
         gp.add(Shape::line(curve_pts, line));
     }
+    // ---- the label strip, see-through so the waveform shows under it
+    let head = Rect::from_min_size(r.min, Vec2::new(r.width(), HEADER_H.min(r.height())));
+    gp.rect_filled(
+        head,
+        CornerRadius {
+            nw: 3,
+            ne: 3,
+            sw: 0,
+            se: 0,
+        },
+        base.gamma_multiply(0.82),
+    );
     // ---- handles
     let handle_y = r.top() + HEADER_H * 0.5;
     if r.width() > 3.0 * HANDLE_R {
@@ -999,23 +1002,25 @@ fn menu_body(
         ui.close();
     }
     ui.separator();
-    // fades
+    // fades: the shape of each, a click on a shape with no fade yet gives it a short one
     for (is_in, label, cur) in [
         (true, "Fade in", a.fade_in),
         (false, "Fade out", a.fade_out),
     ] {
-        ui.menu_button(format!("{label}: {}", curve_name(cur.curve)), |ui| {
-            for curve in [
-                FadeCurve::Linear,
-                FadeCurve::Exp,
-                FadeCurve::Log,
-                FadeCurve::SCurve,
+        ui.horizontal(|ui| {
+            ui.label(crate::widgets::caption(theme, label));
+            for (curve, short) in [
+                (FadeCurve::Linear, "Lin"),
+                (FadeCurve::Exp, "Exp"),
+                (FadeCurve::Log, "Log"),
+                (FadeCurve::SCurve, "S"),
             ] {
+                let on = cur.length > 0 && cur.curve == curve;
                 if ui
-                    .selectable_label(cur.curve == curve, curve_name(curve))
+                    .selectable_label(on, short)
+                    .on_hover_text(curve_name(curve))
                     .clicked()
                 {
-                    // a curve for a fade of no length gets a short one so it shows
                     let length = if cur.length == 0 {
                         (c.length / 8).max(1)
                     } else {
@@ -1027,10 +1032,9 @@ fn menu_body(
                     } else {
                         ma::set_fade_out(c.id, f)
                     }));
-                    ui.close();
                 }
             }
-            if cur.length > 0 && ui.button("No fade").clicked() {
+            if cur.length > 0 && ui.selectable_label(false, "Off").clicked() {
                 let f = Fade {
                     length: 0,
                     curve: cur.curve,
@@ -1040,7 +1044,6 @@ fn menu_body(
                 } else {
                     ma::set_fade_out(c.id, f)
                 }));
-                ui.close();
             }
         });
     }

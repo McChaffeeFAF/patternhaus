@@ -54,6 +54,24 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             })
             .response
             .hint_menu("Playlist snap", &cur, "chooses the grid clips snap to");
+        // row height: taller rows give audio clips room for their waveform
+        let rows = [("Small", 34.0f32), ("Medium", 52.0), ("Large", 76.0)];
+        let cur_rows = rows
+            .iter()
+            .find(|(_, h)| (*h - core.playlist.track_h).abs() < 1.0)
+            .map_or("Custom", |(n, _)| *n);
+        egui::ComboBox::from_id_salt("playlist_rows")
+            .selected_text(caps(cur_rows))
+            .width(78.0)
+            .show_ui(ui, |ui| {
+                for (n, h) in rows {
+                    if ui.selectable_label(n == cur_rows, caps(n)).clicked() {
+                        core.playlist.track_h = h;
+                    }
+                }
+            })
+            .response
+            .hint_menu("Row height", cur_rows, "makes the playlist rows taller or shorter");
         if icon_button(ui, &theme, Icon::Minus, false, "Zoom out", "Ctrl+wheel").clicked() {
             core.playlist.zoom_x(0.8, 100.0);
         }

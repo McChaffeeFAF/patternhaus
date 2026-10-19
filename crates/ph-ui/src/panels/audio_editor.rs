@@ -90,7 +90,7 @@ fn toolbar(
     ui.horizontal_wrapped(|ui| {
         // transport and view
         let playing = st.playing.is_some();
-        if btn(ui, if playing { "Stop" } else { "Play" })
+        if btn(ui, if playing { "Stop audition" } else { "Audition" })
             .tip("Audition the selection, or all of it (it plays outside the project)")
             .clicked()
         {
@@ -620,6 +620,8 @@ fn canvas(
                 Align2::LEFT_TOP,
                 if step >= 1.0 {
                     format!("{t:.0}s")
+                } else if step >= 0.01 {
+                    format!("{t:.2}s")
                 } else if step >= 0.001 {
                     format!("{:.0}ms", t * 1000.0)
                 } else {
@@ -773,7 +775,7 @@ fn canvas(
             let key = st.root_key as usize + i;
             if key < 128 {
                 crate::paint::text_fit(
-                    &lane.with_clip_rect(markers_r.intersect(wave)),
+                    &lane.with_clip_rect(markers_r),
                     Pos2::new(x + 4.0, markers_r.top() + 5.0),
                     Align2::LEFT_TOP,
                     &key_name(key as u8),

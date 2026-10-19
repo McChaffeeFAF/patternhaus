@@ -519,7 +519,15 @@ impl Workspace {
             WindowId::Mixer => (a.w * 0.04, a.h * 0.42),
             WindowId::History => (a.w * 0.58, a.h * 0.1),
             WindowId::Agents => (a.w * 0.5, a.h * 0.2),
-            WindowId::Instrument(_) | WindowId::Effect(..) | WindowId::AudioEditor(_) => {
+            WindowId::AudioEditor(_) => {
+                // centred over the workspace, then cascaded past the object windows
+                let n = self.windows.keys().filter(|k| k.is_object()).count() as f32;
+                (
+                    ((a.w - w) * 0.5).max(0.0) + 28.0 * (n % 6.0),
+                    a.h * 0.16 + 28.0 * (n % 6.0),
+                )
+            }
+            WindowId::Instrument(_) | WindowId::Effect(..) => {
                 // cascade past the object windows already known
                 let n = self.windows.keys().filter(|k| k.is_object()).count() as f32;
                 (a.w * 0.34 + 28.0 * (n % 8.0), 40.0 + 28.0 * (n % 8.0))
