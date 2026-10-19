@@ -1,6 +1,6 @@
-//! M2 command families whose implementation needs devices or DSP: `record.*` and `midi.*`
-//! (T8), `slicer.make_instrument` and `editor.*` (T6). (`plugin.*`, T3, is implemented in
-//! `plugin.rs`; `slicer.detect`, T1, in `slicer.rs`.)
+//! M2 command families whose implementation needs devices: `record.*` and `midi.*` (T8).
+//! (`plugin.*`, T3, is implemented in `plugin.rs`; `slicer.*` in `slicer.rs`, `editor.*`
+//! in `editor.rs`.)
 //!
 //! Their names, scopes and parameter schemas are fixed here so agents, the coverage guard
 //! and the parallel tracks agree on them; each returns `CmdError::Unavailable` naming its
@@ -136,38 +136,6 @@ pub fn register(r: &mut Registry) {
         "MIDI learn",
         "T8"
     );
-    // ---- slicer (`slicer.detect` is in `slicer.rs`, M2/T1)
-    stub!(
-        r,
-        "slicer.make_instrument",
-        "Build a sliced Sampler channel from a sample, one slice per key, optionally with a pattern that replays the loop.",
-        Scope::Compose,
-        MUTATES,
-        MakeInstrument,
-        "the slicer",
-        "T6"
-    );
-    // ---- audio editor (M2/T6)
-    stub!(
-        r,
-        "editor.open",
-        "Open a sample in the audio editor.",
-        Scope::Compose,
-        READ,
-        EditorOpen,
-        "the audio editor",
-        "T6"
-    );
-    stub!(
-        r,
-        "editor.apply",
-        "Apply an edit to a sample; the result is a new file and registry entry, the original is never overwritten.",
-        Scope::Compose,
-        MUTATES,
-        EditorApply,
-        "the audio editor",
-        "T6"
-    );
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -240,57 +208,4 @@ struct Unmap {
     /// Only this MIDI input device's mapping; omit for any.
     #[serde(default)]
     device: Option<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct MakeInstrument {
-    /// Sample registry id.
-    sample: SampleId,
-    /// Slice start points in frames of the file; omit to detect them.
-    #[serde(default)]
-    slices: Option<Vec<u64>>,
-    /// Also write a pattern that replays the original loop.
-    #[serde(default)]
-    write_pattern: bool,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct EditorOpen {
-    /// Sample registry id.
-    sample: SampleId,
-}
-
-/// An audio editor operation.
-#[derive(Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-enum EditorOp {
-    Trim,
-    Cut,
-    Silence,
-    Normalize,
-    FadeIn,
-    FadeOut,
-    Reverse,
-    Gain,
-    Declick,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct EditorApply {
-    /// Sample registry id.
-    sample: SampleId,
-    /// trim, cut, silence, normalize, fade_in, fade_out, reverse, gain or declick.
-    operation: EditorOp,
-    /// Selection start in frames; omit for the whole file.
-    #[serde(default)]
-    start: Option<u64>,
-    /// Selection end in frames (exclusive); omit for the whole file.
-    #[serde(default)]
-    end: Option<u64>,
-    /// Gain in dB for `gain`, target peak in dBFS for `normalize`.
-    #[serde(default)]
-    amount: Option<f64>,
 }

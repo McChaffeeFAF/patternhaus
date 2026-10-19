@@ -586,7 +586,7 @@ fn automation_clips_and_points() {
 #[test]
 fn m2_stubs_name_their_track() {
     let mut r = Rig::new();
-    let cases: [(&str, Value, &str); 15] = [
+    let cases: [(&str, Value, &str); 12] = [
         ("record.list_inputs", json!({}), "T8"),
         ("record.arm", json!({ "input": 0, "track": 2 }), "T8"),
         ("record.disarm", json!({ "input": 0 }), "T8"),
@@ -614,17 +614,6 @@ fn m2_stubs_name_their_track() {
         ),
         ("midi.unmap", json!({ "controller": 74 }), "T8"),
         ("midi.list_mappings", json!({}), "T8"),
-        (
-            "slicer.make_instrument",
-            json!({ "sample": 0, "write_pattern": true }),
-            "T6",
-        ),
-        ("editor.open", json!({ "sample": 0 }), "T6"),
-        (
-            "editor.apply",
-            json!({ "sample": 0, "operation": "normalize" }),
-            "T6",
-        ),
         (
             "automation.record",
             json!({ "target": "tempo", "track": 0 }),

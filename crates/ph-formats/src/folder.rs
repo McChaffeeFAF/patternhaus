@@ -216,6 +216,7 @@ mod tests {
             .add_channel(
                 "Kick",
                 InstrumentSpec::Sampler {
+                    slices: Vec::new(),
                     sample: Some("factory:kick".into()),
                     root_key: 60,
                     params: Default::default(),

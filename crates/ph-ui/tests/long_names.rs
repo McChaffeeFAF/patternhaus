@@ -97,6 +97,7 @@ fn stress() -> Stress {
         patterns.push(id);
     }
     let sampler = |s: &str| InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some(s.into()),
         root_key: 60,
         params: Default::default(),

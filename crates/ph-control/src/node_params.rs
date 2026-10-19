@@ -106,6 +106,7 @@ fn node_params(ctx: &mut CommandCtx<'_>, p: NodeParams) -> CmdResult<CommandOutp
         (Some(kind), None) => {
             let spec = match kind.as_str() {
                 "sampler" => InstrumentSpec::Sampler {
+                    slices: Vec::new(),
                     sample: None,
                     root_key: 60,
                     params: Default::default(),

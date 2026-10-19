@@ -32,6 +32,7 @@ pub fn create(
             sample,
             root_key,
             params,
+            slices,
         } => {
             let data = match sample {
                 Some(r) => Some(
@@ -44,6 +45,7 @@ pub fn create(
             let mut s = sampler::Sampler::new(data, sample.clone());
             let id = s.descriptor().param_id("root_key").expect("root_key");
             s.set_param(id, *root_key as f64);
+            s.set_slices(slices);
             (Box::new(s), params)
         }
         // A preset loads first; the spec's own `params` then override it.

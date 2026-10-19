@@ -252,6 +252,7 @@ fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOutput> {
         };
         ed.update_channel(ch.id, |c| {
             c.instrument = InstrumentSpec::Sampler {
+                slices: Vec::new(),
                 sample: Some(reference.clone()),
                 root_key,
                 params: params.clone(),
@@ -264,6 +265,7 @@ fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOutput> {
             ids.push(ed.add_channel(
                 &stem(source),
                 InstrumentSpec::Sampler {
+                    slices: Vec::new(),
                     sample: Some(reference.clone()),
                     root_key: 60,
                     params: Default::default(),

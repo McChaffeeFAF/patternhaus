@@ -331,6 +331,59 @@ impl Host for EngineHost {
         })
     }
 
+    fn read_audio(&self, reference: &str) -> CmdResult<AudioBuffer> {
+        let d = self
+            .assets
+            .sample(reference)
+            .map_err(|e| CmdError::Host(format!("cannot read {reference}: {e}")))?;
+        Ok(AudioBuffer {
+            channels: d.channels.clone(),
+            sample_rate: d.sample_rate.round() as u32,
+            root_key: d.root_key,
+        })
+    }
+
+    fn write_audio(&mut self, name: &str, audio: &AudioBuffer) -> CmdResult<String> {
+        let dir = self.project_dir.join("samples");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| CmdError::Host(format!("{}: {e}", dir.display())))?;
+        // a plain file name: no folders, no extension games
+        let stem: String = Path::new(name)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default()
+            .chars()
+            .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
+            .collect();
+        let stem = if stem.trim().is_empty() {
+            "edit".to_string()
+        } else {
+            stem.trim().to_string()
+        };
+        // never replace a file: add " (2)", " (3)" ... on a clash
+        let mut n = 1u32;
+        let (target, final_name) = loop {
+            let candidate = if n == 1 {
+                format!("{stem}.wav")
+            } else {
+                format!("{stem} ({n}).wav")
+            };
+            let target = dir.join(&candidate);
+            if !target.exists() {
+                break (target, candidate);
+            }
+            n += 1;
+        };
+        write_wav(
+            &target,
+            &audio.channels,
+            audio.sample_rate,
+            WavFormat::Float32,
+        )
+        .map_err(|e| CmdError::Host(format!("{}: {e}", target.display())))?;
+        Ok(format!("samples/{final_name}"))
+    }
+
     fn analyze_audio(&self, reference: &str, sensitivity: f32) -> CmdResult<AudioAnalysis> {
         let d = self
             .assets

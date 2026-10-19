@@ -56,6 +56,23 @@ pub trait Host {
         Err(CmdError::Host("this host cannot analyse audio".into()))
     }
 
+    /// Reads an audio file's samples (M2/T6: the audio editor). `reference` is an asset
+    /// reference as the engine resolves it. Additive default: hosts that cannot read audio
+    /// refuse.
+    fn read_audio(&self, reference: &str) -> CmdResult<AudioBuffer> {
+        let _ = reference;
+        Err(CmdError::Host("this host cannot read audio files".into()))
+    }
+
+    /// Writes `audio` as a **new** WAV file in the project's `samples/` folder and returns its
+    /// reference (`samples/<name>.wav`). `name` is a suggestion: an existing file is never
+    /// replaced, a clash gets ` (2)`, ` (3)` ... (M2/T6: the audio editor never overwrites).
+    /// Additive default: hosts without a filesystem refuse.
+    fn write_audio(&mut self, name: &str, audio: &AudioBuffer) -> CmdResult<String> {
+        let _ = (name, audio);
+        Err(CmdError::Host("this host cannot write audio files".into()))
+    }
+
     /// Ask the UI to show something (`ui.*` commands). Headless hosts may ignore it.
     fn ui(&mut self, request: UiRequest) -> CmdResult<()>;
 
@@ -240,6 +257,24 @@ pub struct AudioAnalysis {
     pub sample_rate: u32,
     /// Version key of the analysis (stored in `SampleEntry::analysis.onsets`).
     pub key: String,
+}
+
+/// Decoded audio, de-interleaved: what the audio editor reads and writes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AudioBuffer {
+    /// One `Vec` per channel (1 = mono, 2 = stereo), all the same length.
+    pub channels: Vec<Vec<f32>>,
+    /// Sample rate in Hz.
+    pub sample_rate: u32,
+    /// Root key stored in the file, if any.
+    pub root_key: Option<u8>,
+}
+
+impl AudioBuffer {
+    /// Frames per channel.
+    pub fn frames(&self) -> usize {
+        self.channels.first().map_or(0, Vec::len)
+    }
 }
 
 /// What [`Host::import_file`] brings into the project folder.
