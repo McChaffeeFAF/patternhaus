@@ -10,6 +10,10 @@
 //! through; the slower half of the sources are long enough (over 10 s) to stream from
 //! "disk" through the prefetch thread.
 //!
+//! M2 criterion 7 (automation part, M2/T7): that project plus 4 automation clips (an
+//! instrument parameter sweep, an effect parameter, a channel pan and a mixer volume ride,
+//! all with curves) playing the whole time.
+//!
 //! `cargo bench -p ph-engine` prints the DSP load (all cores, and one thread), then runs
 //! the criterion benchmarks.
 
@@ -128,6 +132,61 @@ fn audio_project() -> Project {
     e.finish().0
 }
 
+/// [`audio_project`] plus 4 automation clips over the whole song: a synth cutoff sweep
+/// (smooth), a reverb parameter (S-curve), a channel pan and an insert volume ride (linear).
+fn automated_project() -> Project {
+    let base = audio_project();
+    let mut e = Edit::new(&base);
+    let ch = |i: usize| base.channel_order[i];
+    let len = 16 * PPQ;
+    let tracks = 20u32;
+    let c = e
+        .add_automation_clip(
+            tracks,
+            0,
+            len,
+            ParamPath::ChannelParam(ch(0), "f1_cutoff".into()),
+        )
+        .unwrap();
+    for (k, v) in [
+        (0, 800.0),
+        (4, 6000.0),
+        (8, 1200.0),
+        (12, 9000.0),
+        (16, 1500.0),
+    ] {
+        e.add_point(c, k * PPQ, v, CurveKind::Smooth, 0.0).unwrap();
+    }
+    let c = e
+        .add_automation_clip(
+            tracks + 1,
+            0,
+            len,
+            ParamPath::EffectParam {
+                insert: InsertId(3),
+                slot: 0,
+                param: "decay".into(),
+            },
+        )
+        .unwrap();
+    for (k, v) in [(0, 1.0), (8, 4.0), (16, 1.5)] {
+        e.add_point(c, k * PPQ, v, CurveKind::SCurve, 0.0).unwrap();
+    }
+    let c = e
+        .add_automation_clip(tracks + 2, 0, len, ParamPath::ChannelPan(ch(5)))
+        .unwrap();
+    for (k, v) in [(0, -0.8), (8, 0.8), (16, -0.8)] {
+        e.add_point(c, k * PPQ, v, CurveKind::Linear, 0.0).unwrap();
+    }
+    let c = e
+        .add_automation_clip(tracks + 3, 0, len, ParamPath::InsertVolume(InsertId(2)))
+        .unwrap();
+    for (k, v) in [(0, 0.8), (4, 0.4), (8, 0.8), (12, 0.5), (16, 0.8)] {
+        e.add_point(c, k * PPQ, v, CurveKind::Linear, 0.0).unwrap();
+    }
+    e.finish().0
+}
+
 fn reference_project() -> Project {
     let mut e = Edit::new(&Project::empty("reference"));
     e.update_settings(|s| s.bpm = 120.0).unwrap();
@@ -197,7 +256,16 @@ fn reference_project() -> Project {
     e.finish().0
 }
 
-fn engine(threads: usize, audio: bool) -> (Engine, ph_engine::SimulatedDevice) {
+/// What the engine plays: the M1 reference project, plus 8 stretched audio clips, plus 4
+/// automation clips.
+#[derive(Copy, Clone, PartialEq)]
+enum Load {
+    Reference,
+    Audio,
+    AudioAutomation,
+}
+
+fn engine(threads: usize, load: Load) -> (Engine, ph_engine::SimulatedDevice) {
     let (engine, mut dev) = Engine::start_simulated(
         EngineConfig {
             sample_rate: SR,
@@ -208,10 +276,10 @@ fn engine(threads: usize, audio: bool) -> (Engine, ph_engine::SimulatedDevice) {
         Arc::new(BenchAssets),
     )
     .unwrap();
-    let project = if audio {
-        audio_project()
-    } else {
-        reference_project()
+    let project = match load {
+        Load::Reference => reference_project(),
+        Load::Audio => audio_project(),
+        Load::AudioAutomation => automated_project(),
     };
     engine.set_project(Arc::new(project)).unwrap();
     engine.transport(TransportCommand::Play);
@@ -223,8 +291,8 @@ fn engine(threads: usize, audio: bool) -> (Engine, ph_engine::SimulatedDevice) {
 }
 
 /// Block times over `blocks` callbacks, in seconds.
-fn block_times(threads: usize, blocks: usize, audio: bool) -> Vec<f64> {
-    let (engine, mut dev) = engine(threads, audio);
+fn block_times(threads: usize, blocks: usize, load: Load) -> Vec<f64> {
+    let (engine, mut dev) = engine(threads, load);
     let times = (0..blocks)
         .map(|_| {
             let t = Instant::now();
@@ -256,17 +324,19 @@ fn loads(times: &[f64]) -> (f64, f64, f64) {
 /// reported figure is the median of the runs, which keeps one noisy run from deciding.
 fn perf_json(path: &str) {
     let mut fields = Vec::new();
-    for (label, threads, audio) in [
-        ("all_cores", 0usize, false),
-        ("one_thread", 1, false),
-        ("audio_all_cores", 0, true),
-        ("audio_one_thread", 1, true),
+    for (label, threads, load) in [
+        ("all_cores", 0usize, Load::Reference),
+        ("one_thread", 1, Load::Reference),
+        ("audio_all_cores", 0, Load::Audio),
+        ("audio_one_thread", 1, Load::Audio),
+        ("automation_all_cores", 0, Load::AudioAutomation),
+        ("automation_one_thread", 1, Load::AudioAutomation),
     ] {
         let mut means = Vec::new();
         let mut medians = Vec::new();
         let mut worsts = Vec::new();
         for _ in 0..5 {
-            let (mean, median, worst) = loads(&block_times(threads, 2000, audio));
+            let (mean, median, worst) = loads(&block_times(threads, 2000, load));
             means.push(mean);
             medians.push(median);
             worsts.push(worst);
@@ -305,13 +375,23 @@ fn bench(c: &mut Criterion) {
         perf_json(&path);
         return;
     }
-    for (label, threads, audio) in [
-        ("all cores", 0usize, false),
-        ("one thread", 1, false),
-        ("all cores, + 8 stretched audio clips", 0, true),
-        ("one thread, + 8 stretched audio clips", 1, true),
+    for (label, threads, load) in [
+        ("all cores", 0usize, Load::Reference),
+        ("one thread", 1, Load::Reference),
+        ("all cores, + 8 stretched audio clips", 0, Load::Audio),
+        ("one thread, + 8 stretched audio clips", 1, Load::Audio),
+        (
+            "all cores, + 8 stretched clips + 4 automation clips",
+            0,
+            Load::AudioAutomation,
+        ),
+        (
+            "one thread, + 8 stretched clips + 4 automation clips",
+            1,
+            Load::AudioAutomation,
+        ),
     ] {
-        let (mean, median, worst) = loads(&block_times(threads, 2000, audio));
+        let (mean, median, worst) = loads(&block_times(threads, 2000, load));
         println!(
             "reference project, 48 kHz / {BUFFER} frames, {label}: DSP load {:.1}% mean, {:.1}% median, {:.1}% worst block",
             mean * 100.0,
@@ -320,13 +400,15 @@ fn bench(c: &mut Criterion) {
         );
     }
     let mut g = c.benchmark_group("reference_project_block_256");
-    for (label, threads, audio) in [
-        ("all_cores", 0usize, false),
-        ("one_thread", 1, false),
-        ("audio_all_cores", 0, true),
-        ("audio_one_thread", 1, true),
+    for (label, threads, load) in [
+        ("all_cores", 0usize, Load::Reference),
+        ("one_thread", 1, Load::Reference),
+        ("audio_all_cores", 0, Load::Audio),
+        ("audio_one_thread", 1, Load::Audio),
+        ("automation_all_cores", 0, Load::AudioAutomation),
+        ("automation_one_thread", 1, Load::AudioAutomation),
     ] {
-        let (_engine, mut dev) = engine(threads, audio);
+        let (_engine, mut dev) = engine(threads, load);
         g.bench_function(label, |b| b.iter(|| dev.pull(BUFFER as usize)));
     }
     g.finish();
