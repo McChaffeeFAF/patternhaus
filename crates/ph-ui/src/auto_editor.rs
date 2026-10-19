@@ -466,15 +466,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut AutoEditorState, cx: &EditCtx<'_>) -> Ve
         })
         .collect();
     if line.len() > 1 {
-        let mut fill = Vec::with_capacity(line.len() + 2);
-        fill.push(Pos2::new(line[0].x, grid.bottom()));
-        fill.extend(line.iter().copied());
-        fill.push(Pos2::new(line[line.len() - 1].x, grid.bottom()));
-        gp.add(Shape::convex_polygon(
-            fill,
-            col.accent.gamma_multiply(0.12),
-            Stroke::NONE,
-        ));
+        au::fill_under(&gp, &line, grid.bottom(), col.accent.gamma_multiply(0.12));
         gp.add(Shape::line(line, Stroke::new(2.0, col.accent)));
     }
     for (id, t, v) in &shown {

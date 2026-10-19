@@ -427,3 +427,100 @@ fn automation_clips_move_resize_and_delete_like_pattern_clips() {
         !a.core.project.clips.contains_key(&id)
     });
 }
+
+/// A harness that renders on the GPU when an adapter exists.
+fn gpu_harness(app: PhApp) -> H {
+    let build = |app: PhApp, gpu: bool| {
+        let b = Harness::builder()
+            .with_size(Vec2::new(1500.0, 900.0))
+            .with_pixels_per_point(1.0)
+            .with_step_dt(1.0 / 30.0);
+        let b = if gpu { b.wgpu() } else { b };
+        b.build_ui_state(|ui, app: &mut PhApp| app.draw(ui), app)
+    };
+    let gpu = std::panic::catch_unwind(|| {
+        Harness::builder()
+            .with_size(Vec2::new(64.0, 64.0))
+            .wgpu()
+            .build_ui(|ui| {
+                ui.label("probe");
+            })
+    })
+    .is_ok();
+    build(app, gpu)
+}
+
+/// Pictures of the automation UI in both themes. They are written only when
+/// `PH_SCREENSHOTS_DIR` names a folder (the scratch folder for review) or `PH_SCREENSHOTS=1`
+/// (the tracked docs shots); otherwise the frames are only checked to be non-blank.
+#[test]
+fn pictures_of_the_automation_ui_in_both_themes() {
+    let dir = std::env::var_os("PH_SCREENSHOTS_DIR")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("PH_SCREENSHOTS")
+                .is_some_and(|v| v == "1")
+                .then(|| {
+                    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../docs/screenshots/M2")
+                })
+        });
+    if let Some(d) = &dir {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    for (theme, prefix) in [("neon-slate", "neon"), ("red-line", "red")] {
+        let (fx, ids) = fixture(true);
+        let ids = ids.unwrap();
+        let mut app = fx.app;
+        pump_until(&mut app, 5000, |a| a.core.project.channels.len() == 4);
+        // the kick's volume rides a curve; the bass cutoff-style param gets a smooth sweep
+        let vol = ParamPath::ChannelVolume(ids.kick);
+        let r = run(
+            &mut app,
+            mapping::automation_add_clip(&vol, 0, 4 * 3840, &[]),
+        );
+        let id = ClipId(r["clip"].as_u64().unwrap() as u32);
+        for (t, v, c) in [
+            (0, 0.9, "smooth"),
+            (3840, 0.25, "s_curve"),
+            (2 * 3840, 0.8, "hold"),
+            (3 * 3840, 0.4, "linear"),
+            (4 * 3840, 0.95, "linear"),
+        ] {
+            run(&mut app, mapping::automation_add_point(id, t, v, c));
+        }
+        let pan = ParamPath::InsertPan(ph_core::InsertId(4));
+        run(
+            &mut app,
+            mapping::automation_add_clip(&pan, 3840, 3 * 3840, &[(0, -0.6), (3 * 3840, 0.6)]),
+        );
+        pump_until(&mut app, 3000, |a| auto_clips(a).len() == 2);
+        app.core.sel.pattern = Some(ids.beat);
+        app.core.sel.channel = Some(ids.kick);
+        app.core.fix_selection();
+        let mut h = gpu_harness(app);
+        h.state_mut().set_theme(theme);
+        let ws = &mut h.state_mut().ws;
+        ws.show(WindowId::ChannelRack);
+        ws.show(WindowId::Automation(id));
+        ws.drag_move(WindowId::ChannelRack, 20.0, 30.0);
+        ws.drag_move(WindowId::Automation(id), 330.0, 250.0);
+        h.state_mut().core.send(mapping::transport("play"));
+        until(&mut h, "playback", |a| a.core.live().status.position > 2000);
+        frames(&mut h, 8);
+        let Ok(img) = h.render() else {
+            eprintln!("SKIP {theme}: no GPU adapter for offscreen rendering");
+            continue;
+        };
+        let corner = *img.get_pixel(0, 0);
+        assert!(
+            img.pixels().filter(|p| **p != corner).count() > 5000,
+            "blank"
+        );
+        if let Some(d) = &dir {
+            img.save(d.join(format!("{prefix}-automation.png")))
+                .unwrap();
+        }
+        h.state_mut().core.send(mapping::transport("stop"));
+    }
+}

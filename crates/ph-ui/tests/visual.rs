@@ -278,7 +278,28 @@ fn the_hint_bar_shows_and_publishes_what_the_pointer_is_over() {
 #[test]
 fn every_control_has_a_hint() {
     let (mut h, ids, _dir) = start();
+    // an automation clip, for the editor's scene
+    let auto = {
+        let target: ph_core::ParamPath = format!("channel/{}/volume", ids.kick.0).parse().unwrap();
+        let r = ph_commands::Request::new(
+            "automation.add_clip",
+            serde_json::json!({ "target": target, "start": 0, "length": 3840,
+                "points": [{ "tick": 0, "value": 0.2 }, { "tick": 3840, "value": 0.9 }] }),
+        );
+        let out = h
+            .state()
+            .core
+            .studio
+            .session
+            .execute(&ph_commands::Caller::human(), r)
+            .unwrap();
+        ph_core::ClipId(out.result["clip"].as_u64().unwrap() as u32)
+    };
+    pump_until(h.state_mut(), 2000, |a| {
+        a.core.project.clips.contains_key(&auto)
+    });
     let scenarios: Vec<(&str, Vec<WindowId>)> = vec![
+        ("automation editor", vec![WindowId::Automation(auto)]),
         ("playlist and chrome", vec![]),
         ("channel rack", vec![WindowId::ChannelRack]),
         ("piano roll", vec![WindowId::PianoRoll]),

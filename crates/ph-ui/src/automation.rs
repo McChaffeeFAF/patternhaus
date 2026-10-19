@@ -242,6 +242,29 @@ pub fn target_name(project: &Project, target: &ParamPath) -> String {
 
 // ---- drawing ------------------------------------------------------------------------------
 
+/// Fills the area between a curve (left to right) and the line `bottom`, as one trapezoid per
+/// step (the curve is not convex, so a polygon fill would fold over itself).
+pub fn fill_under(p: &Painter, line: &[Pos2], bottom: f32, color: egui::Color32) {
+    let mut mesh = egui::epaint::Mesh::default();
+    for w in line.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let i = mesh.vertices.len() as u32;
+        let v = |pos: Pos2| egui::epaint::Vertex {
+            pos,
+            uv: egui::epaint::WHITE_UV,
+            color,
+        };
+        mesh.vertices.extend([
+            v(a),
+            v(b),
+            v(Pos2::new(b.x, bottom.max(b.y))),
+            v(Pos2::new(a.x, bottom.max(a.y))),
+        ]);
+        mesh.indices.extend([i, i + 1, i + 2, i, i + 2, i + 3]);
+    }
+    p.add(Shape::mesh(mesh));
+}
+
 /// The curve of an automation clip inside its rectangle on the playlist (`r` is the clip's
 /// full rectangle; the header strip at the top is left clear).
 pub fn paint_clip_curve(
@@ -288,15 +311,7 @@ pub fn paint_clip_curve(
         return;
     }
     // a faint fill under the line, then the line
-    let mut fill = Vec::with_capacity(pts.len() + 2);
-    fill.push(Pos2::new(pts[0].x, body.bottom()));
-    fill.extend(pts.iter().copied());
-    fill.push(Pos2::new(pts[pts.len() - 1].x, body.bottom()));
-    p.add(Shape::convex_polygon(
-        fill,
-        c.accent.gamma_multiply(0.10),
-        Stroke::NONE,
-    ));
+    fill_under(p, &pts, body.bottom(), c.accent.gamma_multiply(0.10));
     p.add(Shape::line(pts, Stroke::new(1.5, c.accent)));
     // the points, when there is room to see them
     if px_per_tick * 240.0 > 3.0 {
