@@ -843,3 +843,94 @@ fn audio_editor_and_slicer_end_to_end() {
     // not 1.0: the Sampler's 1 ms attack and the pattern's whole-tick note starts
     assert!(c > 0.9, "the sliced replay matches the original loop: {c}");
 }
+
+#[test]
+fn snapshot_shows_an_audio_clips_waveform_and_the_playlist_draws_it() {
+    use crate::agent::Block;
+    use ph_formats::encode::{WavFormat, write_wav};
+    let proj = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(proj.path().join("samples")).unwrap();
+    write_wav(
+        &proj.path().join("samples/loop.wav"),
+        &[drum_loop(110.0)],
+        48_000,
+        WavFormat::Float32,
+    )
+    .unwrap();
+    let s = studio(proj.path());
+    let agent = Agent::new(s.handle(), Grants::fixed(Grant(vec![Scope::Full])));
+    let human = Caller::human();
+    s.run(&human, "project.set_tempo", json!({ "bpm": 110 }))
+        .unwrap();
+    let out = s
+        .run(
+            &human,
+            "audio.add_clip",
+            json!({ "track": 0, "start": 0, "path": "samples/loop.wav" }),
+        )
+        .unwrap();
+    let (clip, sample) = (out.result["clip"].clone(), out.result["sample"].clone());
+    s.run(
+        &human,
+        "audio.set_reverse",
+        json!({ "clip": clip, "reverse": true }),
+    )
+    .unwrap();
+    s.run(
+        &human,
+        "audio.set_gain",
+        json!({ "clip": clip, "gain_db": -6.0 }),
+    )
+    .unwrap();
+    wait_for(|| s.project().clips.len() == 1);
+    let png_of = |args: serde_json::Value| {
+        let o = agent.call("claude", "snapshot", args);
+        assert!(!o.is_error, "{:?}", o.blocks);
+        let mut caption = String::new();
+        let mut png = Vec::new();
+        for b in o.blocks {
+            match b {
+                Block::Text(t) => caption.push_str(&t),
+                Block::Image(p) => png = p,
+            }
+        }
+        (caption, png)
+    };
+    let (caption, png) = png_of(json!({ "kind": "waveform", "clip": clip }));
+    assert!(png.starts_with(&[0x89, b'P', b'N', b'G']), "a PNG");
+    assert!(png.len() > 5_000, "{} bytes", png.len());
+    if let Some(dir) = std::env::var_os("PH_T6_SHOTS") {
+        let _ = std::fs::create_dir_all(&dir);
+        let at = std::path::Path::new(&dir);
+        std::fs::write(at.join("agent-snapshot-clip.png"), &png).unwrap();
+    }
+    assert!(
+        caption.contains("audio clip") && caption.contains("reversed"),
+        "{caption}"
+    );
+    assert!(caption.contains("-6.0 dB"), "{caption}");
+    let (caption, png) = png_of(json!({ "kind": "waveform", "sample": sample }));
+    assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+    assert!(
+        caption.contains("sample") && caption.contains("loop.wav"),
+        "{caption}"
+    );
+    // the playlist overview draws the clip's waveform inside its box
+    let (_, with_wave) = png_of(json!({ "kind": "playlist" }));
+    if let Some(dir) = std::env::var_os("PH_T6_SHOTS") {
+        let at = std::path::Path::new(&dir);
+        std::fs::write(at.join("agent-snapshot-playlist.png"), &with_wave).unwrap();
+    }
+    s.run(&human, "playlist.remove_clip", json!({ "clip": clip }))
+        .unwrap();
+    wait_for(|| s.project().clips.is_empty());
+    let (_, without) = png_of(json!({ "kind": "playlist" }));
+    assert_ne!(with_wave, without);
+    // a missing or wrong target is an error that says so
+    for args in [
+        json!({ "kind": "waveform", "clip": 99 }),
+        json!({ "kind": "waveform", "sample": 99 }),
+    ] {
+        assert!(agent.call("claude", "snapshot", args).is_error);
+    }
+}

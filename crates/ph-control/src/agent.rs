@@ -17,7 +17,7 @@ use ph_analysis::music::{
 };
 use ph_analysis::{health, loudness, masking, onsets, spectrum};
 use ph_commands::{Author, Caller, CmdError, CommandSpec, Executed, Request, UndoMode};
-use ph_core::{ChannelId, PatternId, Project, Tick};
+use ph_core::{ChannelId, ClipId, PatternId, Project, SampleId, Tick, ticks_to_seconds};
 use ph_engine::{AudioBuffer, PlayMode, RenderSettings};
 use ph_formats::encode::{FlacDepth, WavFormat, write_flac, write_wav};
 use ph_node::Quality;
@@ -262,10 +262,12 @@ impl Agent {
             ),
             tool(
                 "snapshot",
-                "See the result: returns a PNG image. kind: waveform, spectrogram, piano_roll (args pattern, channels[], range; all channels coloured), playlist (arrangement overview). Optional save: true also writes the PNG under renders/.",
+                "See the result: returns a PNG image. kind: waveform (the rendered mix; with clip or sample, the audio of that audio clip as it is set up in the playlist, or of that registered sample), spectrogram, piano_roll (args pattern, channels[], range; all channels coloured), playlist (arrangement overview; audio clips show their waveform). Optional save: true also writes the PNG under renders/.",
                 json!({ "type": "object", "properties": {
                     "kind": { "type": "string", "enum": ["waveform", "spectrogram", "piano_roll", "playlist"] },
                     "pattern": { "description": "pattern id or name (piano_roll)" },
+                    "clip": { "type": "integer", "description": "audio clip id (waveform): its played range with gain, fades and direction applied" },
+                    "sample": { "type": "integer", "description": "registry sample id (waveform): the whole file" },
                     "channels": { "type": "array", "items": {}, "description": "channel ids or names to show (piano_roll)" },
                     "range": range_schema(),
                     "width": { "type": "integer", "description": "image width in pixels, 480-4000, default 1400" },
@@ -1008,6 +1010,168 @@ impl Agent {
 
     // ---- snapshots --------------------------------------------------------------------
 
+    /// `n` evenly spread (min, max) pairs of what an audio clip plays, for the playlist picture;
+    /// empty for other clips and files that cannot be read.
+    fn clip_wave(&self, p: &Project, c: &ph_core::Clip, n: usize) -> Vec<(f32, f32)> {
+        let Some(a) = c.audio() else {
+            return Vec::new();
+        };
+        let Ok(e) = p.sample(a.sample) else {
+            return Vec::new();
+        };
+        let Ok(data) = self.studio.assets.sample(&e.path) else {
+            return Vec::new();
+        };
+        let rate = data.sample_rate.max(1.0);
+        let bpm = p.settings.bpm;
+        let ratio = a.time_ratio(e, bpm).max(1e-6);
+        let total = data.channels.first().map_or(0, Vec::len);
+        let from = (a.source_offset as usize).min(total);
+        let to =
+            (from + (ticks_to_seconds(c.length, bpm) * ratio * rate).round() as usize).min(total);
+        if to <= from {
+            return Vec::new();
+        }
+        let gain = 10f32.powf(a.gain_db / 20.0);
+        let span = to - from;
+        let mut out: Vec<(f32, f32)> = (0..n)
+            .map(|i| {
+                let (s, t) = (
+                    from + span * i / n,
+                    (from + span * (i + 1) / n).max(from + span * i / n + 1),
+                );
+                let (mut lo, mut hi) = (0.0f32, 0.0f32);
+                for ch in &data.channels {
+                    for x in &ch[s.min(ch.len())..t.min(ch.len())] {
+                        lo = lo.min(*x);
+                        hi = hi.max(*x);
+                    }
+                }
+                (lo * gain, hi * gain)
+            })
+            .collect();
+        if a.reverse {
+            out.reverse();
+        }
+        out
+    }
+
+    /// The waveform of one audio clip (what it plays: range, direction, gain and fades, before
+    /// any stretching) or of one registered sample (the whole file), as the snapshot PNG.
+    fn audio_waveform(
+        &self,
+        p: &Project,
+        args: &Value,
+        width: u32,
+    ) -> Result<(Vec<u8>, String), String> {
+        let timing = views::timing(p);
+        let bar = timing.ticks_per_bar().max(1);
+        let (entry, clip) = if let Some(c) = args["clip"].as_u64() {
+            let c = p.clip(ClipId(c as u32)).map_err(|e| e.to_string())?.clone();
+            let a = c
+                .audio()
+                .ok_or_else(|| format!("clip {} is not an audio clip", c.id))?
+                .clone();
+            let e = p.sample(a.sample).map_err(|e| e.to_string())?.clone();
+            (e, Some((c, a)))
+        } else {
+            let s = args["sample"].as_u64().unwrap_or(0) as u32;
+            (
+                p.sample(SampleId(s)).map_err(|e| e.to_string())?.clone(),
+                None,
+            )
+        };
+        let data = self
+            .studio
+            .assets
+            .sample(&entry.path)
+            .map_err(|e| format!("cannot read {}: {e}", entry.path))?;
+        let rate = data.sample_rate.round().max(1.0) as u32;
+        let (channels, first_bar, caption) = match &clip {
+            None => (
+                data.channels.clone(),
+                1,
+                format!(
+                    "waveform of sample {} ({}), {:.2} s at {} Hz, {}",
+                    entry.id,
+                    entry.name,
+                    entry.seconds(),
+                    rate,
+                    if entry.channels == 1 {
+                        "mono"
+                    } else {
+                        "stereo"
+                    }
+                ),
+            ),
+            Some((c, a)) => {
+                let bpm = p.settings.bpm;
+                let ratio = a.time_ratio(&entry, bpm).max(1e-6);
+                let frames_of = |ticks: Tick| -> usize {
+                    (ticks_to_seconds(ticks, bpm) * ratio * rate as f64).round() as usize
+                };
+                let total = data.channels.first().map_or(0, Vec::len);
+                let from = (a.source_offset as usize).min(total);
+                let to = (from + frames_of(c.length)).min(total);
+                let mut out: Vec<Vec<f32>> = data
+                    .channels
+                    .iter()
+                    .map(|ch| ch[from..to].to_vec())
+                    .collect();
+                let n = to - from;
+                let gain = 10f32.powf(a.gain_db / 20.0);
+                for ch in &mut out {
+                    if a.reverse {
+                        ch.reverse();
+                    }
+                    let fi = frames_of(a.fade_in.length).min(n);
+                    let fo = frames_of(a.fade_out.length).min(n);
+                    for (i, x) in ch.iter_mut().enumerate() {
+                        let mut g = gain;
+                        if i < fi {
+                            g *= a.fade_in.curve.gain((i as f64 + 0.5) / fi as f64) as f32;
+                        }
+                        if i >= n - fo {
+                            g *= a.fade_out.curve.gain(((n - i) as f64 - 0.5) / fo as f64) as f32;
+                        }
+                        *x *= g;
+                    }
+                }
+                (
+                    out,
+                    (c.start / bar) as u32 + 1,
+                    format!(
+                        "waveform of audio clip {} ({}), {:.2} s of the file from {:.2} s{}{}",
+                        c.id,
+                        entry.name,
+                        n as f64 / rate as f64,
+                        from as f64 / rate as f64,
+                        if a.reverse { ", reversed" } else { "" },
+                        if a.gain_db != 0.0 {
+                            format!(", {:+.1} dB", a.gain_db)
+                        } else {
+                            String::new()
+                        }
+                    ),
+                )
+            }
+        };
+        if channels.first().is_none_or(Vec::is_empty) {
+            return Err("nothing to show: the range is empty".into());
+        }
+        Ok((
+            image::waveform(&image::WaveformSpec {
+                channels: &channels,
+                sample_rate: rate,
+                timing,
+                range_s: None,
+                first_bar,
+                width,
+            }),
+            caption,
+        ))
+    }
+
     fn snapshot_tool(&self, args: &Value) -> ToolOutput {
         let Some(kind) = args["kind"].as_str() else {
             return ToolOutput::error(
@@ -1023,6 +1187,12 @@ impl Agent {
         let timing = views::timing(&p);
         let bar = timing.ticks_per_bar();
         let (png, caption) = match kind {
+            "waveform" if !args["clip"].is_null() || !args["sample"].is_null() => {
+                match self.audio_waveform(&p, args, width) {
+                    Ok(x) => x,
+                    Err(e) => return ToolOutput::error(e),
+                }
+            }
             "waveform" | "spectrogram" => {
                 let r = match self.render_audio(&p, range, false, 48_000, None) {
                     Ok(r) => r,
@@ -1089,7 +1259,15 @@ impl Agent {
                             start: c.start,
                             length: c.length,
                             label: p.clip_label(c),
-                            color: pat.map_or(0x5f9ea0, |x| x.color),
+                            color: pat.map_or(
+                                if c.audio().is_some() {
+                                    0x6fa8dc
+                                } else {
+                                    0x5f9ea0
+                                },
+                                |x| x.color,
+                            ),
+                            wave: self.clip_wave(&p, c, 240),
                         }
                     })
                     .collect();

@@ -712,6 +712,65 @@ fn keys_cut_copy_and_zoom_work_over_the_waveform() {
     assert!((r.editor().fpp - before).abs() < before * 0.2);
 }
 
+/// Frame cost with many audio clips on screen (the numbers the report quotes; `--nocapture`).
+#[test]
+fn audio_clips_keep_the_frame_time_low() {
+    use std::time::Instant;
+    let mut r = start();
+    r.h.state_mut().core.playlist.track_h = 52.0;
+    let measure = |h: &mut H, label: &str, f: &mut dyn FnMut(&mut H, usize)| -> f64 {
+        let mut times = Vec::new();
+        for i in 0..60 {
+            f(h, i);
+            let t = Instant::now();
+            h.step();
+            times.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        times.sort_by(|a, b| a.total_cmp(b));
+        let avg = times.iter().sum::<f64>() / times.len() as f64;
+        println!(
+            "PERF {label}: avg {avg:.2} ms, p95 {:.2} ms, max {:.2} ms",
+            times[56], times[59]
+        );
+        avg
+    };
+    // still frames with the one clip, then with 24 clips on 12 tracks, all waveforms cached
+    let one = measure(&mut r.h, "playlist, 1 audio clip, still", &mut |_, _| {});
+    for i in 0..23u64 {
+        run(
+            r.h.state(),
+            "audio.add_clip",
+            json!({ "track": 4 + (i % 12), "start": (i / 12) * 7680 + 3840 * (i % 3),
+                    "sample": r.sample.0, "length": 5760 }),
+        );
+    }
+    settle(r.h.state_mut());
+    frames(&mut r.h, 4);
+    let drawn = r.h.state().core.playlist.audio.drawn_waveforms;
+    assert!(drawn > 1000, "the clips drew their waveforms: {drawn}");
+    let still = measure(&mut r.h, "playlist, 24 audio clips, still", &mut |_, _| {});
+    // scrolling sideways every frame recomputes the columns of every visible clip
+    let scrolling = measure(
+        &mut r.h,
+        "playlist, 24 audio clips, scrolling every frame",
+        &mut |h, i| h.state_mut().core.playlist.x0 = (i * 300) as f64,
+    );
+    // zooming every frame changes the level and the columns
+    let zooming = measure(
+        &mut r.h,
+        "playlist, 24 audio clips, zooming every frame",
+        &mut |h, i| {
+            let z = 0.02 + 0.04 * ((i % 20) as f64 / 20.0);
+            h.state_mut().core.playlist.px_per_tick = z;
+        },
+    );
+    let budget = if cfg!(debug_assertions) { 120.0 } else { 16.0 };
+    assert!(
+        [one, still, scrolling, zooming].iter().all(|t| *t < budget),
+        "frames too slow: {one:.1} / {still:.1} / {scrolling:.1} / {zooming:.1} ms"
+    );
+}
+
 // Pictures for the report: set `PH_T6_SHOTS` to a folder. Nothing is written otherwise.
 #[test]
 fn screenshots() {
