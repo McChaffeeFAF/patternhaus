@@ -841,7 +841,9 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
     // columns of clips that are gone are forgotten
     {
         let live = &st.audio_views;
-        st.audio.cols.retain(|id| live.contains_key(&ClipId(id as u32)));
+        st.audio
+            .cols
+            .retain(|id| live.contains_key(&ClipId(id as u32)));
     }
     // what the pointer is over on an audio clip: the handles light up, the cursor says what
     // a drag would do
