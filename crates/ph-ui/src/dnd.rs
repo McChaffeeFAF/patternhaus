@@ -203,8 +203,13 @@ pub fn describe(core: &AppCore, plan: &Plan, pos: Option<Pos2>) -> Option<DropHo
                 }
                 Some((r, DropZone::Playlist)) => {
                     parts.push(format!(
-                        "Drop to add {} as channels (audio clips arrive in a later milestone)",
-                        count(n, "sample", "samples")
+                        "Drop to place {} as {}",
+                        count(n, "sample", "samples"),
+                        if n == 1 {
+                            "an audio clip"
+                        } else {
+                            "audio clips on consecutive tracks"
+                        }
                     ));
                     rects.push(r);
                 }
@@ -290,7 +295,7 @@ pub fn frame(core: &mut AppCore, ctx: &Context) {
     if !dropped.is_empty() {
         let plan = Plan::from_paths(&dropped);
         let zone = zone_at(&core.drop_zones, pos, audio_zone).map(|(_, z)| z);
-        execute(core, plan, zone);
+        execute_at(core, plan, zone, pos);
         ctx.request_repaint();
     } else if !hovered.is_empty() {
         let plan = Plan::from_paths(&hovered);
@@ -327,6 +332,12 @@ pub fn frame(core: &mut AppCore, ctx: &Context) {
 
 /// Turns a drop into commands (or a question) and notices.
 pub fn execute(core: &mut AppCore, plan: Plan, zone: Option<DropZone>) {
+    execute_at(core, plan, zone, None);
+}
+
+/// As [`execute`]; `pos` is where the pointer was, which decides the track and the position
+/// of audio dropped on the playlist.
+pub fn execute_at(core: &mut AppCore, plan: Plan, zone: Option<DropZone>, pos: Option<Pos2>) {
     if !plan.skipped.is_empty() {
         let shown: Vec<String> = plan
             .skipped
@@ -389,11 +400,42 @@ pub fn execute(core: &mut AppCore, plan: Plan, zone: Option<DropZone>) {
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect();
-        let channel = match zone {
-            Some(DropZone::RackRow(c)) if paths.len() == 1 => Some(c),
-            _ => None,
-        };
-        core.send(mapping::sample_import(&paths, channel));
+        if zone == Some(DropZone::Playlist) {
+            // audio dropped on the playlist becomes audio clips, one track each from the pointer
+            // down, all at the grid position under the pointer: one undo step
+            let g = core.playlist.last_grid;
+            let (track, start) = match pos {
+                Some(p) if g != egui::Rect::NOTHING => {
+                    let rel = p - g.min;
+                    (
+                        core.playlist
+                            .track_at(rel.y)
+                            .clamp(0, core.playlist.n_tracks as i32 - 1)
+                            as u32,
+                        crate::piano_roll::snap_floor(
+                            core.playlist.tick_at(rel.x.max(0.0)),
+                            core.playlist.grid(),
+                        ),
+                    )
+                }
+                _ => (0, 0),
+            };
+            let last = core.playlist.n_tracks.saturating_sub(1);
+            let reqs = paths
+                .iter()
+                .enumerate()
+                .map(|(i, path)| {
+                    crate::mapping_audio::add_clip_path((track + i as u32).min(last), start, path)
+                })
+                .collect();
+            core.send_batch(reqs);
+        } else {
+            let channel = match zone {
+                Some(DropZone::RackRow(c)) if paths.len() == 1 => Some(c),
+                _ => None,
+            };
+            core.send(mapping::sample_import(&paths, channel));
+        }
     }
     for m in &plan.midi {
         core.send(mapping::import_midi(&m.to_string_lossy()));

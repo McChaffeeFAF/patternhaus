@@ -8,6 +8,8 @@ use ph_commands::Request;
 use ph_core::{Clip, ClipId, ObjectPath, PatternId, Project, Tick};
 use std::collections::{BTreeSet, HashMap};
 
+pub mod audio;
+
 pub const HEADER_W: f32 = 132.0;
 pub const RULER_H: f32 = 22.0;
 
@@ -60,6 +62,8 @@ enum Drag {
         from: Vec2,
         to: Vec2,
     },
+    /// A gesture on an audio clip (M2/T6): trim, slip, fade or slice.
+    Audio(audio::AudioDrag),
 }
 
 pub struct PlaylistState {
@@ -76,6 +80,10 @@ pub struct PlaylistState {
     pub n_tracks: u32,
     /// Where the clip grid was drawn last frame (screen coordinates), for tests.
     pub last_grid: Rect,
+    /// Audio clips: the slice tool, the clip menu and the waveform column cache (M2/T6).
+    pub audio: audio::AudioUi,
+    /// Timing of every audio clip, from the last sync.
+    pub audio_views: HashMap<ClipId, audio::AudioView>,
 }
 
 impl Default for PlaylistState {
@@ -92,6 +100,8 @@ impl Default for PlaylistState {
             bar: 3840,
             n_tracks: ph_core::PLAYLIST_TRACKS as u32,
             last_grid: Rect::NOTHING,
+            audio: audio::AudioUi::default(),
+            audio_views: HashMap::new(),
         }
     }
 }
@@ -103,6 +113,11 @@ impl PlaylistState {
         self.n_tracks = project.tracks.len() as u32;
         let clips = &project.clips;
         self.selection.retain(|id| clips.contains_key(id));
+        self.audio_views = project
+            .clips
+            .values()
+            .filter_map(|c| Some((c.id, audio::AudioView::of(project, c)?)))
+            .collect();
     }
 
     pub fn x_of(&self, tick: f64) -> f32 {
@@ -168,6 +183,7 @@ impl PlaylistState {
                 self.drag = Drag::Erase { ids };
             }
             Btn::Primary => match hit {
+                Some((id, _)) if self.audio_press(id, pos, mods) => {}
                 Some((id, zone)) => {
                     let c = self.clip(id).cloned().expect("hit clip exists");
                     if !self.selection.contains(&id) {
@@ -284,6 +300,10 @@ impl PlaylistState {
                 to: snap_tick(self.tick_at(pos.x), self.grid_for(mods)),
             },
             Drag::Box { from, .. } => Drag::Box { from, to: pos },
+            Drag::Audio(mut d) => {
+                d.update(self, pos, mods);
+                Drag::Audio(d)
+            }
             Drag::None => Drag::None,
         };
     }
@@ -364,6 +384,13 @@ impl PlaylistState {
                     .map(|c| c.id)
                     .collect();
             }
+            Drag::Audio(d) => {
+                if let Some(c) = self.clip(d.id()).cloned()
+                    && let Some(a) = c.audio()
+                {
+                    out.extend(d.finish(&c, a));
+                }
+            }
             Drag::None => {}
         }
         let _ = project;
@@ -372,11 +399,11 @@ impl PlaylistState {
 
     /// Ctrl+B: copy each selected clip to just after itself, as one transaction.
     pub fn duplicate(&self) -> Vec<PlOut> {
-        let reqs: Vec<Request> = self
+        let mut reqs: Vec<Request> = self
             .selection
             .iter()
             .filter_map(|id| self.clip(*id))
-            // audio and automation clips get their own duplicate in M2/T6 and T7
+            // automation clips get their own duplicate in M2/T7
             .filter_map(|c| {
                 let pat = c.pattern()?;
                 Some(mapping::clip_add(
@@ -387,6 +414,7 @@ impl PlaylistState {
                 ))
             })
             .collect();
+        reqs.extend(self.audio_duplicates());
         if reqs.is_empty() {
             vec![]
         } else {
@@ -414,6 +442,9 @@ impl PlaylistState {
 
     /// Clip geometry with an in-flight drag applied: (track, start, length).
     pub fn display_geom(&self, c: &Clip) -> (i32, Tick, Tick) {
+        if let Some((start, len)) = self.audio_preview(c) {
+            return (c.track as i32, start, len);
+        }
         match &self.drag {
             Drag::Move {
                 ids, dt, dtrack, ..
@@ -465,6 +496,8 @@ pub struct DrawCtx<'a> {
     pub touches: &'a HashMap<ObjectPath, (String, f64)>,
     pub agent_selected: &'a BTreeSet<ObjectPath>,
     pub now: f64,
+    /// Decoded waveforms of audio clips (M2/T6).
+    pub waves: &'a crate::waveform::SharedWaves,
 }
 
 /// Result of showing the playlist: commands plus header edits.
@@ -479,6 +512,7 @@ pub struct PlShow {
 pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlShow {
     let mut res = PlShow::default();
     st.sync(cx.project);
+    st.audio.drawn_waveforms = 0;
     let col = &cx.theme.colors;
     let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let whole = resp.rect;
@@ -540,7 +574,15 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
         if hovered {
             for (k, btn) in [Btn::Primary, Btn::Secondary].into_iter().enumerate() {
                 if pressed[k] {
-                    if grid.contains(pp) && !st.is_dragging() {
+                    if btn == Btn::Secondary
+                        && grid.contains(pp)
+                        && !st.is_dragging()
+                        && let Some((id, _)) = st.clip_at(rel)
+                        && st.audio_views.contains_key(&id)
+                    {
+                        // an audio clip's right-click is its settings menu (Delete is in it)
+                        st.open_audio_menu(id, pp);
+                    } else if grid.contains(pp) && !st.is_dragging() {
                         st.press(rel, btn, mods, cx.place_pattern);
                     } else if ruler.contains(pp) {
                         if btn == Btn::Primary {
@@ -560,9 +602,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             if resp.double_clicked()
                 && grid.contains(pp)
                 && let Some((id, _)) = st.clip_at(rel)
-                && let Some(pat) = st.clip(id).and_then(|c| c.pattern())
             {
-                res.out.push(PlOut::OpenPattern(pat));
+                if let Some(pat) = st.clip(id).and_then(|c| c.pattern()) {
+                    res.out.push(PlOut::OpenPattern(pat));
+                } else if let Some(a) = st.clip(id).and_then(|c| c.audio()) {
+                    // an audio clip opens in the audio editor
+                    res.out
+                        .push(PlOut::Cmd(crate::mapping_audio::editor_open(a.sample)));
+                }
             }
         }
     }
@@ -701,33 +748,64 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             .and_then(|p| cx.project.patterns.get(&p))
             .map_or(col.ghost, |p| rgb(p.color));
         let sel = st.selection.contains(&c.id);
-        gp.rect_filled(r, CornerRadius::same(3), lerp(col.bg2, base, 0.85));
-        gp.rect_filled(
-            Rect::from_min_size(r.min, Vec2::new(r.width(), 14.0f32.min(r.height()))),
-            CornerRadius {
-                nw: 3,
-                ne: 3,
-                sw: 0,
-                se: 0,
-            },
-            base,
-        );
-        crate::paint::text_fit(
-            &gp.with_clip_rect(r.intersect(grid)),
-            r.left_top() + Vec2::new(4.0, 1.0),
-            Align2::LEFT_TOP,
-            &name,
-            FontId::new(11.0, crate::fonts::body_medium()),
-            col.accent_ink,
-            r.width() - 8.0,
-        );
-        if sel {
-            gp.rect_stroke(
+        if let Some(a) = c.audio() {
+            let hot = match (&st.drag, st.audio.hover) {
+                (Drag::Audio(d), _) if d.id() == c.id => Some(audio::audio_zone_of(d)),
+                (Drag::None, Some((id, z))) if id == c.id => Some(z),
+                _ => None,
+            };
+            let fades = match &st.drag {
+                Drag::Audio(d) if d.id() == c.id => d.fades(),
+                _ => (None, None),
+            };
+            let pcx = audio::PaintCx {
+                project: cx.project,
+                theme: cx.theme,
+                waves: cx.waves,
+                grid,
+            };
+            let ppt = st.px_per_tick;
+            audio::paint_clip(
+                &gp.with_clip_rect(grid),
+                &mut st.audio,
+                &pcx,
+                c,
+                a,
                 r,
-                CornerRadius::same(3),
-                Stroke::new(1.5, col.selection),
-                StrokeKind::Inside,
+                sel,
+                fades,
+                hot,
+                ppt,
             );
+        } else {
+            gp.rect_filled(r, CornerRadius::same(3), lerp(col.bg2, base, 0.85));
+            gp.rect_filled(
+                Rect::from_min_size(r.min, Vec2::new(r.width(), 14.0f32.min(r.height()))),
+                CornerRadius {
+                    nw: 3,
+                    ne: 3,
+                    sw: 0,
+                    se: 0,
+                },
+                base,
+            );
+            crate::paint::text_fit(
+                &gp.with_clip_rect(r.intersect(grid)),
+                r.left_top() + Vec2::new(4.0, 1.0),
+                Align2::LEFT_TOP,
+                &name,
+                FontId::new(11.0, crate::fonts::body_medium()),
+                col.accent_ink,
+                r.width() - 8.0,
+            );
+            if sel {
+                gp.rect_stroke(
+                    r,
+                    CornerRadius::same(3),
+                    Stroke::new(1.5, col.selection),
+                    StrokeKind::Inside,
+                );
+            }
         }
         if cx.agent_selected.contains(&ObjectPath::Clip(c.id)) {
             gp.rect_stroke(
@@ -757,6 +835,30 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
                 );
             }
         }
+    }
+    // what the pointer is over on an audio clip: the handles light up, the cursor says what
+    // a drag would do
+    st.audio.hover = None;
+    if let Drag::Audio(d) = &st.drag {
+        ui.ctx()
+            .set_cursor_icon(audio::cursor_for(audio::audio_zone_of(d)));
+    } else if let Some(pp) = pointer
+        && resp.hovered()
+        && !st.is_dragging()
+        && grid.contains(pp)
+        && let Some((id, _)) = st.clip_at(pp - grid.min)
+        && let Some(c) = st.clip(id).cloned()
+        && let Some(a) = c.audio()
+        && let Some(z) = st.audio_zone(&c, a, pp - grid.min)
+    {
+        st.audio.hover = Some((id, z));
+        ui.ctx().set_cursor_icon(if st.audio.slice_tool {
+            egui::CursorIcon::Crosshair
+        } else if z == audio::AudioZone::Body && mods.alt {
+            egui::CursorIcon::AllScroll
+        } else {
+            audio::cursor_for(z)
+        });
     }
     // hovering a clip shows its full name (the label on the clip may be cut to fit)
     if let Some(pp) = pointer
@@ -868,6 +970,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             crate::motion::reduce(ui.ctx()),
         );
     }
+    audio::show_menu(&resp, st, cx, &mut res.out);
     res
 }
 

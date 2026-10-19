@@ -74,6 +74,10 @@ pub fn title_of(core: &AppCore, id: WindowId) -> String {
             ),
             None => "Instrument".into(),
         },
+        WindowId::AudioEditor(s) => match core.project.samples.get(&s) {
+            Some(e) => format!("Audio editor - {}", e.name),
+            None => "Audio editor".into(),
+        },
         WindowId::Effect(i, slot) => {
             let fx = core
                 .project
@@ -110,6 +114,8 @@ pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
     // rows instead of scrolling sideways
     let scroll_x = match id {
         WindowId::Instrument(_) | WindowId::Effect(..) => Some(false),
+        // the editor lays itself out to the window and pans and zooms on its own
+        WindowId::AudioEditor(_) => None,
         WindowId::Mixer => Some(true),
         // rows of names are shortened to the window instead of scrolling sideways
         WindowId::History | WindowId::Agents => Some(false),
@@ -144,6 +150,7 @@ fn show_raw(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
         WindowId::Agents => panels::agents::show(ui, core),
         WindowId::Instrument(c) => panels::inspector::show(ui, core, c),
         WindowId::Effect(i, slot) => panels::mixer::effect_window(ui, core, i.0, slot as usize),
+        WindowId::AudioEditor(s) => panels::audio_editor::show(ui, core, s),
     }
 }
 
@@ -648,6 +655,9 @@ pub fn window_help(id: WindowId) -> &'static str {
         }
         WindowId::Instrument(_) => "Instrument: the sound source of one channel.",
         WindowId::Effect(..) => "Effect: the parameters of one effect on a mixer insert.",
+        WindowId::AudioEditor(_) => {
+            "Audio editor: select, cut, copy, paste, trim, fade, normalise, reverse and slice one sample. Edits write new files; the original is never changed."
+        }
     }
 }
 

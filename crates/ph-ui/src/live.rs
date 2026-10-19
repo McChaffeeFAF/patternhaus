@@ -117,6 +117,8 @@ pub enum Audition {
         key: u8,
         hold: Duration,
     },
+    /// Decoded audio the caller holds, such as the audio editor's selection.
+    Data(Arc<ph_node::SampleData>),
 }
 
 /// Samples in the scope trace.
@@ -130,6 +132,7 @@ fn play_audition(engine: &Arc<Engine>, what: Audition) {
         Audition::Sample(reference) => {
             let _ = engine.audition(&reference, AUDITION_VELOCITY);
         }
+        Audition::Data(d) => engine.audition_data(&d, AUDITION_VELOCITY),
         Audition::Instrument {
             instrument,
             key,

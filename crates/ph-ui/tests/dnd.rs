@@ -266,20 +266,60 @@ fn one_audio_file_on_a_channel_row_replaces_its_sample() {
 }
 
 #[test]
-fn audio_on_the_playlist_adds_channels_and_the_hint_says_why() {
+fn audio_on_the_playlist_becomes_an_audio_clip_under_the_pointer() {
     let mut r = start();
     r.app().open_panel(PanelId::Playlist);
     r.frames(4);
     let a = r.file("loop.wav", &wav(1.5));
     let pos = r.window_point(WindowId::Playlist, 0.5, 0.5);
     r.hover(&[&a], pos);
-    assert!(
-        r.hint().contains("audio clips arrive in a later milestone"),
-        "{}",
-        r.hint()
-    );
+    assert_eq!(r.hint(), "Drop to place 1 sample as an audio clip");
+    // where the clip should land: the track and the bar under the pointer
+    let (track, start) = {
+        let pl = &r.app().core.playlist;
+        let rel = pos - pl.last_grid.min;
+        (
+            pl.track_at(rel.y).clamp(0, pl.n_tracks as i32 - 1) as u32,
+            ph_ui::piano_roll::snap_floor(pl.tick_at(rel.x), pl.grid()),
+        )
+    };
+    let before = r.app().core.project.clips.len();
     r.drop_at(&[&a], pos);
-    assert_eq!(r.channels(), 5);
+    assert_eq!(r.channels(), 4, "no channel is made for it");
+    let p = r.app().core.project.clone();
+    assert_eq!(p.clips.len(), before + 1);
+    let clip = p
+        .clips
+        .values()
+        .find(|c| c.audio().is_some())
+        .expect("an audio clip");
+    assert_eq!((clip.track, clip.start), (track, start));
+    assert_eq!(p.samples.len(), 1);
+    assert!(
+        r.dir.path().join("samples/loop.wav").exists(),
+        "copied into the project"
+    );
+    // several files go one track each, from the pointer down, as one undo step
+    let b = r.file("b.wav", &wav(2.0));
+    let c = r.file("c.wav", &wav(3.0));
+    let hist = r.app().core.studio.session.history().unwrap().len();
+    r.drop_at(&[&b, &c], pos);
+    let p = r.app().core.project.clone();
+    let mut tracks: Vec<u32> = p
+        .clips
+        .values()
+        .filter(|c| {
+            c.audio()
+                .is_some_and(|a| p.samples[&a.sample].name != "loop.wav")
+        })
+        .map(|c| c.track)
+        .collect();
+    tracks.sort();
+    assert_eq!(tracks, vec![track, track + 1]);
+    assert_eq!(
+        r.app().core.studio.session.history().unwrap().len(),
+        hist + 1
+    );
 }
 
 #[test]

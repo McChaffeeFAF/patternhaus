@@ -7,7 +7,7 @@
 //!
 //! Coordinates are workspace-local: `(0, 0)` is the top-left of the area the windows live in.
 
-use ph_core::{ChannelId, InsertId};
+use ph_core::{ChannelId, InsertId, SampleId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -79,12 +79,17 @@ pub enum WindowId {
     Instrument(ChannelId),
     /// One window per effect slot of an insert.
     Effect(InsertId, u32),
+    /// The audio editor on one registered sample (M2/T6).
+    AudioEditor(SampleId),
 }
 
 impl WindowId {
     /// Instrument and effect windows belong to a project object.
     pub fn is_object(self) -> bool {
-        matches!(self, WindowId::Instrument(_) | WindowId::Effect(..))
+        matches!(
+            self,
+            WindowId::Instrument(_) | WindowId::Effect(..) | WindowId::AudioEditor(_)
+        )
     }
 
     /// Parses the object-window names `ui.open_panel` accepts: `instrument:<channel>` and
@@ -92,6 +97,9 @@ impl WindowId {
     pub fn parse(name: &str) -> Option<WindowId> {
         if let Some(c) = name.strip_prefix("instrument:") {
             return c.parse().ok().map(|c| WindowId::Instrument(ChannelId(c)));
+        }
+        if let Some(s) = name.strip_prefix("audio_editor:") {
+            return s.parse().ok().map(|s| WindowId::AudioEditor(SampleId(s)));
         }
         let (i, s) = name.strip_prefix("effect:")?.split_once(':')?;
         Some(WindowId::Effect(InsertId(i.parse().ok()?), s.parse().ok()?))
@@ -106,6 +114,7 @@ impl WindowId {
             WindowId::History | WindowId::Agents => (240.0, 140.0),
             WindowId::Instrument(_) => (280.0, 180.0),
             WindowId::Effect(..) => (240.0, 140.0),
+            WindowId::AudioEditor(_) => (560.0, 320.0),
         }
     }
 
@@ -119,6 +128,7 @@ impl WindowId {
             WindowId::Agents => (420.0, 380.0),
             WindowId::Instrument(_) => (500.0, 480.0),
             WindowId::Effect(..) => (420.0, 360.0),
+            WindowId::AudioEditor(_) => (900.0, 460.0),
         }
     }
 }
@@ -343,6 +353,22 @@ impl Workspace {
     /// Escape: close the front-most instrument or effect window in z-order, even when a
     /// panel (the rack, say) has been clicked since and is in front of it. Returns the window
     /// that was closed.
+    /// Moves a window's place, size and stacking to another id (the audio editor follows its
+    /// sample to the file an edit wrote). Does nothing when `old` is unknown.
+    pub fn replace(&mut self, old: WindowId, new: WindowId) {
+        if old == new {
+            return;
+        }
+        if let Some(w) = self.windows.remove(&old) {
+            self.windows.insert(new, w);
+        }
+    }
+
+    /// Forgets a window (its object is gone).
+    pub fn remove(&mut self, id: WindowId) {
+        self.windows.remove(&id);
+    }
+
     pub fn close_front_object(&mut self) -> Option<WindowId> {
         let f = self
             .visible_in_z_order()
@@ -493,7 +519,7 @@ impl Workspace {
             WindowId::Mixer => (a.w * 0.04, a.h * 0.42),
             WindowId::History => (a.w * 0.58, a.h * 0.1),
             WindowId::Agents => (a.w * 0.5, a.h * 0.2),
-            WindowId::Instrument(_) | WindowId::Effect(..) => {
+            WindowId::Instrument(_) | WindowId::Effect(..) | WindowId::AudioEditor(_) => {
                 // cascade past the object windows already known
                 let n = self.windows.keys().filter(|k| k.is_object()).count() as f32;
                 (a.w * 0.34 + 28.0 * (n % 8.0), 40.0 + 28.0 * (n % 8.0))
