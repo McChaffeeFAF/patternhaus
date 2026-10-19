@@ -304,7 +304,7 @@ fn toolbar(
             {
                 core.send(ma::slicer_detect(sample, st.sensitivity));
             }
-            if btn_enabled(ui, st.sel.is_none() || true, "Add marker")
+            if btn(ui, "Add marker")
                 .tip("Add a marker at the caret (or click in the lane below the waveform)")
                 .clicked()
             {

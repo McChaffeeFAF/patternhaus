@@ -176,6 +176,21 @@ impl PhApp {
     /// The audio editor follows its sample: to the file an edit wrote, back along `prev` when
     /// an undo took that file away, or closed when nothing is left to show.
     fn follow_editors(&mut self) {
+        // the editor holds decoded samples only while its window is open
+        let keep: std::collections::HashSet<String> = self
+            .ws
+            .visible_in_z_order()
+            .into_iter()
+            .filter_map(|w| match w {
+                WindowId::AudioEditor(s) => {
+                    self.core.project.samples.get(&s).map(|e| e.path.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        if let Ok(mut w) = self.core.waves.lock() {
+            w.drop_unused_data(&keep);
+        }
         for (old, new) in std::mem::take(&mut self.core.editor_replaced) {
             self.ws.replace(old, new);
         }

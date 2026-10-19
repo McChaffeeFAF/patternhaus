@@ -509,8 +509,12 @@ impl AppCore {
             if w.roots.project_dir != self.paths.project_dir
                 || w.roots.library_roots != self.paths.library_roots
             {
-                w.roots.project_dir = self.paths.project_dir.clone();
-                w.roots.library_roots = self.paths.library_roots.clone();
+                let roots = crate::waveform::Roots {
+                    project_dir: self.paths.project_dir.clone(),
+                    assets_dir: w.roots.assets_dir.clone(),
+                    library_roots: self.paths.library_roots.clone(),
+                };
+                w.set_roots(roots);
             }
             w.poll();
         }

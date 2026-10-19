@@ -257,6 +257,32 @@ impl WaveCache {
         self.inflight.len()
     }
 
+    /// Points the cache at other folders. A different project folder means the same
+    /// project-relative reference can be another file, so everything loaded is forgotten.
+    pub fn set_roots(&mut self, roots: Roots) {
+        if roots.project_dir != self.roots.project_dir {
+            self.entries.clear();
+            self.generation += 1;
+        }
+        self.roots = roots;
+    }
+
+    /// Frees the decoded samples of every file not in `keep` (the editor holds them only
+    /// while its window is open); the peaks stay.
+    pub fn drop_unused_data(&mut self, keep: &HashSet<String>) {
+        for (k, v) in self.entries.iter_mut() {
+            if !keep.contains(k)
+                && let Ok(l) = v
+                && l.data.is_some()
+            {
+                *v = Ok(Arc::new(Loaded {
+                    peaks: l.peaks.clone(),
+                    data: None,
+                }));
+            }
+        }
+    }
+
     /// Forget a file (it was replaced on disk).
     pub fn forget(&mut self, reference: &str) {
         self.entries.remove(reference);

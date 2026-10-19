@@ -348,10 +348,10 @@ impl Host for EngineHost {
         std::fs::create_dir_all(&dir)
             .map_err(|e| CmdError::Host(format!("{}: {e}", dir.display())))?;
         // a plain file name: no folders, no extension games
-        let stem: String = Path::new(name)
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default()
+        // only a trailing ".wav" is dropped: dots inside the name stay
+        let stem: String = name
+            .strip_suffix(".wav")
+            .unwrap_or(name)
             .chars()
             .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
             .collect();
