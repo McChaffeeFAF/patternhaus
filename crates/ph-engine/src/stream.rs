@@ -59,12 +59,16 @@ pub(crate) struct Source {
 
 impl Source {
     pub fn new(stream: Box<dyn SampleStream>) -> Self {
-        Self {
+        let s = Self {
             frames: stream.frames(),
             channels: stream.channels().max(1),
             sample_rate: stream.sample_rate(),
             stream: Mutex::new(stream),
-        }
+        };
+        // On macOS std boxes a mutex's pthread object on its first lock. Take it once here
+        // (off the audio thread) so a later lock from a render worker never allocates.
+        drop(s.stream.lock());
+        s
     }
 
     /// Reads `out[c].len()` frames from `start` (zero past the end or on error).
