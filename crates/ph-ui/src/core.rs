@@ -320,6 +320,10 @@ pub struct AppCore {
     /// Knob movements collected since the last flush, by target: (song tick, value).
     pub auto_rec: std::collections::BTreeMap<ph_core::ParamPath, Vec<(Tick, f64)>>,
     auto_last_pos: Tick,
+    /// MIDI learn, mapped controllers and the keyboard's channel (M2/T8).
+    pub midi: crate::midi::MidiUi,
+    /// The recorder popup and its settings (M2/T8).
+    pub rec: crate::recorder::RecorderUi,
 }
 
 /// A window's scroll area, as last drawn.
@@ -433,6 +437,8 @@ impl AppCore {
             auto_armed: false,
             auto_rec: std::collections::BTreeMap::new(),
             auto_last_pos: 0,
+            midi: Default::default(),
+            rec: Default::default(),
         };
         core.fix_selection();
         Ok(core)
@@ -741,6 +747,9 @@ impl AppCore {
                 {
                     self.toast(ToastKind::Info, s.clone());
                 }
+                if d.request.command.starts_with("record.") {
+                    self.on_record_reply(&d.request.command, Some(&ex));
+                }
                 if d.request.command == "file.export_audio" {
                     let path = d.request.params["path"].as_str().unwrap_or("");
                     self.toast(ToastKind::Info, format!("Exported {path}"));
@@ -753,6 +762,7 @@ impl AppCore {
                 });
             }
             Err(e) => {
+                self.on_record_reply(&d.request.command, None);
                 if d.request.command.starts_with("file.save") && self.after_save.take().is_some() {
                     self.toast(ToastKind::Warn, "Not saved, so nothing was closed");
                 }

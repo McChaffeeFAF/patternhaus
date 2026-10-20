@@ -394,6 +394,7 @@ impl PhApp {
         let now = ctx.input(|i| i.time);
         self.core.update(now);
         self.core.update_automation(&ctx);
+        self.core.update_midi(&ctx);
         // keep polling the session's solo state while the window is idle
         ctx.request_repaint_after(std::time::Duration::from_millis(300));
         self.handle_close_request(&ctx);
