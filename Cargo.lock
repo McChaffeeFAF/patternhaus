@@ -2972,6 +2972,7 @@ name = "ph-control"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "hound",
  "ph-analysis",
  "ph-commands",
  "ph-core",

@@ -706,34 +706,7 @@ fn automation_record_thins_samples_and_holds_across_pauses() {
 #[test]
 fn m2_stubs_name_their_track() {
     let mut r = Rig::new();
-    let cases: [(&str, Value, &str); 14] = [
-        ("record.list_inputs", json!({}), "T8"),
-        ("record.arm", json!({ "input": 0, "track": 2 }), "T8"),
-        ("record.disarm", json!({ "input": 0 }), "T8"),
-        (
-            "record.set_monitor",
-            json!({ "input": 0, "on": true }),
-            "T8",
-        ),
-        (
-            "record.start",
-            json!({ "count_in_bars": 1, "punch": [0, 3840] }),
-            "T8",
-        ),
-        ("record.stop", json!({}), "T8"),
-        ("midi.list_inputs", json!({}), "T8"),
-        (
-            "midi.learn",
-            json!({ "target": "channel/0/param/cutoff" }),
-            "T8",
-        ),
-        (
-            "midi.map",
-            json!({ "controller": 74, "target": "insert/1/volume" }),
-            "T8",
-        ),
-        ("midi.unmap", json!({ "controller": 74 }), "T8"),
-        ("midi.list_mappings", json!({}), "T8"),
+    let cases: [(&str, Value, &str); 3] = [
         (
             "slicer.make_instrument",
             json!({ "sample": 0, "write_pattern": true }),
@@ -758,7 +731,7 @@ fn m2_stubs_name_their_track() {
     }
     // params are still checked first, so agents learn the schema now
     assert!(matches!(
-        r.err("record.arm", json!({ "input": 0, "trak": 2 })),
+        r.err("editor.open", json!({ "sampl": 0 })),
         CmdError::BadParams { .. }
     ));
 }

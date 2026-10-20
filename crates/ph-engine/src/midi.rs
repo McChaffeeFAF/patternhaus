@@ -455,6 +455,8 @@ pub struct MidiInputInfo {
 enum Msg {
     Raw(Arc<str>, [u8; 3], usize),
     Scan,
+    /// Replace the backend: connections to the old one close.
+    Backend(Box<dyn MidiBackend>),
     Stop,
 }
 
@@ -567,6 +569,12 @@ impl MidiService {
         self.state().waker = waker;
     }
 
+    /// Replaces where MIDI comes from (the front end switches a headless service to the
+    /// system's devices). Connections to the old backend close.
+    pub fn set_backend(&self, backend: Box<dyn MidiBackend>) {
+        let _ = self.shared.tx.lock().unwrap().send(Msg::Backend(backend));
+    }
+
     /// Replaces the mapping store (the front end points it at the config folder).
     pub fn set_store(&self, store: MappingStore) {
         self.state().store = store;
@@ -674,6 +682,11 @@ fn route(
     while let Ok(msg) = rx.recv() {
         match msg {
             Msg::Stop => return,
+            Msg::Backend(b) => {
+                open.clear();
+                backend = b;
+                let _ = tx.send(Msg::Scan);
+            }
             Msg::Scan => {
                 let ports = backend.ports();
                 let mut changed = false;

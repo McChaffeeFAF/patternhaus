@@ -13,6 +13,7 @@ const BEHAVIOUR_SOURCES: &[&str] = &[
     include_str!("../../ph-commands/src/builtin/tests.rs"),
     include_str!("../../ph-commands/src/builtin/m2_behaviour.rs"),
     include_str!("../../ph-commands/src/builtin/plugin_behaviour.rs"),
+    include_str!("../../ph-commands/src/builtin/record_behaviour.rs"),
     include_str!("node_params.rs"),
     include_str!("tests.rs"),
 ];
