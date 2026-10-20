@@ -153,6 +153,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
             sample,
             root_key,
             params,
+            ..
         } => {
             sampler(
                 ui,
@@ -195,6 +196,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
         && let Kind::Sample { reference } = &d.kind
     {
         let inst = InstrumentSpec::Sampler {
+            slices: Vec::new(),
             sample: Some(reference.clone()),
             root_key: *root_key,
             params: params.clone(),
@@ -315,6 +317,11 @@ fn sampler(
             );
         if (r.drag_stopped() || r.lost_focus()) && rk != root_key as i32 {
             let inst = InstrumentSpec::Sampler {
+                // a sliced instrument keeps its slices when its first key moves
+                slices: match &ch.instrument {
+                    InstrumentSpec::Sampler { slices, .. } => slices.clone(),
+                    _ => Vec::new(),
+                },
                 sample: sample.map(str::to_string),
                 root_key: rk as u8,
                 params: params.clone(),

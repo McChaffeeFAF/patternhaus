@@ -100,10 +100,17 @@ pub enum InstrumentSpec {
     /// an allowed library folder, or `factory:<name>`.
     Sampler {
         sample: Option<String>,
-        /// MIDI key that plays the sample at original pitch.
+        /// MIDI key that plays the sample at original pitch. With `slices` it is the key of
+        /// the first slice.
         root_key: u8,
         #[serde(default)]
         params: BTreeMap<String, f64>,
+        /// A sliced instrument (M2/T6): slice start points in **frames of the file**,
+        /// ascending, the first usually 0. Slice `i` plays on key `root_key + i`, at the
+        /// file's own pitch, from `slices[i]` to `slices[i + 1]` (the end of the file for the
+        /// last one). Empty = a plain Sampler.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        slices: Vec<u64>,
     },
     /// Haus Synth. `preset` names a factory or user preset; `params` override it.
     Synth {

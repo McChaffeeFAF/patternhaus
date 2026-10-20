@@ -286,6 +286,7 @@ fn factory() {
     let sample = util::test_sample();
     let res = util::MapResolver(HashMap::from([("factory:test".to_string(), sample)]));
     let spec = InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some("factory:test".into()),
         root_key: 57,
         params: BTreeMap::from([("tune".to_string(), 2.0)]),
@@ -297,6 +298,7 @@ fn factory() {
     assert_eq!(p.save_state(), b"factory:test");
 
     let missing = InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some("nope".into()),
         root_key: 60,
         params: BTreeMap::new(),
@@ -380,6 +382,7 @@ fn sampler_load_state_switches_samples_through_the_resolver() {
         ),
     ]));
     let spec = InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some("factory:test".into()),
         root_key: 60,
         params: BTreeMap::new(),
@@ -394,4 +397,59 @@ fn sampler_load_state_switches_samples_through_the_resolver() {
     assert_eq!(p.save_state(), b"factory:sine", "kept on error");
     p.load_state(b"", &res).unwrap();
     assert!(p.save_state().is_empty());
+}
+
+/// A sliced Sampler plays slice `i` on key `root_key + i`, at the file's own pitch, and
+/// stops at the next slice; keys outside the slices are silent.
+#[test]
+fn sliced_sampler_plays_one_slice_per_key() {
+    let sr = 44100.0;
+    let half = 22050usize;
+    let tone = |hz: f64, n: usize, o: usize| -> Vec<f32> {
+        (0..n)
+            .map(|i| (2.0 * std::f64::consts::PI * hz * (i + o) as f64 / sr).sin() as f32 * 0.5)
+            .collect()
+    };
+    let mut data = tone(441.0, half, 0);
+    data.extend(tone(882.0, half, half));
+    let sample = Arc::new(ph_node::SampleData {
+        sample_rate: sr,
+        channels: vec![data],
+        loop_range: None,
+        root_key: None,
+    });
+    let res = util::MapResolver(HashMap::from([("factory:s".to_string(), sample)]));
+    let spec = InstrumentSpec::Sampler {
+        slices: vec![0, half as u64],
+        sample: Some("factory:s".into()),
+        root_key: 36,
+        params: BTreeMap::from([("release".to_string(), 0.0)]),
+    };
+    let render_key = |key: u8| {
+        let mut p = ph_instruments::create(&spec, &res).unwrap();
+        let out = play(p.as_mut(), 1 << 14, &[on(0, 1, key)], Quality::Live);
+        out[0].clone()
+    };
+    // note-on at the file's pitch whatever the key
+    let a = render_key(36);
+    assert!(
+        tone_amplitude(&a[2000..], SR, 441.0) > 0.2,
+        "slice 0 is 441 Hz"
+    );
+    let b = render_key(37);
+    assert!(
+        tone_amplitude(&b[2000..], SR, 882.0) > 0.2,
+        "slice 1 is 882 Hz"
+    );
+    assert!(tone_amplitude(&b[2000..], SR, 441.0) < 0.05);
+    for key in [35u8, 38, 60] {
+        assert_eq!(peak(&render_key(key)), 0.0, "key {key} has no slice");
+    }
+    // slice 0 ends where slice 1 starts: after `half` frames it is silent
+    let mut p = ph_instruments::create(&spec, &res).unwrap();
+    let out = play(p.as_mut(), 1 << 15, &[on(0, 1, 36)], Quality::Live);
+    assert!(
+        peak(&out[0][(half as f64 * SR / sr) as usize + 512..]) < 1e-6,
+        "slice 0 stops at slice 1"
+    );
 }

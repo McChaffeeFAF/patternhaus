@@ -254,6 +254,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     .take(16)
                     .map(|(n, r)| {
                         let inst = ph_core::InstrumentSpec::Sampler {
+                            slices: Vec::new(),
                             sample: Some(r.clone()),
                             root_key: 60,
                             params: Default::default(),

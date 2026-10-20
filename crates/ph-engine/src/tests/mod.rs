@@ -242,6 +242,7 @@ pub fn synth(p: &[(&str, f64)]) -> InstrumentSpec {
 
 pub fn sampler(sample: &str, p: &[(&str, f64)]) -> InstrumentSpec {
     InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some(sample.into()),
         root_key: 60,
         params: params(p),

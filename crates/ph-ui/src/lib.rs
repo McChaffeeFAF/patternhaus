@@ -5,6 +5,7 @@
 
 pub mod about;
 pub mod app;
+pub mod audio_editor;
 pub mod auto_editor;
 pub mod automation;
 pub mod brand;
@@ -20,6 +21,7 @@ pub mod icons;
 pub mod keymap;
 pub mod live;
 pub mod mapping;
+pub mod mapping_audio;
 pub mod motion;
 pub mod paint;
 pub mod panels;
@@ -32,6 +34,7 @@ pub mod steps;
 pub mod theme;
 pub mod toolbar;
 pub mod typing;
+pub mod waveform;
 pub mod widgets;
 pub mod windows;
 pub mod workspace;

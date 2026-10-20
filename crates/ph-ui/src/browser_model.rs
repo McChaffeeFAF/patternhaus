@@ -169,6 +169,7 @@ pub fn synth_presets(names: &[&str]) -> Vec<Node> {
 pub fn instrument_for(kind: &Kind) -> Option<InstrumentSpec> {
     match kind {
         Kind::Sample { reference } => Some(InstrumentSpec::Sampler {
+            slices: Vec::new(),
             sample: Some(reference.clone()),
             root_key: 60,
             params: Default::default(),

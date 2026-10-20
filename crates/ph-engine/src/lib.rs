@@ -596,6 +596,13 @@ impl Engine {
         Ok(())
     }
 
+    /// Previews decoded audio on the audition voice, like [`Engine::audition`] but from
+    /// samples the caller already holds (the audio editor's selection). Longer than 30 s is
+    /// cut with a short fade. The data is resampled here, on the calling thread.
+    pub fn audition_data(&self, data: &ph_node::SampleData, velocity: f32) {
+        self.audition_samples(data, velocity);
+    }
+
     fn audition_samples(&self, data: &ph_node::SampleData, velocity: f32) {
         let (rate, port) = {
             let g = self.lock();

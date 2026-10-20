@@ -434,7 +434,7 @@ pub fn apply(project: &Project, set: &PatchSet) -> ModelResult<Project> {
 /// let mut ed = Edit::new(&project);
 /// let pat = ed.add_pattern("Beat").unwrap();
 /// let kick = ed.add_channel("Kick", InstrumentSpec::Sampler {
-///     sample: Some("factory:kick".into()), root_key: 60, params: Default::default() }).unwrap();
+///     sample: Some("factory:kick".into()), root_key: 60, params: Default::default(), slices: vec![] }).unwrap();
 /// ed.add_note(pat, kick, NoteSpec::new(36, 0, STEP)).unwrap();
 /// let (after, patches) = ed.finish();
 /// assert_eq!(apply(&project, &patches).unwrap(), after);

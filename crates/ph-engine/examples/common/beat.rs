@@ -80,6 +80,7 @@ fn map(p: &[(&str, f64)]) -> BTreeMap<String, f64> {
 
 fn drum(sample: &str, p: &[(&str, f64)]) -> InstrumentSpec {
     InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some(sample.into()),
         root_key: 60,
         params: map(p),

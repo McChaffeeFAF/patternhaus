@@ -116,6 +116,9 @@ struct Voice {
     gr: f32,
     vel: f32,
     ctrl: u32,
+    /// The played range `[lo, hi)` of this voice (the region, or its slice).
+    lo: f64,
+    hi: f64,
 }
 
 impl Voice {
@@ -131,6 +134,8 @@ impl Voice {
             gr: 1.0,
             vel: 1.0,
             ctrl: 0,
+            lo: 0.0,
+            hi: 0.0,
         }
     }
 }
@@ -154,6 +159,8 @@ pub struct Sampler {
     alloc: VoiceAllocator,
     sinc: Option<SincInterpolator>,
     region: Region,
+    /// Slice start points in frames (M2/T6); empty = a plain Sampler.
+    slices: Vec<f64>,
 }
 
 impl Sampler {
@@ -175,10 +182,18 @@ impl Sampler {
                 ls: 0.0,
                 le: 0.0,
             },
+            slices: Vec::new(),
         };
         s.alloc_voices();
         s.update_region();
         s
+    }
+
+    /// Makes this a sliced instrument: slice `i` (start frames, ascending) plays on key
+    /// `root_key + i` at the file's own pitch, up to the next slice. Empty = plain Sampler.
+    /// Call before the node runs (it allocates).
+    pub fn set_slices(&mut self, slices: &[u64]) {
+        self.slices = slices.iter().map(|f| *f as f64).collect();
     }
 
     fn alloc_voices(&mut self) {
@@ -244,13 +259,33 @@ impl Sampler {
         if let Some(f) = a.fade {
             self.voices[f].env.kill(FADE_S);
         }
-        let semis = key as f64 - self.p.v[ROOT_KEY]
+        let frames = sample.frames() as f64;
+        let (mut lo, mut hi) = (self.region.start, self.region.end);
+        let mut semis = key as f64 - self.p.v[ROOT_KEY]
             + self.p.v[TUNE]
             + self.p.v[FINE] / 100.0
             + fine_pitch as f64;
+        if !self.slices.is_empty() {
+            // one slice per key, from the root key up, at the file's own pitch
+            let i = key as i64 - self.p.v[ROOT_KEY] as i64;
+            if i < 0 || i as usize >= self.slices.len() {
+                return;
+            }
+            let i = i as usize;
+            lo = self.slices[i].min(frames);
+            hi = self
+                .slices
+                .get(i + 1)
+                .copied()
+                .unwrap_or(frames)
+                .min(frames);
+            if hi <= lo {
+                return;
+            }
+            semis = self.p.v[TUNE] + self.p.v[FINE] / 100.0 + fine_pitch as f64;
+        }
         let rate = (semis / 12.0).exp2() * sample.sample_rate / self.sr;
         let reverse = self.p.on(REVERSE);
-        let reg = self.region;
         let (gl, gr) = balance(self.p.f(PAN) + pan);
         let vel = velocity_gain(velocity, self.p.f(VEL_AMP));
         let v = &mut self.voices[a.slot];
@@ -260,7 +295,9 @@ impl Sampler {
         v.active = true;
         v.rate = rate;
         v.dir = if reverse { -1.0 } else { 1.0 };
-        v.pos = if reverse { reg.end - 1.0 } else { reg.start };
+        v.lo = lo;
+        v.hi = hi;
+        v.pos = if reverse { hi - 1.0 } else { lo };
         v.gl = gl;
         v.gr = gr;
         v.vel = vel;
@@ -290,7 +327,12 @@ impl Sampler {
             return;
         };
         let reg = self.region;
-        let loop_mode = self.p.u(LOOP_MODE);
+        // a sliced instrument plays each slice once
+        let loop_mode = if self.slices.is_empty() {
+            self.p.u(LOOP_MODE)
+        } else {
+            0
+        };
         let ftype = self.p.u(FILTER_TYPE);
         let fmode = match ftype {
             2 => FilterMode::HighPass,
@@ -389,7 +431,7 @@ impl Sampler {
                         v.pos = (2.0 * reg.ls - v.pos).min(reg.le);
                         v.dir = 1.0;
                     }
-                    0 if (fwd && v.pos >= reg.end) || (!fwd && v.pos < reg.start) => {
+                    0 if (fwd && v.pos >= v.hi) || (!fwd && v.pos < v.lo) => {
                         v.active = false;
                         break;
                     }

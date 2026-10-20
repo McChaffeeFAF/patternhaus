@@ -1,6 +1,7 @@
 //! The panels. Each exposes `show(ui, &mut AppCore)`; none touches a `Project` directly.
 
 pub mod agents;
+pub mod audio_editor;
 pub mod automation;
 pub mod browser;
 pub mod history;

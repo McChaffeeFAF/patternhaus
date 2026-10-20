@@ -67,6 +67,13 @@ pub fn register(r: &mut Registry) {
         split,
     ));
     r.register(typed(
+        "audio.duplicate",
+        "Copy an audio clip with all its settings, by default right after itself.",
+        Scope::Compose,
+        MUTATES,
+        duplicate,
+    ));
+    r.register(typed(
         "audio.fit_to_tempo",
         "Make an audio clip follow the project tempo using its sample's BPM, sized to the whole loop.",
         Scope::Compose,
@@ -517,5 +524,35 @@ fn fit_to_tempo(ctx: &mut CommandCtx<'_>, p: ClipOnly) -> CmdResult<CommandOutpu
         ed,
         result,
         format!("fitted {} to the project tempo", entry.name),
+    ))
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Duplicate {
+    /// Audio clip id.
+    clip: ClipId,
+    /// Start of the copy in ticks; default: right after the original.
+    #[serde(default)]
+    start: Option<Tick>,
+    /// Playlist track of the copy; default: the original's track.
+    #[serde(default)]
+    track: Option<u32>,
+}
+
+fn duplicate(ctx: &mut CommandCtx<'_>, p: Duplicate) -> CmdResult<CommandOutput> {
+    let (c, a) = audio_of(ctx.project, p.clip)?;
+    let track = p.track.unwrap_or(c.track);
+    if (track as usize) >= ctx.project.tracks.len() {
+        return Err(ModelError::NoTrack(track as usize).into());
+    }
+    let start = p.start.unwrap_or(c.start + c.length);
+    let mut ed = Edit::new(ctx.project);
+    let new = ed.add_audio_clip(track, start, c.length, a)?;
+    let name = ctx.project.clip_label(&c);
+    Ok(CommandOutput::from_edit(
+        ed,
+        json!({ "clip": new, "from": p.clip, "track": track, "start": start }),
+        format!("copied {name} to track {} at tick {start}", track + 1),
     ))
 }

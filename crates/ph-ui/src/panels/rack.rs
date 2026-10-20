@@ -68,6 +68,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 core.add_channel(
                     "Sampler",
                     &InstrumentSpec::Sampler {
+                        slices: Vec::new(),
                         sample: None,
                         root_key: 60,
                         params: Default::default(),

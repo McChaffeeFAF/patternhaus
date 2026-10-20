@@ -198,6 +198,7 @@ fn file_resolver_feeds_the_sampler() {
         .add_channel(
             "Kick",
             InstrumentSpec::Sampler {
+                slices: Vec::new(),
                 sample: Some("factory:drums/haus808/kick".into()),
                 root_key: 60,
                 params: Default::default(),
@@ -236,6 +237,7 @@ fn stats_warn_about_unplayable_instruments_and_effects() {
             name: "Ghost".into(),
             color: 0,
             instrument: InstrumentSpec::Sampler {
+                slices: Vec::new(),
                 sample: Some("gen:nothing".into()),
                 root_key: 60,
                 params: Default::default(),

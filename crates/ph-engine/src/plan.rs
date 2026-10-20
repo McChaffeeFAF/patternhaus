@@ -504,9 +504,23 @@ pub(crate) struct CompileOptions {
 
 fn instrument_identity(spec: &InstrumentSpec) -> Option<String> {
     match spec {
-        InstrumentSpec::Sampler { sample, .. } => {
-            Some(format!("sampler:{}", sample.as_deref().unwrap_or("")))
-        }
+        InstrumentSpec::Sampler { sample, slices, .. } => Some(format!(
+            "sampler:{}{}",
+            sample.as_deref().unwrap_or(""),
+            // slices are baked into the node, so editing them rebuilds it
+            if slices.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ":slices={}",
+                    slices
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+        )),
         InstrumentSpec::Synth { preset, .. } => {
             Some(format!("synth:{}", preset.as_deref().unwrap_or("")))
         }
