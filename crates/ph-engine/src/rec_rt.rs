@@ -684,7 +684,6 @@ struct Armed {
     info: InputInfo,
     target: RecordTarget,
     monitor: bool,
-    insert: u32,
     latency: u32,
 }
 
@@ -783,7 +782,6 @@ impl RecCtl {
             info,
             target,
             monitor,
-            insert,
             latency,
         });
         Ok(())

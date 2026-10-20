@@ -31,6 +31,7 @@ mod player;
 pub mod plugins;
 mod pool;
 pub mod record;
+pub mod midi;
 mod rec_device;
 mod rec_rt;
 mod rt;
@@ -496,6 +497,11 @@ impl Engine {
         inner.ctl.submit_with(&project, &*inner.assets, true)?;
         inner.project = project;
         Ok(())
+    }
+
+    /// Queues a message for the audio thread (dropped when its ring is full).
+    pub(crate) fn send_command(&self, cmd: Command) {
+        let _ = self.lock().cmds.push(cmd);
     }
 
     pub fn transport(&self, cmd: TransportCommand) -> TransportStatus {

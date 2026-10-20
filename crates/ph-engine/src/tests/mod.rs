@@ -8,6 +8,7 @@ mod audio_oracle;
 mod audition;
 mod automation;
 mod oracle;
+mod midi;
 mod plugins;
 mod record;
 mod routing;

@@ -3032,6 +3032,8 @@ dependencies = [
  "ph-plugin-host",
  "ph-stretch",
  "rtrb",
+ "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
 ]
