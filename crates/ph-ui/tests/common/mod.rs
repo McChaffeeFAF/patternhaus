@@ -54,6 +54,7 @@ fn run(session: &SessionHandle, r: Request) -> ph_commands::Executed {
 
 fn sampler(name: &str) -> InstrumentSpec {
     InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some(format!("factory:drums/haus808/{name}")),
         root_key: 60,
         params: Default::default(),

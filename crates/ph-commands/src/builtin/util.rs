@@ -189,15 +189,6 @@ fn points_of(p: &Project) -> Vec<(ClipId, PointId)> {
         .collect()
 }
 
-/// The error of a command whose implementation is a later M2 track.
-pub fn unavailable<T>(command: &str, feature: &str, track: &str) -> CmdResult<T> {
-    Err(CmdError::Unavailable {
-        command: command.into(),
-        feature: feature.into(),
-        track: track.into(),
-    })
-}
-
 /// Seconds since the Unix epoch, for provenance.
 pub fn now_unix() -> Option<u64> {
     std::time::SystemTime::now()

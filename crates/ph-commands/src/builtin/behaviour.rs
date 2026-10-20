@@ -1576,6 +1576,7 @@ fn every_command_has_a_behaviour_test() {
         include_str!("m2_behaviour.rs"),
         include_str!("plugin_behaviour.rs"),
         include_str!("record_behaviour.rs"),
+        include_str!("editor_behaviour.rs"),
     ]
     .join("\n");
     let untested: Vec<_> = Registry::with_builtins()

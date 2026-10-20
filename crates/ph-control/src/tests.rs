@@ -523,6 +523,7 @@ fn opening_another_project_folder_moves_saves_and_samples_there() {
     ed.add_channel(
         "Tone",
         ph_core::InstrumentSpec::Sampler {
+            slices: Vec::new(),
             sample: Some("samples/tone.wav".into()),
             root_key: 60,
             params: Default::default(),
@@ -706,4 +707,230 @@ fn bpm_detection_slicing_and_fit_to_tempo_end_to_end() {
     // 8 beats at 128 BPM
     let rendered = ph_formats::decode::decode_file(&proj.path().join("fitted.wav")).unwrap();
     assert_eq!(rendered.frames(), 180_000);
+}
+
+/// Normalised correlation of `a` and `b` over their common length.
+fn correlation(a: &[f32], b: &[f32]) -> f64 {
+    let n = a.len().min(b.len());
+    let (mut ab, mut aa, mut bb) = (0.0f64, 0.0f64, 0.0f64);
+    for i in 0..n {
+        ab += a[i] as f64 * b[i] as f64;
+        aa += a[i] as f64 * a[i] as f64;
+        bb += b[i] as f64 * b[i] as f64;
+    }
+    ab / (aa.sqrt() * bb.sqrt()).max(1e-12)
+}
+
+#[test]
+fn audio_editor_and_slicer_end_to_end() {
+    use ph_formats::encode::{WavFormat, write_wav};
+    let proj = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(proj.path().join("samples")).unwrap();
+    let looped = drum_loop(110.0);
+    write_wav(
+        &proj.path().join("samples/loop.wav"),
+        std::slice::from_ref(&looped),
+        48_000,
+        WavFormat::Float32,
+    )
+    .unwrap();
+    let before = std::fs::read(proj.path().join("samples/loop.wav")).unwrap();
+    let s = studio(proj.path());
+    let agent = Caller::agent("claude", Grant(vec![Scope::Full]));
+    s.run(&agent, "project.set_tempo", json!({ "bpm": 110 }))
+        .unwrap();
+    let out = s
+        .run(
+            &agent,
+            "audio.add_clip",
+            json!({ "track": 0, "start": 0, "path": "samples/loop.wav" }),
+        )
+        .unwrap();
+    let (sample, clip) = (out.result["sample"].clone(), out.result["clip"].clone());
+    s.run(
+        &agent,
+        "sample.set_bpm",
+        json!({ "sample": sample, "bpm": 110.0 }),
+    )
+    .unwrap();
+
+    // a normalise writes a new file; the loop on disk is byte-identical afterwards
+    let ed = s
+        .run(
+            &agent,
+            "editor.apply",
+            json!({ "sample": sample, "operation": "normalize", "amount": -6.0 }),
+        )
+        .unwrap();
+    let new_path = ed.result["path"].as_str().unwrap().to_string();
+    assert_eq!(new_path, "samples/loop (normalize).wav");
+    assert_eq!(
+        std::fs::read(proj.path().join("samples/loop.wav")).unwrap(),
+        before
+    );
+    let edited = ph_formats::decode::decode_file(&proj.path().join(&new_path)).unwrap();
+    let peak = edited.channels[0]
+        .iter()
+        .fold(0.0f32, |m, x| m.max(x.abs()));
+    assert!((20.0 * peak.log10() + 6.0).abs() < 0.01, "{peak}");
+    assert_eq!(edited.frames(), looped.len());
+    // editing the original again does not replace the file either (nothing uses it now, so
+    // nothing is repointed); editing the edited one chains
+    let again = s
+        .run(
+            &agent,
+            "editor.apply",
+            json!({ "sample": sample, "operation": "normalize" }),
+        )
+        .unwrap();
+    assert_eq!(again.result["path"], "samples/loop (normalize) (2).wav");
+    assert_eq!(again.result["clips_repointed"], 0);
+    let chained = s
+        .run(
+            &agent,
+            "editor.apply",
+            json!({ "sample": ed.result["sample"], "operation": "reverse" }),
+        )
+        .unwrap();
+    assert_eq!(
+        chained.result["path"],
+        "samples/loop (normalize) (reverse).wav"
+    );
+    // the clip plays the edited file now; undo puts it back
+    wait_for(|| {
+        s.project().clip(ph_core::ClipId(0)).is_ok_and(|c| {
+            c.audio().is_some_and(|a| {
+                s.project().samples[&a.sample].path == "samples/loop (normalize) (reverse).wav"
+            })
+        })
+    });
+    for _ in 0..3 {
+        s.run(&agent, "history.undo", json!({})).unwrap();
+    }
+    wait_for(|| {
+        s.project().clip(ph_core::ClipId(0)).is_ok_and(|c| {
+            c.audio()
+                .is_some_and(|a| s.project().samples[&a.sample].path == "samples/loop.wav")
+        })
+    });
+
+    // slice the original and replay it from the pattern: the render matches the loop
+    s.run(&agent, "playlist.remove_clip", json!({ "clip": clip }))
+        .unwrap();
+    let made = s
+        .run(
+            &agent,
+            "slicer.make_instrument",
+            json!({ "sample": sample, "write_pattern": true }),
+        )
+        .unwrap();
+    assert_eq!(made.result["slices"], 8, "{:?}", made.result);
+    let pattern = made.result["pattern"].clone();
+    s.run(
+        &agent,
+        "playlist.add_clip",
+        json!({ "track": 0, "pattern": pattern, "start": 0, "length": 8 * 960 }),
+    )
+    .unwrap();
+    s.run(
+        &agent,
+        "file.export_audio",
+        json!({ "path": "sliced.wav", "bit_depth": 24 }),
+    )
+    .unwrap();
+    let rendered = ph_formats::decode::decode_file(&proj.path().join("sliced.wav")).unwrap();
+    let c = correlation(&rendered.channels[0], &looped);
+    // not 1.0: the Sampler's 1 ms attack and the pattern's whole-tick note starts
+    assert!(c > 0.9, "the sliced replay matches the original loop: {c}");
+}
+
+#[test]
+fn snapshot_shows_an_audio_clips_waveform_and_the_playlist_draws_it() {
+    use crate::agent::Block;
+    use ph_formats::encode::{WavFormat, write_wav};
+    let proj = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(proj.path().join("samples")).unwrap();
+    write_wav(
+        &proj.path().join("samples/loop.wav"),
+        &[drum_loop(110.0)],
+        48_000,
+        WavFormat::Float32,
+    )
+    .unwrap();
+    let s = studio(proj.path());
+    let agent = Agent::new(s.handle(), Grants::fixed(Grant(vec![Scope::Full])));
+    let human = Caller::human();
+    s.run(&human, "project.set_tempo", json!({ "bpm": 110 }))
+        .unwrap();
+    let out = s
+        .run(
+            &human,
+            "audio.add_clip",
+            json!({ "track": 0, "start": 0, "path": "samples/loop.wav" }),
+        )
+        .unwrap();
+    let (clip, sample) = (out.result["clip"].clone(), out.result["sample"].clone());
+    s.run(
+        &human,
+        "audio.set_reverse",
+        json!({ "clip": clip, "reverse": true }),
+    )
+    .unwrap();
+    s.run(
+        &human,
+        "audio.set_gain",
+        json!({ "clip": clip, "gain_db": -6.0 }),
+    )
+    .unwrap();
+    wait_for(|| s.project().clips.len() == 1);
+    let png_of = |args: serde_json::Value| {
+        let o = agent.call("claude", "snapshot", args);
+        assert!(!o.is_error, "{:?}", o.blocks);
+        let mut caption = String::new();
+        let mut png = Vec::new();
+        for b in o.blocks {
+            match b {
+                Block::Text(t) => caption.push_str(&t),
+                Block::Image(p) => png = p,
+            }
+        }
+        (caption, png)
+    };
+    let (caption, png) = png_of(json!({ "kind": "waveform", "clip": clip }));
+    assert!(png.starts_with(&[0x89, b'P', b'N', b'G']), "a PNG");
+    assert!(png.len() > 5_000, "{} bytes", png.len());
+    if let Some(dir) = std::env::var_os("PH_T6_SHOTS") {
+        let _ = std::fs::create_dir_all(&dir);
+        let at = std::path::Path::new(&dir);
+        std::fs::write(at.join("agent-snapshot-clip.png"), &png).unwrap();
+    }
+    assert!(
+        caption.contains("audio clip") && caption.contains("reversed"),
+        "{caption}"
+    );
+    assert!(caption.contains("-6.0 dB"), "{caption}");
+    let (caption, png) = png_of(json!({ "kind": "waveform", "sample": sample }));
+    assert!(png.starts_with(&[0x89, b'P', b'N', b'G']));
+    assert!(
+        caption.contains("sample") && caption.contains("loop.wav"),
+        "{caption}"
+    );
+    // the playlist overview draws the clip's waveform inside its box
+    let (_, with_wave) = png_of(json!({ "kind": "playlist" }));
+    if let Some(dir) = std::env::var_os("PH_T6_SHOTS") {
+        let at = std::path::Path::new(&dir);
+        std::fs::write(at.join("agent-snapshot-playlist.png"), &with_wave).unwrap();
+    }
+    s.run(&human, "playlist.remove_clip", json!({ "clip": clip }))
+        .unwrap();
+    wait_for(|| s.project().clips.is_empty());
+    let (_, without) = png_of(json!({ "kind": "playlist" }));
+    assert_ne!(with_wave, without);
+    // a missing or wrong target is an error that says so
+    for args in [
+        json!({ "kind": "waveform", "clip": 99 }),
+        json!({ "kind": "waveform", "sample": 99 }),
+    ] {
+        assert!(agent.call("claude", "snapshot", args).is_error);
+    }
 }

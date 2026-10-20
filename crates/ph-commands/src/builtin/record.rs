@@ -346,6 +346,7 @@ fn stop(ctx: &mut CommandCtx<'_>, p: Stop) -> CmdResult<CommandOutput> {
                         sample: Some(t.reference.clone()),
                         root_key,
                         params: params.clone(),
+                        slices: Vec::new(),
                     }
                 })?;
                 placed.push(json!({

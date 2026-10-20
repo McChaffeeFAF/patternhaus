@@ -76,6 +76,7 @@ fn params(p: &[(&str, f64)]) -> BTreeMap<String, f64> {
 
 fn drum(name: &str, p: &[(&str, f64)]) -> InstrumentSpec {
     InstrumentSpec::Sampler {
+        slices: Vec::new(),
         sample: Some(format!("factory:drums/haus808/{name}")),
         root_key: 60,
         params: params(p),

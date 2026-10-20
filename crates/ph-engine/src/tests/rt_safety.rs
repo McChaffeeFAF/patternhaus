@@ -267,3 +267,43 @@ fn the_stretcher_never_allocates_in_the_callback() {
         );
     }
 }
+
+/// `replace_project` (file open) and plugin hosting changes compile a *fresh* plan; the audio
+/// thread's `install` must accept it whatever plan it is running. (Regression: the fresh plan
+/// named plan 0 as its base, which tripped a debug assertion on the pump thread.)
+#[test]
+fn fresh_plans_are_accepted_while_the_device_runs() {
+    let base = beat();
+    let (engine, mut dev) = sim(256, 1);
+    let engine = Arc::new(engine);
+    engine.set_project(Arc::new(base.clone())).unwrap();
+    let mut out = vec![0.0f32; 256];
+    let mut r = vec![0.0f32; 256];
+    // in order: an edit, then fresh replacements, with blocks between
+    for k in 0..4 {
+        dev.pull_into(&mut out, &mut r);
+        let mut e = Edit::new(&base);
+        e.update_settings(|s| s.bpm = 100.0 + k as f64).unwrap();
+        engine.set_project(Arc::new(e.finish().0)).unwrap();
+        dev.pull_into(&mut out, &mut r);
+        engine.replace_project(Arc::new(base.clone())).unwrap();
+    }
+    // and from another thread while blocks run
+    let stop = Arc::new(AtomicBool::new(false));
+    let t = {
+        let (e, stop, p) = (engine.clone(), stop.clone(), base.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                e.replace_project(Arc::new(p.clone())).unwrap();
+                e.set_project(Arc::new(p.clone())).unwrap();
+                std::thread::sleep(std::time::Duration::from_micros(300));
+            }
+        })
+    };
+    for _ in 0..1500 {
+        dev.pull_into(&mut out, &mut r);
+    }
+    stop.store(true, Ordering::Relaxed);
+    t.join().unwrap();
+    assert!(out.iter().all(|v| v.is_finite()));
+}

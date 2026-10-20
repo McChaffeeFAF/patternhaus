@@ -313,6 +313,15 @@ pub struct AppCore {
     pub drop_zones: Vec<(egui::Rect, crate::dnd::DropZone)>,
     /// What a drag of files over the window would do, while one is hovering.
     pub drop_hover: Option<crate::dnd::DropHover>,
+    /// Waveforms decoded in the background for audio clips and the audio editor (M2/T6).
+    pub waves: crate::waveform::SharedWaves,
+    /// The view of every open audio editor window, by the sample it shows.
+    pub audio_editors: HashMap<ph_core::SampleId, crate::audio_editor::EditorState>,
+    /// The editor's clipboard: a range of a sample (the file never changes, so a range of it
+    /// stays valid after later edits).
+    pub audio_clip: Option<(ph_core::SampleId, (u64, u64))>,
+    /// Editor windows that moved to the file an edit wrote: (old, new).
+    pub editor_replaced: Vec<(WindowId, WindowId)>,
     /// Automation-clip editors' view state, by clip (M2/T7).
     pub auto_editors: HashMap<ClipId, crate::auto_editor::AutoEditorState>,
     /// Record armed: knob drags are written as automation while the song plays.
@@ -372,6 +381,8 @@ impl AppCore {
         let project = studio.session.project().map_err(|e| e.to_string())?;
         let link = EngineLink::spawn(studio.engine.clone(), ctx.clone());
         let dispatch = Dispatcher::new(studio.session.clone());
+        let paths_for_waves = paths.clone();
+        let ctx_for_waves = ctx.clone();
         let mut core = AppCore {
             ctx,
             studio,
@@ -433,6 +444,17 @@ impl AppCore {
             toolbar: Default::default(),
             drop_zones: Vec::new(),
             drop_hover: None,
+            audio_editors: HashMap::new(),
+            audio_clip: None,
+            editor_replaced: Vec::new(),
+            waves: std::sync::Arc::new(std::sync::Mutex::new(crate::waveform::WaveCache::new(
+                crate::waveform::Roots {
+                    project_dir: paths_for_waves.project_dir.clone(),
+                    assets_dir: paths_for_waves.assets_dir.clone(),
+                    library_roots: paths_for_waves.library_roots.clone(),
+                },
+                Some(ctx_for_waves),
+            ))),
             auto_editors: HashMap::new(),
             auto_armed: false,
             auto_rec: std::collections::BTreeMap::new(),
@@ -498,6 +520,20 @@ impl AppCore {
         if now - self.ram_at >= 1.0 {
             self.ram_at = now;
             self.ram_bytes = memory_stats::memory_stats().map(|m| m.physical_mem as u64);
+        }
+        // waveforms decoded in the background arrive here; the folders follow the project
+        if let Ok(mut w) = self.waves.lock() {
+            if w.roots.project_dir != self.paths.project_dir
+                || w.roots.library_roots != self.paths.library_roots
+            {
+                let roots = crate::waveform::Roots {
+                    project_dir: self.paths.project_dir.clone(),
+                    assets_dir: w.roots.assets_dir.clone(),
+                    library_roots: self.paths.library_roots.clone(),
+                };
+                w.set_roots(roots);
+            }
+            w.poll();
         }
         while let Ok(change) = self.changes.try_recv() {
             self.on_change(change);
@@ -749,6 +785,12 @@ impl AppCore {
                 }
                 if d.request.command.starts_with("record.") {
                     self.on_record_reply(&d.request.command, Some(&ex));
+                }
+                if matches!(
+                    d.request.command.as_str(),
+                    "editor.apply" | "slicer.detect" | "slicer.make_instrument"
+                ) {
+                    self.on_editor_reply(&d.request, &ex);
                 }
                 if d.request.command == "file.export_audio" {
                     let path = d.request.params["path"].as_str().unwrap_or("");

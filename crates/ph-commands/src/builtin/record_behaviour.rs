@@ -153,6 +153,7 @@ impl Rig {
                     sample: None,
                     root_key: 60,
                     params: Default::default(),
+                    slices: Vec::new(),
                 },
             )
             .unwrap();

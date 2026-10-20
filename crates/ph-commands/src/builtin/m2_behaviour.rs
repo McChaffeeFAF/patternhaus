@@ -702,36 +702,3 @@ fn automation_record_thins_samples_and_holds_across_pauses() {
     );
     assert_eq!(one["points"].as_array().unwrap().len(), 1);
 }
-
-#[test]
-fn m2_stubs_name_their_track() {
-    let mut r = Rig::new();
-    let cases: [(&str, Value, &str); 3] = [
-        (
-            "slicer.make_instrument",
-            json!({ "sample": 0, "write_pattern": true }),
-            "T6",
-        ),
-        ("editor.open", json!({ "sample": 0 }), "T6"),
-        (
-            "editor.apply",
-            json!({ "sample": 0, "operation": "normalize" }),
-            "T6",
-        ),
-    ];
-    for (cmd, params, track) in cases {
-        match r.err(cmd, params) {
-            CmdError::Unavailable {
-                command, track: t, ..
-            } => {
-                assert_eq!((command.as_str(), t.as_str()), (cmd, track));
-            }
-            e => panic!("{cmd}: {e}"),
-        }
-    }
-    // params are still checked first, so agents learn the schema now
-    assert!(matches!(
-        r.err("editor.open", json!({ "sampl": 0 })),
-        CmdError::BadParams { .. }
-    ));
-}

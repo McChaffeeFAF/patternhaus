@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 
-const PANELS: &str = "browser, channel_rack, piano_roll, playlist, mixer, history, agents, instrument:<channel_id>, effect:<insert>:<slot>";
+const PANELS: &str = "browser, channel_rack, piano_roll, playlist, mixer, history, agents, instrument:<channel_id>, effect:<insert>:<slot>, audio_editor:<sample_id>";
 
 pub fn register(r: &mut Registry) {
     r.register(typed(
@@ -51,7 +51,8 @@ pub fn register(r: &mut Registry) {
 struct Panel {
     /// Panel name: browser, channel_rack, piano_roll, playlist, mixer, history or agents.
     /// Also `instrument:<channel_id>` (a channel's instrument window, e.g. `instrument:2`)
-    /// and `effect:<insert>:<slot>` (an effect's window, slots counted from 0, e.g. `effect:4:1`).
+    /// and `effect:<insert>:<slot>` (an effect's window, slots counted from 0, e.g. `effect:4:1`),
+    /// and `audio_editor:<sample_id>` (the audio editor on a sample, see editor.open).
     panel: String,
 }
 
@@ -73,6 +74,15 @@ fn check_panel(project: &ph_core::Project, p: &Panel) -> CmdResult<()> {
         project
             .channel(ChannelId(c))
             .map_err(|_| bad(format!("no channel {c}")))?;
+        return Ok(());
+    }
+    if let Some(id) = p.panel.strip_prefix("audio_editor:") {
+        let s = id
+            .parse::<u32>()
+            .map_err(|_| bad(format!("bad sample id in {:?}", p.panel)))?;
+        project
+            .sample(ph_core::SampleId(s))
+            .map_err(|_| bad(format!("no sample {s}")))?;
         return Ok(());
     }
     if let Some(rest) = p.panel.strip_prefix("effect:") {

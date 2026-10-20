@@ -23,6 +23,7 @@ pub fn synth_presets() -> Vec<&'static str> {
 pub fn instrument_descriptor(spec: &InstrumentSpec) -> Result<NodeDescriptor, String> {
     let bare = match spec {
         InstrumentSpec::Sampler { root_key, .. } => InstrumentSpec::Sampler {
+            slices: Vec::new(),
             sample: None,
             root_key: *root_key,
             params: Default::default(),
@@ -83,6 +84,7 @@ mod tests {
         .unwrap();
         assert!(synth.params.len() > 50);
         let sampler = instrument_descriptor(&InstrumentSpec::Sampler {
+            slices: Vec::new(),
             sample: Some("factory:drums/haus808/kick".into()),
             root_key: 60,
             params: Default::default(),

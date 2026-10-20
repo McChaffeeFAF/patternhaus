@@ -435,6 +435,7 @@ impl<'a> Importer<'a> {
             let label = ch.sample_path.as_deref().map(stem);
             (
                 InstrumentSpec::Sampler {
+                    slices: Vec::new(),
                     sample,
                     root_key: 60,
                     params: BTreeMap::new(),

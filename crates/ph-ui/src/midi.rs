@@ -119,6 +119,16 @@ impl AppCore {
             let c = ctx.clone();
             midi.set_waker(Some(Arc::new(move || c.request_repaint())));
         }
+        // a finished take opens in the audio editor
+        if let Some(s) = self.rec.open_take
+            && self.project.samples.contains_key(&s)
+        {
+            self.rec.open_take = None;
+            self.window_requests.push((
+                crate::workspace::WindowId::AudioEditor(s),
+                crate::core::PanelAction::Open,
+            ));
+        }
         let want = self.sel.channel;
         if self.midi.told != Some(want) {
             self.midi.told = Some(want);

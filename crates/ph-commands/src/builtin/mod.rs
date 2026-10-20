@@ -15,11 +15,13 @@ mod automation;
 #[cfg(test)]
 mod behaviour;
 mod channel;
+mod editor;
+#[cfg(test)]
+mod editor_behaviour;
 mod file;
 pub(crate) mod history;
 #[cfg(test)]
 mod m2_behaviour;
-mod m2_stubs;
 mod mixer;
 mod note;
 mod pattern;
@@ -65,6 +67,6 @@ pub fn register_builtin(r: &mut Registry) {
     automation::register(r);
     slicer::register(r);
     record::register(r);
-    m2_stubs::register(r);
+    editor::register(r);
     plugin::register(r);
 }

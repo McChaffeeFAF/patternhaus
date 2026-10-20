@@ -173,6 +173,63 @@ impl PhApp {
         }
     }
 
+    /// The audio editor follows its sample: to the file an edit wrote, back along `prev` when
+    /// an undo took that file away, or closed when nothing is left to show.
+    fn follow_editors(&mut self) {
+        // the editor holds decoded samples only while its window is open
+        let keep: std::collections::HashSet<String> = self
+            .ws
+            .visible_in_z_order()
+            .into_iter()
+            .filter_map(|w| match w {
+                WindowId::AudioEditor(s) => {
+                    self.core.project.samples.get(&s).map(|e| e.path.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        if let Ok(mut w) = self.core.waves.lock() {
+            w.drop_unused_data(&keep);
+        }
+        for (old, new) in std::mem::take(&mut self.core.editor_replaced) {
+            self.ws.replace(old, new);
+        }
+        let p = self.core.project.clone();
+        let open: Vec<WindowId> = self
+            .ws
+            .ids()
+            .filter(|w| matches!(w, WindowId::AudioEditor(_)))
+            .collect();
+        for w in open {
+            let WindowId::AudioEditor(s) = w else {
+                continue;
+            };
+            if p.samples.contains_key(&s) {
+                continue;
+            }
+            let back = self.core.audio_editors.get_mut(&s).and_then(|e| {
+                while let Some(n) = e.prev.pop() {
+                    if p.samples.contains_key(&n) {
+                        return Some(n);
+                    }
+                }
+                None
+            });
+            match back {
+                Some(n) => {
+                    if let Some(st) = self.core.audio_editors.remove(&s) {
+                        self.core.audio_editors.insert(n, st);
+                    }
+                    self.ws.replace(w, WindowId::AudioEditor(n));
+                }
+                None => {
+                    self.core.audio_editors.remove(&s);
+                    self.ws.remove(w);
+                }
+            }
+        }
+    }
+
     fn process_panel_requests(&mut self) {
         for (p, a) in std::mem::take(&mut self.core.panel_requests) {
             match a {
@@ -209,6 +266,7 @@ impl PhApp {
                 .mixer
                 .get(i.0 as usize)
                 .is_some_and(|m| (s as usize) < m.effects.len()),
+            WindowId::AudioEditor(s) => p.samples.contains_key(&s),
             WindowId::Automation(c) => p.clips.get(&c).is_some_and(|c| c.automation().is_some()),
             _ => true,
         }
@@ -401,6 +459,7 @@ impl PhApp {
         self.run_ready();
         self.follow_effects();
         self.prune_windows();
+        self.follow_editors();
         self.process_panel_requests();
         self.handle_keys(&ctx);
 

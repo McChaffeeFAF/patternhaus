@@ -41,6 +41,8 @@ pub struct RecorderUi {
     /// The playlist track for a new take (0-based).
     pub track: u32,
     pub channel: Option<ChannelId>,
+    /// A take to open in the audio editor once the project snapshot holds it.
+    pub open_take: Option<ph_core::SampleId>,
     /// The popup has asked for the inputs since it opened.
     asked: bool,
 }
@@ -87,6 +89,9 @@ impl AppCore {
                 if let Some(s) = &ex.summary {
                     self.toast(ToastKind::Info, s.clone());
                 }
+                self.rec.open_take = ex.result["takes"][0]["sample"]
+                    .as_u64()
+                    .map(|n| ph_core::SampleId(n as u32));
                 for w in ex.result["warnings"].as_array().into_iter().flatten() {
                     if let Some(w) = w.as_str() {
                         self.toast(ToastKind::Warn, w.to_string());

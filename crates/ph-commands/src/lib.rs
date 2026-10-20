@@ -6,6 +6,7 @@
 //! the history used for per-author undo. Side effects outside the project (transport,
 //! rendering, files, UI) go through the [`Host`] port.
 
+mod audio_edit;
 mod builtin;
 mod host;
 mod queue;

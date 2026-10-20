@@ -594,6 +594,9 @@ pub struct PlaylistClipBox {
     pub length: u64,
     pub label: String,
     pub color: u32,
+    /// Audio clips: min and max of what the clip plays, evenly spread over its length (-1..1),
+    /// drawn inside the box. Empty for other clips.
+    pub wave: Vec<(f32, f32)>,
 }
 
 pub struct PlaylistSpec<'a> {
@@ -673,10 +676,38 @@ pub fn playlist(spec: &PlaylistSpec) -> Vec<u8> {
         } else {
             [0xf4, 0xf6, 0xfa]
         };
-        c.text(&label, xa + 6, y + (row_h - th()) / 2 - 1, tc);
+        // an audio clip's waveform, over the full clip box (the label stays on top)
+        if !clip.wave.is_empty() {
+            let (bx, by, bw, bh) = (xa + 1, y + 4, (xb - xa - 2).max(1), row_h - 10);
+            let mid = by + bh / 2;
+            let half = (bh / 2 - 2).max(1) as f32;
+            let full = (clip.length as f64).max(1.0);
+            let ink = mix(base, [0xff, 0xff, 0xff], 0.55);
+            for px in 0..bw {
+                // the part of the clip this pixel column shows, clipped to the visible range
+                let t0 = s.max(axis.t0) + (e.min(axis.t1) - s.max(axis.t0)) * px as f64 / bw as f64;
+                let t1 = s.max(axis.t0)
+                    + (e.min(axis.t1) - s.max(axis.t0)) * (px + 1) as f64 / bw as f64;
+                let n = clip.wave.len();
+                let i0 = (((t0 - s) / full) * n as f64).floor().max(0.0) as usize;
+                let i1 = ((((t1 - s) / full) * n as f64).ceil() as usize).clamp(i0 + 1, n);
+                if i0 >= n {
+                    break;
+                }
+                let (mut lo, mut hi) = (0.0f32, 0.0f32);
+                for &(a, b) in &clip.wave[i0..i1] {
+                    lo = lo.min(a);
+                    hi = hi.max(b);
+                }
+                let ytop = mid - (hi.clamp(-1.0, 1.0) * half) as i32;
+                let ybot = mid - (lo.clamp(-1.0, 1.0) * half) as i32;
+                c.rect(bx + px, ytop, 1, (ybot - ytop).max(1), ink);
+            }
+        }
+        c.text(&label, xa + 6, y + 6, tc);
     }
     c.text(
-        "EACH BOX IS A CLIP: LABEL = PATTERN NAME.",
+        "EACH BOX IS A CLIP: LABEL = PATTERN NAME, AUDIO CLIPS SHOW THEIR WAVEFORM.",
         x0,
         top + rows * row_h + 4,
         DIM,
@@ -802,6 +833,7 @@ mod tests {
             length: 7680,
             label: "BEAT".into(),
             color: 0x5f9ea0,
+            wave: vec![],
         }];
         let png = playlist(&PlaylistSpec {
             title: "PLAYLIST".into(),

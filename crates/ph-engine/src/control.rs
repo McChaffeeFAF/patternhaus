@@ -99,7 +99,10 @@ impl Controller {
                 }
             }
         }
-        let empty = Shadow::empty();
+        // A fresh plan carries nothing over, but it still replaces the plan the audio thread
+        // runs (`installed`), and `Runtime::install` checks that: so it names that plan as its base.
+        let mut empty = Shadow::empty();
+        empty.id = self.installed.id;
         if fresh {
             // relative sample paths now mean files in another folder
             self.audio.clear();
