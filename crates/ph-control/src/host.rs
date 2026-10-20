@@ -95,9 +95,7 @@ impl EngineHost {
         };
         TransportState {
             playing: s.playing,
-            recording: self.recording
-                || self.engine.is_recording()
-                || self.note_target.is_some(),
+            recording: self.recording || self.engine.is_recording() || self.note_target.is_some(),
             mode,
             pattern,
             position: s.position,
@@ -467,8 +465,7 @@ impl Host for EngineHost {
             ));
         }
         if audio > 0 {
-            let mut opts =
-                ph_engine::record::RecordOptions::new(self.project_dir.join("samples"));
+            let mut opts = ph_engine::record::RecordOptions::new(self.project_dir.join("samples"));
             opts.count_in_bars = start.count_in_bars;
             opts.punch = start.punch;
             opts.latency_ms = start.latency_ms;

@@ -17,6 +17,8 @@ are for later tracks. Each must still pass `cargo deny check` when it is added, 
 | Loading VST3 modules (T3) | `libloading` | 0.8 | ISC | | OK (already in the tree through clack-host) |
 | Building the crash-guard shim (T3) | `cc` | 1 | MIT OR Apache-2.0 | | OK (already in the tree) |
 | Win32 message pump, editor frames (T3) | `windows-sys` | 0.61 | MIT OR Apache-2.0 | | OK (already in the tree; T3 enables more features) |
+| MIDI input (T8) | `midir` | 0.11.1 | MIT | WinMM on Windows, CoreMIDI on macOS, ALSA on Linux (system APIs; no JACK feature) | OK. `cargo deny check` passes; `cargo xtask notices` regenerated (added in T8) |
+| Take files (T8: `ph-engine` writes WAVs as they record) | `hound` | 3.5 | MIT OR Apache-2.0 | | OK (already in the tree through `ph-formats`) |
 
 Rubber Band is GPL and stays out (M2 milestone, "Stretch engine").
 

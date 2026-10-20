@@ -169,13 +169,7 @@ impl SimulatedInputs {
 
     /// Adds an input playing `data` (`[channel][frame]`) with `latency` frames of simulated
     /// device latency. Ids count up from 0.
-    pub fn with(
-        mut self,
-        name: &str,
-        sample_rate: u32,
-        data: Vec<Vec<f32>>,
-        latency: u32,
-    ) -> Self {
+    pub fn with(mut self, name: &str, sample_rate: u32, data: Vec<Vec<f32>>, latency: u32) -> Self {
         let id = InputId(self.entries.len() as u32);
         let info = SimulatedInput::new(id, name, sample_rate, data.clone())
             .info()

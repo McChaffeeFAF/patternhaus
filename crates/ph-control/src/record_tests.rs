@@ -50,7 +50,9 @@ fn run(s: &Studio, cmd: &str, params: Value) -> Value {
 
 /// A stereo ramp, 8 s long, so a take of any realistic length stays inside it.
 fn inputs() -> Box<SimulatedInputs> {
-    let l: Vec<f32> = (0..8 * 48_000).map(|i| (i % 1000) as f32 / 1000.0).collect();
+    let l: Vec<f32> = (0..8 * 48_000)
+        .map(|i| (i % 1000) as f32 / 1000.0)
+        .collect();
     let r = l.iter().map(|v| -v).collect();
     Box::new(SimulatedInputs::new().with("Scripted: In 1-2", 48_000, vec![l, r], 240))
 }
@@ -62,13 +64,19 @@ fn an_agent_records_a_take_into_the_project_in_one_undo_step() {
     s.engine.set_input_provider(Some(inputs()));
     let v = run(&s, "record.list_inputs", json!({}));
     assert_eq!(v["inputs"][0]["name"], "Scripted: In 1-2");
-    run(&s, "record.arm", json!({ "input": 0, "track": 0, "monitor": false }));
+    run(
+        &s,
+        "record.arm",
+        json!({ "input": 0, "track": 0, "monitor": false }),
+    );
     let v = run(&s, "record.list_inputs", json!({}));
     assert_eq!(v["inputs"][0]["armed"], true);
     assert_eq!(v["latency"]["input_frames"], 240);
     run(&s, "record.start", json!({}));
     assert!(run(&s, "transport.get_state", json!({}))["recording"] == true);
-    wait_for("the transport to move", || s.engine.status().position > 1920);
+    wait_for("the transport to move", || {
+        s.engine.status().position > 1920
+    });
     let before_clips = s.project().clips.len();
     let out = run(&s, "record.stop", json!({}));
     let clip = &out["takes"][0];
@@ -82,7 +90,9 @@ fn an_agent_records_a_take_into_the_project_in_one_undo_step() {
     assert_eq!(wav.spec().channels, 2);
     assert!(wav.duration() > 4_000, "{} frames", wav.duration());
     // and the project holds the sample and the clip
-    wait_for("the snapshot", || s.project().clips.len() == before_clips + 1);
+    wait_for("the snapshot", || {
+        s.project().clips.len() == before_clips + 1
+    });
     let p = s.project();
     let entry = p.sample_by_path(file).expect("registered");
     assert!(matches!(
@@ -109,7 +119,10 @@ fn an_agent_records_a_take_into_the_project_in_one_undo_step() {
     wait_for("the transport to move", || s.engine.status().position > 480);
     let out = run(&s, "record.stop", json!({}));
     assert!(
-        out["takes"][0]["file"].as_str().unwrap().starts_with("samples/Take 2"),
+        out["takes"][0]["file"]
+            .as_str()
+            .unwrap()
+            .starts_with("samples/Take 2"),
         "{out}"
     );
 }
@@ -146,7 +159,11 @@ fn midi_notes_played_while_recording_land_in_the_pattern() {
         .clone();
     let chan = ph_core::ChannelId(ch.as_u64().unwrap() as u32);
     wait_for("the snapshot", || s.project().channels.contains_key(&chan));
-    run(&s, "transport.set_mode", json!({ "mode": "pattern", "pattern": pat }));
+    run(
+        &s,
+        "transport.set_mode",
+        json!({ "mode": "pattern", "pattern": pat }),
+    );
     // the selected channel gets the keyboard
     s.midi.set_target_channel(Some(chan));
     let out = run(&s, "record.start", json!({}));
@@ -217,14 +234,25 @@ fn midi_learn_and_mappings_work_through_commands_and_persist_per_user() {
     assert_eq!(m["mappings"][0]["device"], "Scripted Keys");
     assert_eq!(m["mappings"][0]["target"], "tempo");
     // by hand
-    run(&s, "midi.map", json!({ "controller": 1, "target": "tempo" }));
+    run(
+        &s,
+        "midi.map",
+        json!({ "controller": 1, "target": "tempo" }),
+    );
     // the file is in the config folder, not the project folder
     let text = std::fs::read_to_string(cfg.path().join("midi-mappings.json")).unwrap();
-    assert!(text.contains("\"controller\": 74") && text.contains("\"controller\": 1"), "{text}");
+    assert!(
+        text.contains("\"controller\": 74") && text.contains("\"controller\": 1"),
+        "{text}"
+    );
     assert!(!dir.path().join("midi-mappings.json").exists());
     // a new session in the same config folder finds them
     assert_eq!(MappingStore::open(cfg.path()).list().len(), 2);
-    run(&s, "midi.unmap", json!({ "controller": 74, "device": "Scripted Keys" }));
+    run(
+        &s,
+        "midi.unmap",
+        json!({ "controller": 74, "device": "Scripted Keys" }),
+    );
     run(&s, "midi.unmap", json!({ "controller": 1 }));
     assert_eq!(MappingStore::open(cfg.path()).list().len(), 0);
 }

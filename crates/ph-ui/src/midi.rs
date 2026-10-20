@@ -41,7 +41,10 @@ pub struct MidiView {
 pub enum MidiRequest {
     Learn(ParamPath),
     CancelLearn,
-    Unmap { controller: u8, device: Option<String> },
+    Unmap {
+        controller: u8,
+        device: Option<String>,
+    },
 }
 
 pub fn publish(ctx: &egui::Context, view: MidiView) {
@@ -211,14 +214,23 @@ mod tests {
     fn controller_values_scale_into_the_targets_range() {
         let p = Project::empty("t");
         let ch = ChannelId(0);
-        assert_eq!(plain_value(&p, &ParamPath::ChannelVolume(ch), 0.5), Some(0.5));
+        assert_eq!(
+            plain_value(&p, &ParamPath::ChannelVolume(ch), 0.5),
+            Some(0.5)
+        );
         assert_eq!(plain_value(&p, &ParamPath::ChannelPan(ch), 0.0), Some(-1.0));
         assert_eq!(plain_value(&p, &ParamPath::ChannelPan(ch), 1.0), Some(1.0));
-        assert_eq!(plain_value(&p, &ParamPath::InsertVolume(InsertId(1)), 1.0), Some(2.0));
+        assert_eq!(
+            plain_value(&p, &ParamPath::InsertVolume(InsertId(1)), 1.0),
+            Some(2.0)
+        );
         assert_eq!(plain_value(&p, &ParamPath::Tempo, 0.0), Some(10.0));
         assert_eq!(plain_value(&p, &ParamPath::Tempo, 1.0), Some(999.0));
         // out of range input is clamped
-        assert_eq!(plain_value(&p, &ParamPath::ChannelVolume(ch), 7.0), Some(1.0));
+        assert_eq!(
+            plain_value(&p, &ParamPath::ChannelVolume(ch), 7.0),
+            Some(1.0)
+        );
         // a mute is a switch at the halfway point
         let mute = ParamPath::InsertMute(InsertId(1));
         assert_eq!(plain_value(&p, &mute, 0.4), Some(0.0));

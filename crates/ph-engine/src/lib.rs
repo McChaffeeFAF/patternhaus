@@ -25,15 +25,15 @@ mod control;
 mod device;
 #[cfg(all(test, loom))]
 mod loom_models;
+pub mod midi;
 mod offline;
 mod plan;
 mod player;
 pub mod plugins;
 mod pool;
-pub mod record;
-pub mod midi;
 mod rec_device;
 mod rec_rt;
+pub mod record;
 mod rt;
 mod runtime;
 mod sched;
@@ -311,7 +311,9 @@ fn build(
         port.clone(),
     );
     let rec = rec_rt::RecCtl::new(
-        rt.rig.take_handles().expect("a new runtime has its rig handles"),
+        rt.rig
+            .take_handles()
+            .expect("a new runtime has its rig handles"),
         settings.sample_rate,
         settings.max_frames,
     );
@@ -688,7 +690,7 @@ impl Engine {
                 .project
                 .channels
                 .get(c)
-                .map(|ch| ch.insert.0 as u32)
+                .map(|ch| ch.insert.0)
                 .ok_or_else(|| EngineError::Device(format!("channel {} does not exist", c.0)))?,
             record::RecordTarget::Track(_) => 0,
         };

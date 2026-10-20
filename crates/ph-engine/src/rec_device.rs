@@ -174,7 +174,8 @@ impl RingInput {
         max_frames: usize,
     ) -> EngineResult<RingInput> {
         let name = device_name.to_string();
-        let (ready_tx, ready_rx) = mpsc::channel::<EngineResult<(u16, u16, rtrb::Consumer<f32>, Arc<InState>)>>();
+        let (ready_tx, ready_rx) =
+            mpsc::channel::<EngineResult<(u16, u16, rtrb::Consumer<f32>, Arc<InState>)>>();
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
             .name("ph-engine-input".into())

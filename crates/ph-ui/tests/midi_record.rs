@@ -130,7 +130,9 @@ fn midi_learn_from_a_knobs_menu_maps_the_next_controller_and_it_moves_the_knob()
     });
     // a controller arrives and is mapped, with a note to the person
     assert!(fake.send("Scripted Keys", &[0xb0, 21, 10]));
-    until(&mut h, "the mapping", |a| a.core.studio.midi.mappings().len() == 1);
+    until(&mut h, "the mapping", |a| {
+        a.core.studio.midi.mappings().len() == 1
+    });
     let m = &h.state().core.studio.midi.mappings()[0];
     assert_eq!((m.controller, m.target.clone()), (21, target.clone()));
     assert_eq!(h.state().core.studio.midi.learning(), None);
@@ -139,7 +141,9 @@ fn midi_learn_from_a_knobs_menu_maps_the_next_controller_and_it_moves_the_knob()
     });
     // moving it moves the knob: the value arrives as an ordinary edit
     fake.send("Scripted Keys", &[0xb0, 21, 127]);
-    until(&mut h, "volume 1.0", |a| (volume(a, ids.kick) - 1.0).abs() < 1e-6);
+    until(&mut h, "volume 1.0", |a| {
+        (volume(a, ids.kick) - 1.0).abs() < 1e-6
+    });
     fake.send("Scripted Keys", &[0xb0, 21, 0]);
     until(&mut h, "volume 0", |a| volume(a, ids.kick).abs() < 1e-6);
     // the same move is undoable like a knob drag
@@ -151,7 +155,9 @@ fn midi_learn_from_a_knobs_menu_maps_the_next_controller_and_it_moves_the_knob()
     assert!(h.query_by_label("Remove MIDI mapping (CC 21)").is_some());
     h.get_by_label("Remove MIDI mapping (CC 21)").click();
     frames(&mut h, 3);
-    until(&mut h, "the mapping to go", |a| a.core.studio.midi.mappings().is_empty());
+    until(&mut h, "the mapping to go", |a| {
+        a.core.studio.midi.mappings().is_empty()
+    });
 }
 
 #[test]
@@ -163,13 +169,17 @@ fn cancelling_learn_and_unmappable_controls() {
     h.get_by_label("MIDI learn…").click();
     frames(&mut h, 3);
     let target = ParamPath::ChannelVolume(ids.kick);
-    until(&mut h, "learning", |a| a.core.studio.midi.learning() == Some(target.clone()));
+    until(&mut h, "learning", |a| {
+        a.core.studio.midi.learning() == Some(target.clone())
+    });
     // while learning, the same menu offers to cancel
     let at = h.get_by_label("Kick volume").rect().center();
     click_at(&mut h, at, PointerButton::Secondary);
     h.get_by_label("Cancel MIDI learn").click();
     frames(&mut h, 3);
-    until(&mut h, "learning to end", |a| a.core.studio.midi.learning().is_none());
+    until(&mut h, "learning to end", |a| {
+        a.core.studio.midi.learning().is_none()
+    });
 }
 
 #[test]
@@ -271,7 +281,9 @@ fn the_record_button_arms_records_and_places_a_take_through_commands() {
     assert!(h.query_by_label_contains("Scripted: In 1-2").is_some());
     // arm it: a command, and the list follows
     h.get_by_label_contains("Scripted: In 1-2").click();
-    until(&mut h, "armed", |a| a.core.rec.inputs.iter().any(|i| i.armed));
+    until(&mut h, "armed", |a| {
+        a.core.rec.inputs.iter().any(|i| i.armed)
+    });
     assert_eq!(
         h.state().core.studio.engine.armed_inputs().len(),
         1,
@@ -281,7 +293,9 @@ fn the_record_button_arms_records_and_places_a_take_through_commands() {
     let clips = h.state().core.project.clips.len();
     h.get_by_label("REC").click();
     until(&mut h, "recording", |a| a.core.live().recording);
-    until(&mut h, "the song to move", |a| a.core.live().status.position > 480);
+    until(&mut h, "the song to move", |a| {
+        a.core.live().status.position > 480
+    });
     // closing the popup first: Stop is in the transport row
     h.event(Event::Key {
         key: egui::Key::Escape,
@@ -311,7 +325,10 @@ fn the_record_button_arms_records_and_places_a_take_through_commands() {
     assert!(clip.length > 0);
     assert!(!app.core.live().recording);
     assert!(
-        app.core.toasts.iter().any(|t| t.text.contains("recorded 1 take")),
+        app.core
+            .toasts
+            .iter()
+            .any(|t| t.text.contains("recorded 1 take")),
         "{:?}",
         app.core.toasts.iter().map(|t| &t.text).collect::<Vec<_>>()
     );
@@ -323,8 +340,14 @@ fn recording_with_nothing_armed_says_so_and_does_not_stick() {
     // song mode: nothing to record
     h.get_by_label("REC").click();
     until(&mut h, "the explanation", |a| {
-        a.core.toasts.iter().any(|t| t.text.contains("nothing to record"))
+        a.core
+            .toasts
+            .iter()
+            .any(|t| t.text.contains("nothing to record"))
     });
-    assert!(!h.state().core.rec.active, "a failed start leaves the button off");
+    assert!(
+        !h.state().core.rec.active,
+        "a failed start leaves the button off"
+    );
     assert!(!h.state().core.live().recording);
 }

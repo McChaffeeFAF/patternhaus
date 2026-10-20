@@ -162,7 +162,12 @@ impl RecorderUi {
     }
 }
 
-fn inputs_popup(ui: &mut Ui, core: &mut AppCore, live: &crate::live::Live, theme: &crate::theme::Theme) {
+fn inputs_popup(
+    ui: &mut Ui,
+    core: &mut AppCore,
+    live: &crate::live::Live,
+    theme: &crate::theme::Theme,
+) {
     let c = &theme.colors;
     ui.horizontal(|ui| {
         ui.label(widgets::caption(theme, "Audio inputs"));
@@ -311,7 +316,10 @@ fn inputs_popup(ui: &mut Ui, core: &mut AppCore, live: &crate::live::Live, theme
     ui.horizontal(|ui| {
         let mut punch = core.rec.punch_to_loop;
         if ui
-            .add_enabled(has_loop, egui::Checkbox::new(&mut punch, "Punch in and out over the loop region"))
+            .add_enabled(
+                has_loop,
+                egui::Checkbox::new(&mut punch, "Punch in and out over the loop region"),
+            )
             .on_disabled_hover_text("Set a loop region first (shift-drag the playlist ruler)")
             .changed()
         {

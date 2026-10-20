@@ -248,7 +248,10 @@ fn start(ctx: &mut CommandCtx<'_>, p: Start) -> CmdResult<CommandOutput> {
     })?;
     let what = match (started.audio_inputs, started.notes) {
         (0, true) => "recording MIDI notes".to_string(),
-        (n, true) => format!("recording {} and MIDI notes", plural(n as usize, "input", "inputs")),
+        (n, true) => format!(
+            "recording {} and MIDI notes",
+            plural(n as usize, "input", "inputs")
+        ),
         (n, false) => format!("recording {}", plural(n as usize, "input", "inputs")),
     };
     Ok(said(
@@ -432,9 +435,9 @@ struct Map {
 fn check_target(p: &Project, t: &ParamPath) -> CmdResult<()> {
     let ok = match t {
         ParamPath::Tempo => true,
-        ParamPath::ChannelVolume(c)
-        | ParamPath::ChannelPan(c)
-        | ParamPath::ChannelParam(c, _) => p.channels.contains_key(c),
+        ParamPath::ChannelVolume(c) | ParamPath::ChannelPan(c) | ParamPath::ChannelParam(c, _) => {
+            p.channels.contains_key(c)
+        }
         ParamPath::InsertVolume(i)
         | ParamPath::InsertPan(i)
         | ParamPath::InsertMute(i)

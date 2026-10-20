@@ -69,18 +69,21 @@ pub(crate) struct TakeShared {
     pub dropped: AtomicU64,
     /// Latency compensation in frames, fixed when capturing starts.
     pub latency: AtomicU32,
-    /// The audio thread pushed its last frame.
-    pub done: AtomicBool,
+    /// The audio thread pushed its last frame (or the control side asked to stop). Set with
+    /// `Release` after the last push; the writer loads it with `Acquire` *before* it drains
+    /// the ring, so a writer that sees it and then finds the ring empty has seen every frame
+    /// (`loom_models::take_done_flag_publishes_every_pushed_frame`).
+    pub done: crate::sync::AtomicBool,
 }
 
 impl TakeShared {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             start_sample: AtomicI64::new(i64::MIN),
             frames: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             latency: AtomicU32::new(0),
-            done: AtomicBool::new(false),
+            done: crate::sync::AtomicBool::new(false),
         }
     }
 }
@@ -336,7 +339,8 @@ impl Rig {
                 }
                 RigMsg::Monitor(slot, on) => {
                     let i = (slot as usize).min(MAX_INPUTS - 1);
-                    if on && !self.slots[i].monitor
+                    if on
+                        && !self.slots[i].monitor
                         && let Some(s) = self.slots[i].source.as_mut()
                     {
                         s.flush();
@@ -402,6 +406,7 @@ impl Rig {
     pub fn count_in_step(&mut self, out: &mut [Vec<f32>; 2], n: usize, sample_rate: f64) -> bool {
         let elapsed = self.count_total - self.count_left;
         let len = (CLICK_SECONDS * sample_rate) as i64;
+        #[allow(clippy::needless_range_loop)] // two channels written at one index
         for f in 0..n {
             let t = elapsed + f as i64;
             let beat = t / self.beat;
@@ -864,7 +869,8 @@ impl RecCtl {
         if self.is_recording() {
             return Err(err("already recording"));
         }
-        std::fs::create_dir_all(&opts.dir).map_err(|e| err(format!("{}: {e}", opts.dir.display())))?;
+        std::fs::create_dir_all(&opts.dir)
+            .map_err(|e| err(format!("{}: {e}", opts.dir.display())))?;
         let multi = self.armed.len() > 1;
         let mut packet = StartPacket {
             count_in,
@@ -872,15 +878,15 @@ impl RecCtl {
             per_bar,
             punch,
             captures: [None, None, None, None],
-            latency_override: opts.latency_ms.map(|ms| {
-                (ms.max(0.0) / 1000.0 * self.sample_rate as f64).round() as u32
-            }),
+            latency_override: opts
+                .latency_ms
+                .map(|ms| (ms.max(0.0) / 1000.0 * self.sample_rate as f64).round() as u32),
         };
         let mut takes = Vec::new();
         let ring = ((RING_SECONDS * self.sample_rate as f64) as usize).max(4096) * 2;
         for a in &self.armed {
-            let (file, path, f) = create_take_file(&opts.dir, &opts.name, multi.then(|| &a.info))
-                .map_err(err)?;
+            let (file, path, f) =
+                create_take_file(&opts.dir, &opts.name, multi.then_some(&a.info)).map_err(err)?;
             let spec = hound::WavSpec {
                 channels: a.info.channels.clamp(1, 2),
                 sample_rate: self.sample_rate,
@@ -955,7 +961,7 @@ impl RecCtl {
                 let _ = std::fs::remove_file(&t.path);
                 continue;
             }
-            let start = tempo.tick_floor(start_sample).max(0) as Tick;
+            let start = tempo.tick_floor(start_sample) as Tick;
             let end = tempo.tick_floor(start_sample + written.frames as i64) as Tick;
             out.push(RecordedFile {
                 input: a.info.clone(),
@@ -1001,7 +1007,13 @@ fn create_take_file(
         let clean: String = i
             .name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         format!(" - {}", clean.trim())
     });

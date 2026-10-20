@@ -590,9 +590,7 @@ pub fn set_target(project: &ph_core::Project, target: &ParamPath, value: f64) ->
             channel_pan(*c, value as f32)
         }
         ParamPath::ChannelParam(c, p) => match &project.channels.get(c)?.instrument {
-            InstrumentSpec::Plugin { .. } => {
-                plugin_param(PluginTarget::Channel(*c), p, value)
-            }
+            InstrumentSpec::Plugin { .. } => plugin_param(PluginTarget::Channel(*c), p, value),
             _ => channel_param(*c, p, value),
         },
         ParamPath::InsertVolume(i) => {
@@ -645,7 +643,12 @@ pub fn midi_unmap(controller: u8, device: Option<&str>) -> Request {
 pub fn record_list_inputs() -> Request {
     req("record.list_inputs", json!({}))
 }
-pub fn record_arm(input: u32, track: Option<u32>, channel: Option<ChannelId>, monitor: bool) -> Request {
+pub fn record_arm(
+    input: u32,
+    track: Option<u32>,
+    channel: Option<ChannelId>,
+    monitor: bool,
+) -> Request {
     req(
         "record.arm",
         json!({ "input": input, "track": track, "channel": channel, "monitor": monitor }),

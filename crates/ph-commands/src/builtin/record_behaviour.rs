@@ -236,7 +236,10 @@ fn arm_checks_where_the_take_goes() {
         CmdError::Model(ModelError::Invalid(_))
     ));
     assert!(matches!(
-        r.err("record.arm", json!({ "input": 0, "track": 1, "channel": 0 })),
+        r.err(
+            "record.arm",
+            json!({ "input": 0, "track": 1, "channel": 0 })
+        ),
         CmdError::Model(ModelError::Invalid(_))
     ));
     assert!(matches!(
@@ -308,7 +311,10 @@ fn start_validates_and_collects_midi_notes_only_in_pattern_mode() {
     );
     assert_eq!(out["notes"], false);
     let s = r.h.started.last().unwrap();
-    assert_eq!((s.count_in_bars, s.punch, s.latency_ms), (1, Some((0, 3840)), Some(12.5)));
+    assert_eq!(
+        (s.count_in_bars, s.punch, s.latency_ms),
+        (1, Some((0, 3840)), Some(12.5))
+    );
     assert!(s.notes.is_none());
     // pattern mode: the pattern and the MIDI target channel
     r.run(
@@ -327,7 +333,10 @@ fn start_validates_and_collects_midi_notes_only_in_pattern_mode() {
     // an explicit channel wins; midi_notes: false turns it off
     let sampler = r.sampler.0;
     r.run("record.start", json!({ "channel": sampler }));
-    assert_eq!(r.h.started.last().unwrap().notes.unwrap().channel, r.sampler);
+    assert_eq!(
+        r.h.started.last().unwrap().notes.unwrap().channel,
+        r.sampler
+    );
     r.run("record.start", json!({ "midi_notes": false }));
     assert!(r.h.started.last().unwrap().notes.is_none());
     // no channel selected at all: no notes either
@@ -385,8 +394,9 @@ fn stop_into_a_sampler_channel_replaces_its_sample() {
     });
     let out = r.run("record.stop", json!({}));
     assert_eq!(out["takes"][0]["channel"], r.sampler.0);
-    let InstrumentSpec::Sampler { sample, root_key, .. } =
-        &r.p().channel(r.sampler).unwrap().instrument
+    let InstrumentSpec::Sampler {
+        sample, root_key, ..
+    } = &r.p().channel(r.sampler).unwrap().instrument
     else {
         panic!()
     };
@@ -404,22 +414,55 @@ fn stop_writes_played_notes_into_the_pattern_quantised_and_clamped() {
     r.h.outcome = Some(RecordOutcome {
         takes: vec![r.take(Some(0), None, 3)],
         notes: vec![
-            CapturedNote { key: 60, velocity: 0.5, start: 250, length: 100 },
-            CapturedNote { key: 64, velocity: 1.0, start: 700, length: 5000 },
-            CapturedNote { key: 67, velocity: 0.0, start: len + 500, length: 10 },
+            CapturedNote {
+                key: 60,
+                velocity: 0.5,
+                start: 250,
+                length: 100,
+            },
+            CapturedNote {
+                key: 64,
+                velocity: 1.0,
+                start: 700,
+                length: 5000,
+            },
+            CapturedNote {
+                key: 67,
+                velocity: 0.0,
+                start: len + 500,
+                length: 10,
+            },
         ],
-        note_target: Some(NoteCapture { pattern: pat, channel: r.synth }),
+        note_target: Some(NoteCapture {
+            pattern: pat,
+            channel: r.synth,
+        }),
     });
     let before = r.p().clone();
     let out = r.run("record.stop", json!({ "quantize": 240 }));
     assert_eq!(out["notes"].as_array().unwrap().len(), 3);
     let notes = notes_of_channel(r.p(), pat, r.synth);
     assert_eq!(notes.len(), 3);
-    assert_eq!((notes[0].key, notes[0].start), (60, 240), "250 snaps to 240");
-    assert_eq!((notes[1].key, notes[1].start), (64, 720), "700 snaps to 720");
-    assert_eq!(notes[1].start + notes[1].length, len, "a long note ends at the pattern end");
+    assert_eq!(
+        (notes[0].key, notes[0].start),
+        (60, 240),
+        "250 snaps to 240"
+    );
+    assert_eq!(
+        (notes[1].key, notes[1].start),
+        (64, 720),
+        "700 snaps to 720"
+    );
+    assert_eq!(
+        notes[1].start + notes[1].length,
+        len,
+        "a long note ends at the pattern end"
+    );
     assert!((notes[0].velocity - 0.5).abs() < 1e-6);
-    assert!(notes[2].start < len, "a note past the end is pulled back inside");
+    assert!(
+        notes[2].start < len,
+        "a note past the end is pulled back inside"
+    );
     assert!(notes[2].velocity > 0.0);
     // the take and the notes are one undo step
     r.run("history.undo", json!({}));
@@ -471,11 +514,8 @@ fn stop_with_nothing_recorded_changes_nothing_and_stop_when_idle_fails() {
     assert!(matches!(r.err("record.stop", json!({})), CmdError::Host(_)));
     r.h.recording = true;
     let before = r.p().clone();
-    let out = r.s.execute(
-        &r.who,
-        Request::new("record.stop", json!({})),
-        &mut r.h,
-    );
+    let out =
+        r.s.execute(&r.who, Request::new("record.stop", json!({})), &mut r.h);
     let out = out.unwrap();
     assert_eq!(
         out.summary.as_deref(),
@@ -504,7 +544,10 @@ fn midi_inputs_learn_map_unmap_and_list() {
         CmdError::Model(ModelError::Invalid(_))
     ));
     assert!(matches!(
-        r.err("midi.map", json!({ "controller": 74, "target": "insert/99/volume" })),
+        r.err(
+            "midi.map",
+            json!({ "controller": 74, "target": "insert/99/volume" })
+        ),
         CmdError::Model(ModelError::Invalid(_))
     ));
     assert!(matches!(
@@ -512,7 +555,10 @@ fn midi_inputs_learn_map_unmap_and_list() {
         CmdError::Model(ModelError::Invalid(_))
     ));
     // map, replace, list
-    r.run("midi.map", json!({ "controller": 74, "target": "insert/1/volume" }));
+    r.run(
+        "midi.map",
+        json!({ "controller": 74, "target": "insert/1/volume" }),
+    );
     let out = r.run(
         "midi.map",
         json!({ "controller": 74, "target": "insert/1/pan", "device": null }),
@@ -526,7 +572,10 @@ fn midi_inputs_learn_map_unmap_and_list() {
     assert_eq!(l["mappings"].as_array().unwrap().len(), 2);
     assert_eq!(l["mappings"][0]["target"], "insert/1/pan");
     // unmap: the device-specific one, then the general one, then nothing is left
-    let out = r.run("midi.unmap", json!({ "controller": 74, "device": "Scripted Keys" }));
+    let out = r.run(
+        "midi.unmap",
+        json!({ "controller": 74, "device": "Scripted Keys" }),
+    );
     assert_eq!(out["removed"]["target"], "tempo");
     r.run("midi.unmap", json!({ "controller": 74 }));
     assert!(matches!(
@@ -543,10 +592,20 @@ fn midi_commands_need_the_full_scope_and_recording_the_compose_scope() {
     for id in ["midi.learn", "midi.map", "midi.unmap"] {
         assert_eq!(scope(id), Scope::Full, "{id} writes per-user config");
     }
-    for id in ["midi.list_inputs", "midi.list_mappings", "record.list_inputs"] {
+    for id in [
+        "midi.list_inputs",
+        "midi.list_mappings",
+        "record.list_inputs",
+    ] {
         assert_eq!(scope(id), Scope::Read, "{id}");
     }
-    for id in ["record.arm", "record.disarm", "record.set_monitor", "record.start", "record.stop"] {
+    for id in [
+        "record.arm",
+        "record.disarm",
+        "record.set_monitor",
+        "record.start",
+        "record.stop",
+    ] {
         assert_eq!(scope(id), Scope::Compose, "{id}");
     }
     // a hostless session says so plainly

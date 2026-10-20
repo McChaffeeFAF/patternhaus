@@ -85,12 +85,18 @@ fn a_take_is_the_input_written_to_a_new_wav_with_its_latency() {
     assert_eq!(t.file, "Take 1.wav");
     assert_eq!(t.frames, 10_000);
     assert_eq!(t.start, 0);
-    assert_eq!(t.latency_frames, 96, "the input reports 96 frames, the simulated output 0");
+    assert_eq!(
+        t.latency_frames, 96,
+        "the input reports 96 frames, the simulated output 0"
+    );
     assert_eq!(t.target, RecordTarget::Track(2));
     // 10000 frames at 120 BPM and 48 kHz (25 per tick) = 400 ticks
     assert_eq!(t.length, 400);
     let (spec, audio) = read_wav(&t.path);
-    assert_eq!((spec.channels, spec.sample_rate, spec.bits_per_sample), (2, SR, 32));
+    assert_eq!(
+        (spec.channels, spec.sample_rate, spec.bits_per_sample),
+        (2, SR, 32)
+    );
     assert_eq!(audio[0].len(), 10_000);
     let want = ramp(10_000);
     assert_eq!(audio[0], want[0], "left is the input, bit for bit");
@@ -112,8 +118,14 @@ fn takes_never_overwrite_an_existing_file() {
     let _ = pull(&mut dev, 1_000, 128);
     let takes = engine.record_stop().unwrap();
     assert_eq!(takes[0].file, "Take 5.wav");
-    assert_eq!(std::fs::read(dir.path().join("Take 1.wav")).unwrap(), b"precious");
-    assert_eq!(std::fs::read(dir.path().join("Take 4.wav")).unwrap(), b"also precious");
+    assert_eq!(
+        std::fs::read(dir.path().join("Take 1.wav")).unwrap(),
+        b"precious"
+    );
+    assert_eq!(
+        std::fs::read(dir.path().join("Take 4.wav")).unwrap(),
+        b"also precious"
+    );
 }
 
 #[test]
@@ -123,7 +135,13 @@ fn punch_records_only_inside_the_range_and_places_the_take_there() {
     engine.set_project(bpm120()).unwrap();
     engine.set_input_provider(Some(provider(60_000, 0)));
     let id = engine.inputs()[0].id;
-    engine.arm_with(Arm { input: id, target: RecordTarget::Track(0), monitor: false }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Track(0),
+            monitor: false,
+        })
+        .unwrap();
     // punch in at beat 1 (ticks 960 = sample 24000) and out at beat 2 (sample 48000)
     let mut opts = RecordOptions::new(dir.path());
     opts.punch = Some((960, 1920));
@@ -149,14 +167,23 @@ fn a_count_in_holds_the_song_and_clicks_then_records_from_the_start() {
     engine.set_project(Arc::new(p)).unwrap();
     engine.set_input_provider(Some(provider(200_000, 0)));
     let id = engine.inputs()[0].id;
-    engine.arm_with(Arm { input: id, target: RecordTarget::Track(0), monitor: false }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Track(0),
+            monitor: false,
+        })
+        .unwrap();
     let mut opts = RecordOptions::new(dir.path());
     opts.count_in_bars = 1;
     engine.record_start(opts).unwrap();
     // one bar at 120 BPM and 48 kHz is 96000 frames
     let during = pull(&mut dev, 48_000, 256);
     assert_eq!(engine.record_status().phase, RecordPhase::CountIn);
-    assert!(!engine.status().playing, "the transport waits for the count-in");
+    assert!(
+        !engine.status().playing,
+        "the transport waits for the count-in"
+    );
     assert_eq!(engine.status().position, 0);
     assert!(peak(&during[0]) > 0.1, "the metronome clicks");
     // the click on the first beat is louder (higher) than none in between: silence between
@@ -171,7 +198,11 @@ fn a_count_in_holds_the_song_and_clicks_then_records_from_the_start() {
     assert_eq!(t.start, 0);
     assert_eq!(t.frames, 5_000);
     let (_, audio) = read_wav(&t.path);
-    assert_eq!(audio[0][0], ramp(1)[0][0], "the input was not consumed during the count-in");
+    assert_eq!(
+        audio[0][0],
+        ramp(1)[0][0],
+        "the input was not consumed during the count-in"
+    );
 }
 
 #[test]
@@ -179,7 +210,12 @@ fn a_mono_input_is_recorded_as_a_mono_file() {
     let dir = tempfile::tempdir().unwrap();
     let (engine, mut dev) = sim(256, 0);
     let mono = vec![ramp(4_000).remove(0)];
-    engine.set_input_provider(Some(Box::new(SimulatedInputs::new().with("Mic", SR, mono.clone(), 0))));
+    engine.set_input_provider(Some(Box::new(SimulatedInputs::new().with(
+        "Mic",
+        SR,
+        mono.clone(),
+        0,
+    ))));
     let id = engine.inputs()[0].id;
     engine.arm(id, RecordTarget::Track(0)).unwrap();
     engine.set_monitor(id, false).unwrap();
@@ -202,7 +238,13 @@ fn two_armed_inputs_make_two_named_takes() {
             .with("Mic 2", SR, ramp(4_000), 0),
     )));
     for id in [InputId(0), InputId(1)] {
-        engine.arm_with(Arm { input: id, target: RecordTarget::Track(id.0), monitor: false }).unwrap();
+        engine
+            .arm_with(Arm {
+                input: id,
+                target: RecordTarget::Track(id.0),
+                monitor: false,
+            })
+            .unwrap();
     }
     engine.record_start(RecordOptions::new(dir.path())).unwrap();
     let _ = pull(&mut dev, 2_000, 256);
@@ -219,7 +261,13 @@ fn an_empty_take_leaves_no_file() {
     let (engine, mut dev) = sim(256, 0);
     engine.set_input_provider(Some(provider(4_000, 0)));
     let id = engine.inputs()[0].id;
-    engine.arm_with(Arm { input: id, target: RecordTarget::Track(0), monitor: false }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Track(0),
+            monitor: false,
+        })
+        .unwrap();
     // punch range far in the future: nothing is captured
     let mut opts = RecordOptions::new(dir.path());
     opts.punch = Some((96_000, 97_000));
@@ -251,7 +299,13 @@ fn a_manual_latency_overrides_the_measurement() {
     let (engine, mut dev) = sim(256, 0);
     engine.set_input_provider(Some(provider(4_000, 500)));
     let id = engine.inputs()[0].id;
-    engine.arm_with(Arm { input: id, target: RecordTarget::Track(0), monitor: false }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Track(0),
+            monitor: false,
+        })
+        .unwrap();
     assert_eq!(engine.latency().input_frames, 500);
     assert_eq!(engine.latency().compensation_frames, 500);
     let mut opts = RecordOptions::new(dir.path());
@@ -275,7 +329,13 @@ fn monitoring_adds_the_input_to_the_target_insert_and_stays_out_of_offline_rende
     engine.set_input_provider(Some(Box::new(SimulatedInputs::new().with("DC", SR, dc, 0))));
     let id = engine.inputs()[0].id;
     // armed but not monitored: silent
-    engine.arm_with(Arm { input: id, target: RecordTarget::Channel(c), monitor: false }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Channel(c),
+            monitor: false,
+        })
+        .unwrap();
     let silent = pull(&mut dev, 2_048, 256);
     assert!(peak(&silent[0]) < 1e-6);
     // monitored: the input comes through insert 2 and the master at the strip's gain
@@ -308,13 +368,25 @@ fn monitoring_adds_the_input_to_the_target_insert_and_stays_out_of_offline_rende
 fn an_armed_unmonitored_engine_is_bit_identical_to_one_without_inputs() {
     // live == offline when monitoring is off (acceptance 6)
     let p = Arc::new(beat());
-    let script = [(0usize, Act::T(TransportCommand::SetMode(crate::PlayMode::Song))), (0, Act::T(TransportCommand::Play))];
+    let script = [
+        (
+            0usize,
+            Act::T(TransportCommand::SetMode(crate::PlayMode::Song)),
+        ),
+        (0, Act::T(TransportCommand::Play)),
+    ];
     let plain = run_sim(&p, &script, 24_000, 256, 256, 1);
     let (engine, mut dev) = sim(256, 1);
     engine.set_project(p.clone()).unwrap();
     engine.set_input_provider(Some(provider(100_000, 0)));
     let id = engine.inputs()[0].id;
-    engine.arm_with(Arm { input: id, target: RecordTarget::Track(0), monitor: false }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Track(0),
+            monitor: false,
+        })
+        .unwrap();
     engine.transport(TransportCommand::Play);
     let armed = pull(&mut dev, 24_000, 256);
     assert_bits_eq(&plain, &armed, "armed, not monitored");
@@ -323,7 +395,13 @@ fn an_armed_unmonitored_engine_is_bit_identical_to_one_without_inputs() {
     let (engine, mut dev) = sim(256, 1);
     engine.set_project(p).unwrap();
     engine.set_input_provider(Some(provider(100_000, 0)));
-    engine.arm_with(Arm { input: id, target: RecordTarget::Track(0), monitor: false }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Track(0),
+            monitor: false,
+        })
+        .unwrap();
     engine.record_start(RecordOptions::new(dir.path())).unwrap();
     let recorded = pull(&mut dev, 24_000, 256);
     assert_bits_eq(&plain, &recorded, "recording, not monitored");
@@ -341,7 +419,13 @@ fn recording_survives_plan_swaps_and_toggling_under_assert_no_alloc() {
     engine.set_project(Arc::new(p.clone())).unwrap();
     engine.set_input_provider(Some(provider(400_000, 64)));
     let id = engine.inputs()[0].id;
-    engine.arm_with(Arm { input: id, target: RecordTarget::Channel(c), monitor: true }).unwrap();
+    engine
+        .arm_with(Arm {
+            input: id,
+            target: RecordTarget::Channel(c),
+            monitor: true,
+        })
+        .unwrap();
     engine.record_start(RecordOptions::new(dir.path())).unwrap();
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let swapper = {
@@ -350,9 +434,10 @@ fn recording_survives_plan_swaps_and_toggling_under_assert_no_alloc() {
             let mut k = 0u32;
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
                 let mut ed = Edit::new(&p);
-                ed.update_channel(c, |ch| ch.volume = 0.3 + (k % 5) as f32 * 0.1).unwrap();
+                ed.update_channel(c, |ch| ch.volume = 0.3 + (k % 5) as f32 * 0.1)
+                    .unwrap();
                 e.set_project(Arc::new(ed.finish().0)).unwrap();
-                let _ = e.set_monitor(id, k % 2 == 0);
+                let _ = e.set_monitor(id, k.is_multiple_of(2));
                 k += 1;
                 std::thread::sleep(std::time::Duration::from_micros(300));
             }

@@ -16,14 +16,24 @@ fn project() -> (Arc<Project>, ChannelId) {
     (Arc::new(e.finish().0), c)
 }
 
-fn setup() -> (Arc<Engine>, SimulatedDevice, ChannelId, FakeMidi, MidiService) {
+fn setup() -> (
+    Arc<Engine>,
+    SimulatedDevice,
+    ChannelId,
+    FakeMidi,
+    MidiService,
+) {
     let (engine, dev) = sim(256, 1);
     let (p, c) = project();
     engine.set_project(p).unwrap();
     let engine = Arc::new(engine);
     let fake = FakeMidi::new();
     fake.add_port("Test Keys");
-    let svc = MidiService::start(engine.clone(), Box::new(fake.clone()), MappingStore::memory());
+    let svc = MidiService::start(
+        engine.clone(),
+        Box::new(fake.clone()),
+        MappingStore::memory(),
+    );
     wait(|| fake.connected() == ["Test Keys"], "the port connects");
     svc.set_target_channel(Some(c));
     (engine, dev, c, fake, svc)
@@ -45,7 +55,10 @@ fn wait_event(svc: &MidiService, mut want: impl FnMut(&MidiEvent) -> bool) -> Ve
         if seen.iter().any(&mut want) {
             return seen;
         }
-        assert!(t.elapsed() < Duration::from_secs(5), "timed out; saw {seen:?}");
+        assert!(
+            t.elapsed() < Duration::from_secs(5),
+            "timed out; saw {seen:?}"
+        );
         std::thread::sleep(Duration::from_millis(2));
     }
 }
@@ -79,7 +92,9 @@ fn a_note_from_the_keyboard_sounds_on_the_selected_channel_and_stops_on_release(
     let hz = crossings(&sound[2048..]);
     assert!((hz - 440.0).abs() < 12.0, "pitch {hz}");
     fake.send("Test Keys", &[0x80, 69, 0]);
-    wait_event(&svc, |e| matches!(e, MidiEvent::Note { on: false, key: 69 }));
+    wait_event(&svc, |e| {
+        matches!(e, MidiEvent::Note { on: false, key: 69 })
+    });
     let _ = pull(&mut dev, 8192);
     assert!(peak(&pull(&mut dev, 2048)) < 1e-4, "released and silent");
     // no channel selected: nothing sounds
@@ -124,7 +139,13 @@ fn controllers_reach_the_instrument_as_events() {
     assert!(down < flat * 0.94, "bend down {down} vs {flat}");
     engine.preview_midi(c, MidiMod::Bend { value: 0.0 });
     engine.preview_midi(c, MidiMod::Pressure { value: 1.0 });
-    engine.preview_midi(c, MidiMod::Cc { controller: 1, value: 1.0 });
+    engine.preview_midi(
+        c,
+        MidiMod::Cc {
+            controller: 1,
+            value: 1.0,
+        },
+    );
     // these must not disturb anything (and are allocation-free: pull_into checks)
     let back = crossings(&pull(&mut dev, 8192));
     assert!((back - flat).abs() < flat * 0.03, "back {back} vs {flat}");
@@ -190,7 +211,10 @@ fn midi_learn_maps_the_next_controller_and_mapped_ones_become_control_events() {
     svc.learn(None);
     fake.send("Test Keys", &[0xb0, 22, 5]);
     fake.send("Test Keys", &[0xb0, 21, 0]);
-    let seen = wait_event(&svc, |e| matches!(e, MidiEvent::Control { value, .. } if *value == 0.0));
+    let seen = wait_event(
+        &svc,
+        |e| matches!(e, MidiEvent::Control { value, .. } if *value == 0.0),
+    );
     assert!(!seen.iter().any(|e| matches!(e, MidiEvent::Learned { .. })));
     // unmapping stops the events
     assert!(svc.unmap(21, Some("Test Keys")).unwrap().is_some());
@@ -216,7 +240,10 @@ fn mappings_are_per_user_files_not_part_of_the_project() {
     })
     .unwrap();
     let text = std::fs::read_to_string(dir.path().join("midi-mappings.json")).unwrap();
-    assert!(text.contains(&format!("channel/{}/param/f1_cutoff", c.0)), "{text}");
+    assert!(
+        text.contains(&format!("channel/{}/param/f1_cutoff", c.0)),
+        "{text}"
+    );
     assert_eq!(MappingStore::open(dir.path()).list().len(), 1);
 }
 
@@ -232,7 +259,9 @@ fn played_notes_are_collected_with_their_positions_while_recording() {
     wait_event(&svc, |e| matches!(e, MidiEvent::Note { on: true, key: 64 }));
     let _ = pull(&mut dev, 24_000); // a beat
     fake.send("Test Keys", &[0x80, 64, 0]);
-    wait_event(&svc, |e| matches!(e, MidiEvent::Note { on: false, key: 64 }));
+    wait_event(&svc, |e| {
+        matches!(e, MidiEvent::Note { on: false, key: 64 })
+    });
     // a note still held when recording stops ends at the stop position
     fake.send("Test Keys", &[0x90, 67, 127]);
     wait_event(&svc, |e| matches!(e, MidiEvent::Note { on: true, key: 67 }));
@@ -250,4 +279,68 @@ fn played_notes_are_collected_with_their_positions_while_recording() {
     fake.send("Test Keys", &[0x90, 70, 80]);
     wait_event(&svc, |e| matches!(e, MidiEvent::Note { on: true, key: 70 }));
     assert!(svc.finish_note_recording(end).is_empty());
+}
+
+#[test]
+fn keyboard_events_under_plan_swaps_allocate_nothing() {
+    // notes, controllers, bends and pressure arrive from one thread while another swaps plans
+    // and the audio thread runs under `assert_no_alloc` (`pull_into`)
+    let (engine, mut dev) = sim(128, 1);
+    let engine = Arc::new(engine);
+    let (p, c) = project();
+    engine.set_project(p.clone()).unwrap();
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let player = {
+        let (e, stop) = (engine.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut r = Rng::new(7);
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let key = 40 + r.below(40) as u8;
+                e.preview_note(c, key, 0.2 + r.below(8) as f32 / 10.0, true);
+                e.preview_midi(
+                    c,
+                    MidiMod::Bend {
+                        value: r.below(200) as f32 / 100.0 - 1.0,
+                    },
+                );
+                e.preview_midi(
+                    c,
+                    MidiMod::Cc {
+                        controller: 1,
+                        value: r.below(100) as f32 / 100.0,
+                    },
+                );
+                e.preview_midi(
+                    c,
+                    MidiMod::Pressure {
+                        value: r.below(100) as f32 / 100.0,
+                    },
+                );
+                if r.below(3) == 0 {
+                    e.preview_note(c, key, 0.0, false);
+                }
+                std::thread::sleep(Duration::from_micros(150));
+            }
+        })
+    };
+    let swapper = {
+        let (e, stop, p) = (engine.clone(), stop.clone(), p.clone());
+        std::thread::spawn(move || {
+            let mut k = 0u32;
+            while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                let mut ed = Edit::new(&p);
+                ed.update_channel(c, |ch| ch.volume = 0.4 + (k % 5) as f32 * 0.1)
+                    .unwrap();
+                e.set_project(Arc::new(ed.finish().0)).unwrap();
+                k += 1;
+                std::thread::sleep(Duration::from_micros(400));
+            }
+        })
+    };
+    let out = pull(&mut dev, 128 * 1500);
+    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    player.join().unwrap();
+    swapper.join().unwrap();
+    assert!(out.iter().all(|v| v.is_finite()));
+    assert!(peak(&out) > 0.01, "something sounded");
 }

@@ -42,14 +42,26 @@ use std::time::Duration;
 /// A parsed channel message. MIDI channels are ignored (omni).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MidiMessage {
-    NoteOn { key: u8, velocity: f32 },
-    NoteOff { key: u8 },
+    NoteOn {
+        key: u8,
+        velocity: f32,
+    },
+    NoteOff {
+        key: u8,
+    },
     /// Controller `controller`, value 0..=1.
-    Cc { controller: u8, value: f32 },
+    Cc {
+        controller: u8,
+        value: f32,
+    },
     /// -1..=1.
-    PitchBend { value: f32 },
+    PitchBend {
+        value: f32,
+    },
     /// Channel pressure (aftertouch), 0..=1.
-    ChannelPressure { value: f32 },
+    ChannelPressure {
+        value: f32,
+    },
 }
 
 /// Parses a short channel message. A note-on with velocity 0 is a note-off.
@@ -597,11 +609,7 @@ impl MidiService {
         self.state().store.set(m)
     }
 
-    pub fn unmap(
-        &self,
-        controller: u8,
-        device: Option<&str>,
-    ) -> std::io::Result<Option<Mapping>> {
+    pub fn unmap(&self, controller: u8, device: Option<&str>) -> std::io::Result<Option<Mapping>> {
         self.state().store.remove(controller, device)
     }
 
@@ -857,8 +865,14 @@ mod tests {
                 velocity: 1.0
             })
         );
-        assert_eq!(parse(&[0x90, 60, 0]), Some(MidiMessage::NoteOff { key: 60 }));
-        assert_eq!(parse(&[0x81, 61, 64]), Some(MidiMessage::NoteOff { key: 61 }));
+        assert_eq!(
+            parse(&[0x90, 60, 0]),
+            Some(MidiMessage::NoteOff { key: 60 })
+        );
+        assert_eq!(
+            parse(&[0x81, 61, 64]),
+            Some(MidiMessage::NoteOff { key: 61 })
+        );
         assert_eq!(
             parse(&[0xb0, 1, 127]),
             Some(MidiMessage::Cc {
@@ -883,7 +897,11 @@ mod tests {
             parse(&[0xe0, 0x00, 0x00]),
             Some(MidiMessage::PitchBend { value: -1.0 })
         );
-        assert_eq!(parse(&[0xf8]), None, "timing clock is not a channel message");
+        assert_eq!(
+            parse(&[0xf8]),
+            None,
+            "timing clock is not a channel message"
+        );
         assert_eq!(parse(&[]), None);
     }
 
