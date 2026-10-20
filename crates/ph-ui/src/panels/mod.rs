@@ -2,6 +2,7 @@
 
 pub mod agents;
 pub mod audio_editor;
+pub mod automation;
 pub mod browser;
 pub mod history;
 pub mod inspector;

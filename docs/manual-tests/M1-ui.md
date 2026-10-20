@@ -199,7 +199,7 @@ Neon, themes and polish. Everything here has an offscreen test or screenshot
 4. **Hint bar.** Hover knobs, faders, buttons, tabs, the browser tree, menu entries: the bar
    at the bottom shows the control name, its current value and its gestures. With an agent
    connected, `get_state { view: "ui" }` returns the same hint.
-5. **Right-click.** Right-click a knob or fader: Reset to default, Automate (disabled), MIDI
+5. **Right-click.** Right-click a knob or fader: Reset to default, Create automation clip (M2: enabled on controls that can be automated, disabled elsewhere), MIDI
    learn (disabled), Help (shows the hint as a toast). Buttons and toggles have the last three.
 6. **Window chrome.** The front window has an accent edge and a soft glow that fades in over
    120 ms; windows behind it have neither and a dim title. The `...` button in a title bar (or

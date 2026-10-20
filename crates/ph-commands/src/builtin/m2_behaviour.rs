@@ -584,9 +584,129 @@ fn automation_clips_and_points() {
 }
 
 #[test]
+fn automation_add_clip_without_a_track_takes_the_first_free_one() {
+    let mut r = Rig::new();
+    let first = r.run(
+        "automation.add_clip",
+        json!({ "target": "insert/0/volume", "start": 0, "length": 3840 }),
+    );
+    assert_eq!(first["track"], 0);
+    // overlapping the first: the next track; clear of it: the first track again
+    let second = r.run(
+        "automation.add_clip",
+        json!({ "target": "insert/0/pan", "start": 1920, "length": 3840 }),
+    );
+    assert_eq!(second["track"], 1);
+    let third = r.run(
+        "automation.add_clip",
+        json!({ "target": "insert/0/pan", "start": 3840, "length": 960 }),
+    );
+    assert_eq!(third["track"], 0);
+    // a send level is a target, with its own range
+    r.run(
+        "mixer.add_send",
+        json!({ "from": 1, "to": 2, "level": 0.5 }),
+    );
+    let out = r.run(
+        "automation.add_clip",
+        json!({ "target": "insert/1/send/2", "start": 0 }),
+    );
+    let pt = r
+        .p()
+        .point(
+            ClipId(out["clip"].as_u64().unwrap() as u32),
+            PointId(out["points"][0].as_u64().unwrap() as u32),
+        )
+        .unwrap()
+        .clone();
+    assert_eq!(pt.value, 0.5, "starts at the send's level");
+    assert!(matches!(
+        r.err(
+            "automation.add_clip",
+            json!({ "target": "insert/1/send/2", "start": 0, "points": [{ "tick": 0, "value": 2.5 }] })
+        ),
+        CmdError::Model(ModelError::Invalid(_))
+    ));
+}
+
+#[test]
+fn automation_record_thins_samples_and_holds_across_pauses() {
+    let mut r = Rig::new();
+    // a drag: a straight ramp 0 -> 1 over one beat sampled every 10 ticks, a pause of 2 beats,
+    // then a second short move; 200 samples become a handful of points
+    let mut samples: Vec<Value> = (0..=96)
+        .map(|k| json!({ "tick": 1000 + k * 10, "value": k as f64 / 96.0 }))
+        .collect();
+    samples.extend(
+        (0..=20).map(|k| json!({ "tick": 3880 + k * 10, "value": 0.5 + 0.001 * k as f64 })),
+    );
+    let n = samples.len();
+    // shuffled input is fine: positions decide
+    samples.reverse();
+    let out = r.run(
+        "automation.record",
+        json!({ "target": "insert/0/volume", "samples": samples.clone(), "tolerance": 0.002 }),
+    );
+    assert_eq!(out["samples"], n);
+    assert_eq!(out["start"], 1000);
+    assert_eq!(out["length"], 3080);
+    assert_eq!(out["track"], 0);
+    let clip = ClipId(out["clip"].as_u64().unwrap() as u32);
+    let a = r.p().clip(clip).unwrap().automation().unwrap().clone();
+    let pts = a.points_in_order();
+    assert!(pts.len() >= 4 && pts.len() < 14, "{} points", pts.len());
+    assert_eq!((pts[0].tick, pts[0].value), (0, 0.0));
+    // the straight ramp keeps only its two ends; the first run ends at the pause
+    let end_of_ramp = pts.iter().find(|p| p.tick == 960).unwrap();
+    assert!((end_of_ramp.value - 1.0).abs() < 1e-9);
+    assert_eq!(end_of_ramp.curve, CurveKind::Hold, "held across the pause");
+    let second_start = pts.iter().find(|p| p.tick == 2880).unwrap();
+    assert_eq!(second_start.value, 0.5);
+    // the thinned curve stays within tolerance (0.2% of the 0..2 range) of every sample
+    let start = out["start"].as_u64().unwrap() as f64;
+    for s in &samples {
+        let (t, v) = (s["tick"].as_f64().unwrap(), s["value"].as_f64().unwrap());
+        let got = a.value_at(t - start).unwrap();
+        assert!((got - v).abs() <= 0.004 + 1e-9, "tick {t}: {got} vs {v}");
+    }
+    assert_eq!(r.p().clip(clip).unwrap().length, 3080);
+    // one undo step removes the clip with all its points
+    r.s.undo(&Author::Human).unwrap();
+    assert!(r.p().clips.get(&clip).is_none());
+    // errors: no samples, values outside the target's range, a bad track
+    assert!(matches!(
+        r.err(
+            "automation.record",
+            json!({ "target": "tempo", "samples": [] })
+        ),
+        CmdError::Model(ModelError::Invalid(_))
+    ));
+    assert!(matches!(
+        r.err(
+            "automation.record",
+            json!({ "target": "insert/0/volume", "samples": [{ "tick": 0, "value": 3.0 }] })
+        ),
+        CmdError::Model(ModelError::Invalid(_))
+    ));
+    assert!(matches!(
+        r.err(
+            "automation.record",
+            json!({ "target": "tempo", "samples": [{ "tick": 0, "value": 120.0 }], "track": 9999 })
+        ),
+        CmdError::Model(ModelError::NoTrack(_))
+    ));
+    // a single sample is a one-step clip with one point
+    let one = r.run(
+        "automation.record",
+        json!({ "target": "tempo", "samples": [{ "tick": 480, "value": 150.0 }] }),
+    );
+    assert_eq!(one["points"].as_array().unwrap().len(), 1);
+}
+
+#[test]
 fn m2_stubs_name_their_track() {
     let mut r = Rig::new();
-    let cases: [(&str, Value, &str); 12] = [
+    let cases: [(&str, Value, &str); 11] = [
         ("record.list_inputs", json!({}), "T8"),
         ("record.arm", json!({ "input": 0, "track": 2 }), "T8"),
         ("record.disarm", json!({ "input": 0 }), "T8"),
@@ -614,11 +734,6 @@ fn m2_stubs_name_their_track() {
         ),
         ("midi.unmap", json!({ "controller": 74 }), "T8"),
         ("midi.list_mappings", json!({}), "T8"),
-        (
-            "automation.record",
-            json!({ "target": "tempo", "track": 0 }),
-            "T7",
-        ),
     ];
     for (cmd, params, track) in cases {
         match r.err(cmd, params) {

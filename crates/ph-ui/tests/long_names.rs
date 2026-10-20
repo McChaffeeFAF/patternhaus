@@ -75,6 +75,7 @@ struct Stress {
     synth: ph_core::ChannelId,
     /// A real (decodable) audio file with a long name, placed as an audio clip.
     audio: ph_core::SampleId,
+    auto: ph_core::ClipId,
 }
 
 /// The file name of the long-named audio clip.
@@ -150,6 +151,20 @@ fn stress() -> Stress {
             mapping::clip_add(i as u32, patterns[i], 3840, Some(1920)),
         );
     }
+    // automation of the long-named channel and of a long-named insert's send
+    let auto = ph_core::ClipId(
+        run(
+            &mut app,
+            mapping::automation_add_clip(
+                &ph_core::ParamPath::ChannelVolume(chans[0]),
+                0,
+                3840,
+                &[(0, 0.8), (1920, 0.3), (3840, 0.8)],
+            ),
+        )["clip"]
+            .as_u64()
+            .unwrap() as u32,
+    );
     run(&mut app, mapping::effect_add(1, "eq"));
     run(&mut app, mapping::effect_add(2, "compressor"));
     run(&mut app, mapping::send_add(1, 2, 0.4));
@@ -192,7 +207,7 @@ fn stress() -> Stress {
         &mut app,
         Request::new(
             "audio.add_clip",
-            serde_json::json!({ "track": 3, "start": 0, "path": format!("samples/{AUDIO_FILE}") }),
+            serde_json::json!({ "track": 5, "start": 0, "path": format!("samples/{AUDIO_FILE}") }),
         ),
     );
     let audio = ph_core::SampleId(added["sample"].as_u64().unwrap() as u32);
@@ -217,6 +232,7 @@ fn stress() -> Stress {
         sampler: chans[0],
         synth: chans[1],
         audio,
+        auto,
     }
 }
 
@@ -371,7 +387,7 @@ fn shots() -> PathBuf {
 
 fn run_theme(theme: &str, prefix: &str) {
     let s = stress();
-    let (sampler, synth, audio) = (s.sampler, s.synth, s.audio);
+    let (sampler, synth, audio, auto) = (s.sampler, s.synth, s.audio, s.auto);
     let _keep = s._dir;
     let mut h = harness(s.app);
     h.state_mut().set_theme(theme);
@@ -390,6 +406,7 @@ fn run_theme(theme: &str, prefix: &str) {
         ("effect-2", vec![WindowId::Effect(InsertId(2), 0)]),
         ("audio-editor", vec![WindowId::AudioEditor(audio)]),
         ("audio-menu", vec![WindowId::Playlist]),
+        ("automation", vec![WindowId::Automation(auto)]),
         ("docked-only", vec![]),
     ];
     for (name, wins) in scenes {
@@ -442,7 +459,10 @@ fn run_theme(theme: &str, prefix: &str) {
             });
         // the scene really shows long names (or the checks above would pass on an empty frame)
         let users = seen.iter().filter(|s| is_user(&s.text)).count();
-        let need = if name == "audio-editor" { 2 } else { 3 };
+        let need = match name {
+            "audio-editor" | "automation" => 2,
+            _ => 3,
+        };
         assert!(
             users >= need,
             "{theme}/{name}: only {users} user texts on screen"

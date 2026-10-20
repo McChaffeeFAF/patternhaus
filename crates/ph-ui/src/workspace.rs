@@ -7,7 +7,7 @@
 //!
 //! Coordinates are workspace-local: `(0, 0)` is the top-left of the area the windows live in.
 
-use ph_core::{ChannelId, InsertId, SampleId};
+use ph_core::{ChannelId, ClipId, InsertId, SampleId};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -81,6 +81,8 @@ pub enum WindowId {
     Effect(InsertId, u32),
     /// The audio editor on one registered sample (M2/T6).
     AudioEditor(SampleId),
+    /// The editor of one automation clip (M2/T7).
+    Automation(ClipId),
 }
 
 impl WindowId {
@@ -88,7 +90,10 @@ impl WindowId {
     pub fn is_object(self) -> bool {
         matches!(
             self,
-            WindowId::Instrument(_) | WindowId::Effect(..) | WindowId::AudioEditor(_)
+            WindowId::Instrument(_)
+                | WindowId::Effect(..)
+                | WindowId::AudioEditor(_)
+                | WindowId::Automation(_)
         )
     }
 
@@ -100,6 +105,9 @@ impl WindowId {
         }
         if let Some(s) = name.strip_prefix("audio_editor:") {
             return s.parse().ok().map(|s| WindowId::AudioEditor(SampleId(s)));
+        }
+        if let Some(c) = name.strip_prefix("automation:") {
+            return c.parse().ok().map(|c| WindowId::Automation(ClipId(c)));
         }
         let (i, s) = name.strip_prefix("effect:")?.split_once(':')?;
         Some(WindowId::Effect(InsertId(i.parse().ok()?), s.parse().ok()?))
@@ -115,6 +123,7 @@ impl WindowId {
             WindowId::Instrument(_) => (280.0, 180.0),
             WindowId::Effect(..) => (240.0, 140.0),
             WindowId::AudioEditor(_) => (560.0, 320.0),
+            WindowId::Automation(_) => (360.0, 220.0),
         }
     }
 
@@ -129,6 +138,7 @@ impl WindowId {
             WindowId::Instrument(_) => (500.0, 480.0),
             WindowId::Effect(..) => (420.0, 360.0),
             WindowId::AudioEditor(_) => (900.0, 460.0),
+            WindowId::Automation(_) => (680.0, 340.0),
         }
     }
 }
@@ -527,7 +537,7 @@ impl Workspace {
                     a.h * 0.16 + 28.0 * (n % 6.0),
                 )
             }
-            WindowId::Instrument(_) | WindowId::Effect(..) => {
+            WindowId::Instrument(_) | WindowId::Effect(..) | WindowId::Automation(_) => {
                 // cascade past the object windows already known
                 let n = self.windows.keys().filter(|k| k.is_object()).count() as f32;
                 (a.w * 0.34 + 28.0 * (n % 8.0), 40.0 + 28.0 * (n % 8.0))
@@ -623,6 +633,20 @@ impl Workspace {
     }
 
     // ---- project snapshots -----------------------------------------------------------------
+
+    /// Forget automation editors whose clip is gone. Returns the ids that were removed.
+    pub fn prune_clips(&mut self, clip_exists: impl Fn(ClipId) -> bool) -> Vec<WindowId> {
+        let gone: Vec<_> = self
+            .windows
+            .keys()
+            .copied()
+            .filter(|id| matches!(id, WindowId::Automation(c) if !clip_exists(*c)))
+            .collect();
+        for id in &gone {
+            self.windows.remove(id);
+        }
+        gone
+    }
 
     /// Forget instrument and effect windows whose object no longer exists (a deleted channel,
     /// a removed effect), closing them. Returns the ids that were removed.

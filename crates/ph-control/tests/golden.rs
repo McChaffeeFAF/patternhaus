@@ -7,6 +7,9 @@
 //! `audio-clips` (M2/T1) plays a generated drum loop (`samples/loop.wav`, written by the
 //! builder) as tempo-synced audio clips in all three stretch modes, with fades, reverse,
 //! pitch and gain, through a tempo ramp, next to a pattern clip.
+//! `automation` (M2/T7) rides a synth cutoff, a sampler's volume, an effect parameter, channel
+//! volume and pan, insert volume, pan and mute, and a send level, with every curve type,
+//! overlapping clips and a clip offset.
 //!
 //! For every project this test checks:
 //! - **determinism:** the offline render is bit-identical run to run, across block sizes
@@ -460,9 +463,180 @@ fn audio_clips() -> Project {
     e.finish().0
 }
 
+/// Automation (M2/T7): every kind of target, every curve type, two clips overlapping on one
+/// target, a clip played from an offset, a jump (two points on one tick).
+fn automation() -> Project {
+    let mut e = Edit::new(&Project::empty("automation"));
+    e.update_settings(|s| s.bpm = 110.0).unwrap();
+    let bar = 4 * PPQ;
+    let pat = e.add_pattern("Groove").unwrap();
+    let kick = e.add_channel("Kick", drum("kick", &[])).unwrap();
+    let snare = e.add_channel("Snare", drum("snare", &[])).unwrap();
+    let bass = e.add_channel("Bass", synth("bass/acid", &[])).unwrap();
+    let pad = e.add_channel("Pad", synth("pad/warm", &[])).unwrap();
+    for (c, i) in [(kick, 1), (snare, 1), (bass, 2), (pad, 3)] {
+        e.update_channel(c, |ch| ch.insert = InsertId(i)).unwrap();
+    }
+    steps(&mut e, pat, kick, &[0, 4, 8, 12], 60, 0.9);
+    steps(&mut e, pat, snare, &[4, 12], 60, 0.85);
+    for (i, k) in [33u8, 33, 36, 31].iter().enumerate() {
+        note(&mut e, pat, bass, *k, i as Tick * PPQ, PPQ - STEP);
+    }
+    for key in [57u8, 60, 64, 67] {
+        note(&mut e, pat, pad, key, 0, bar - STEP);
+    }
+    e.update_insert(InsertId(2), |i| {
+        i.effects
+            .push(fx("saturator", &[("drive", 3.0), ("mix", 1.0)]));
+    })
+    .unwrap();
+    e.update_insert(InsertId(4), |i| {
+        i.effects
+            .push(fx("reverb", &[("decay", 2.0), ("mix", 1.0)]));
+    })
+    .unwrap();
+    e.update_insert(InsertId(1), |i| {
+        i.sends.push(Send {
+            to: InsertId(4),
+            level: 0.3,
+        })
+    })
+    .unwrap();
+    for b in 0..4 {
+        e.add_clip(0, pat, b * bar).unwrap();
+    }
+    fn clip(
+        e: &mut Edit,
+        track: u32,
+        start: Tick,
+        len: Tick,
+        target: ParamPath,
+        pts: &[(Tick, f64, CurveKind)],
+    ) -> ClipId {
+        let c = e.add_automation_clip(track, start, len, target).unwrap();
+        for (t, v, k) in pts {
+            e.add_point(c, *t, *v, *k, 0.0).unwrap();
+        }
+        c
+    }
+    use CurveKind::*;
+    // the bass cutoff: a smooth sweep, a jump, an S-curve back; a later clip wins on bar 3
+    clip(
+        &mut e,
+        1,
+        0,
+        4 * bar,
+        ParamPath::ChannelParam(bass, "f1_cutoff".into()),
+        &[
+            (0, 300.0, Smooth),
+            (bar, 5000.0, SCurve),
+            (2 * bar, 600.0, Hold),
+            (2 * bar, 3500.0, Linear),
+            (4 * bar, 400.0, Hold),
+        ],
+    );
+    clip(
+        &mut e,
+        2,
+        bar * 5 / 2,
+        bar / 2,
+        ParamPath::ChannelParam(bass, "f1_cutoff".into()),
+        &[(0, 1200.0, Linear), (bar / 2, 200.0, Hold)],
+    );
+    // a sampler parameter, played from the middle of its clip
+    let c = clip(
+        &mut e,
+        3,
+        0,
+        2 * bar,
+        ParamPath::ChannelParam(snare, "tune".into()),
+        &[(0, -5.0, Linear), (4 * bar, 7.0, Hold)],
+    );
+    e.update_clip(c, |k| k.offset = bar).unwrap();
+    // an effect parameter
+    clip(
+        &mut e,
+        4,
+        bar,
+        3 * bar,
+        ParamPath::EffectParam {
+            insert: InsertId(2),
+            slot: 0,
+            param: "drive".into(),
+        },
+        &[
+            (0, 1.0, SCurve),
+            (2 * bar, 12.0, Linear),
+            (3 * bar, 2.0, Hold),
+        ],
+    );
+    // strips
+    clip(
+        &mut e,
+        5,
+        0,
+        4 * bar,
+        ParamPath::ChannelVolume(pad),
+        &[
+            (0, 0.2, SCurve),
+            (2 * bar, 0.9, Smooth),
+            (4 * bar, 0.3, Hold),
+        ],
+    );
+    clip(
+        &mut e,
+        6,
+        0,
+        4 * bar,
+        ParamPath::ChannelPan(kick),
+        &[(0, -0.7, Linear), (4 * bar, 0.7, Hold)],
+    );
+    clip(
+        &mut e,
+        7,
+        bar,
+        2 * bar,
+        ParamPath::InsertVolume(InsertId(2)),
+        &[(0, 1.0, Linear), (bar, 0.3, Hold), (2 * bar, 1.0, Hold)],
+    );
+    clip(
+        &mut e,
+        8,
+        0,
+        4 * bar,
+        ParamPath::InsertPan(InsertId(3)),
+        &[(0, 0.8, SCurve), (4 * bar, -0.8, Hold)],
+    );
+    clip(
+        &mut e,
+        9,
+        3 * bar,
+        PPQ,
+        ParamPath::InsertMute(InsertId(3)),
+        &[(0, 1.0, Hold)],
+    );
+    clip(
+        &mut e,
+        10,
+        0,
+        4 * bar,
+        ParamPath::InsertSend {
+            insert: InsertId(1),
+            to: InsertId(4),
+        },
+        &[
+            (0, 0.0, Linear),
+            (3 * bar, 1.2, Linear),
+            (4 * bar, 0.1, Hold),
+        ],
+    );
+    e.finish().0
+}
+
 /// Every project, by folder name. Used only by `cargo xtask golden --update`.
 fn build_projects() -> Vec<(&'static str, Project)> {
     vec![
+        ("automation", automation()),
         ("audio-clips", audio_clips()),
         ("drums-swing-choke", drums_swing_choke()),
         ("synth-chords", synth_chords()),

@@ -311,7 +311,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     0.78,
                     26.0,
                     &theme,
-                    &widgets::Ctl::new(&format!("{} volume", ch.name), &widgets::fmt_percent),
+                    &widgets::Ctl::new(&format!("{} volume", ch.name), &widgets::fmt_percent)
+                        .target(ph_core::ParamPath::ChannelVolume(ch.id)),
                 );
                 if let Some(v) = e.commit() {
                     core.send(mapping::channel_volume(ch.id, v as f32));
@@ -328,7 +329,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                     0.0,
                     26.0,
                     &theme,
-                    &widgets::Ctl::new(&format!("{} pan", ch.name), &widgets::fmt_pan),
+                    &widgets::Ctl::new(&format!("{} pan", ch.name), &widgets::fmt_pan)
+                        .target(ph_core::ParamPath::ChannelPan(ch.id)),
                 );
                 if let Some(v) = e.commit() {
                     core.send(mapping::channel_pan(ch.id, v as f32));

@@ -267,6 +267,7 @@ impl PhApp {
                 .get(i.0 as usize)
                 .is_some_and(|m| (s as usize) < m.effects.len()),
             WindowId::AudioEditor(s) => p.samples.contains_key(&s),
+            WindowId::Automation(c) => p.clips.get(&c).is_some_and(|c| c.automation().is_some()),
             _ => true,
         }
     }
@@ -369,6 +370,11 @@ impl PhApp {
                     .is_some_and(|m| (s as usize) < m.effects.len())
             },
         );
+        self.ws
+            .prune_clips(|c| p.clips.get(&c).is_some_and(|c| c.automation().is_some()));
+        self.core
+            .auto_editors
+            .retain(|c, _| p.clips.get(c).is_some_and(|c| c.automation().is_some()));
     }
 
     pub fn reset_layout(&mut self) {
@@ -445,6 +451,7 @@ impl PhApp {
         }
         let now = ctx.input(|i| i.time);
         self.core.update(now);
+        self.core.update_automation(&ctx);
         // keep polling the session's solo state while the window is idle
         ctx.request_repaint_after(std::time::Duration::from_millis(300));
         self.handle_close_request(&ctx);

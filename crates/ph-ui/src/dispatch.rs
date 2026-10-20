@@ -11,6 +11,8 @@ pub enum Follow {
     None,
     /// Select the notes in `result["notes"]` once they appear in the snapshot.
     SelectNotes,
+    /// Open the editor of the automation clip in `result["clip"]` (M2/T7).
+    OpenAutomation,
 }
 
 pub struct Done {

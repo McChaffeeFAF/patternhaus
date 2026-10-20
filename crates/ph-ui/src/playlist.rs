@@ -26,6 +26,8 @@ pub enum PlOut {
     Seek(Tick),
     /// Open the piano roll for the first channel of this pattern's clip (double-click).
     OpenPattern(PatternId),
+    /// Open the editor of this automation clip (double-click).
+    OpenAutomation(ClipId),
 }
 
 #[derive(Clone, Debug)]
@@ -405,8 +407,11 @@ impl PlaylistState {
             .selection
             .iter()
             .filter_map(|id| self.clip(*id))
-            // automation clips get their own duplicate in M2/T7
+            // (audio clips are copied by audio_duplicates below)
             .filter_map(|c| {
+                if c.automation().is_some() {
+                    return Some(mapping::automation_duplicate(c));
+                }
                 let pat = c.pattern()?;
                 Some(mapping::clip_add(
                     c.track,
@@ -611,6 +616,8 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
                     // an audio clip opens in the audio editor
                     res.out
                         .push(PlOut::Cmd(crate::mapping_audio::editor_open(a.sample)));
+                } else if st.clip(id).is_some_and(|c| c.automation().is_some()) {
+                    res.out.push(PlOut::OpenAutomation(id));
                 }
             }
         }
@@ -745,10 +752,14 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
         }
         r = r.shrink2(Vec2::new(0.0, 1.0));
         let name = cx.project.clip_label(c);
-        let base = c
-            .pattern()
-            .and_then(|p| cx.project.patterns.get(&p))
-            .map_or(col.ghost, |p| rgb(p.color));
+        let is_auto = c.automation().is_some();
+        let base = if is_auto {
+            col.accent_dim
+        } else {
+            c.pattern()
+                .and_then(|p| cx.project.patterns.get(&p))
+                .map_or(col.ghost, |p| rgb(p.color))
+        };
         let sel = st.selection.contains(&c.id);
         if let Some(a) = c.audio() {
             let hot = match (&st.drag, st.audio.hover) {
@@ -797,9 +808,19 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
                 Align2::LEFT_TOP,
                 &name,
                 FontId::new(11.0, crate::fonts::body_medium()),
-                col.accent_ink,
+                if is_auto { col.text } else { col.accent_ink },
                 r.width() - 8.0,
             );
+            if is_auto {
+                crate::automation::paint_clip_curve(
+                    &gp.with_clip_rect(r.intersect(grid)),
+                    r,
+                    cx.project,
+                    c,
+                    st.px_per_tick,
+                    cx.theme,
+                );
+            }
             if sel {
                 gp.rect_stroke(
                     r,

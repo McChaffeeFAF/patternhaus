@@ -5,7 +5,9 @@
 //! Panels never build JSON by hand and never touch a `Project`.
 
 use ph_commands::Request;
-use ph_core::{ChannelId, ClipId, EffectSpec, InstrumentSpec, NoteId, PatternId, Tick};
+use ph_core::{
+    ChannelId, ClipId, EffectSpec, InstrumentSpec, NoteId, ParamPath, PatternId, PointId, Tick,
+};
 use serde_json::{Value, json};
 
 fn req(command: &str, params: Value) -> Request {
@@ -279,6 +281,79 @@ pub fn clip_resize(clip: ClipId, length: Tick) -> Request {
     req(
         "playlist.resize_clip",
         json!({ "clip": clip, "length": length }),
+    )
+}
+
+// ---- automation (M2/T7) ------------------------------------------------------------------
+
+/// A new automation clip for `target` on the first track that is free over its range, with
+/// points at `(tick from the clip start, value)`.
+pub fn automation_add_clip(
+    target: &ParamPath,
+    start: Tick,
+    length: Tick,
+    points: &[(Tick, f64)],
+) -> Request {
+    let pts: Vec<Value> = points
+        .iter()
+        .map(|(t, v)| json!({ "tick": t, "value": v }))
+        .collect();
+    req(
+        "automation.add_clip",
+        json!({ "target": target, "start": start, "length": length, "points": pts }),
+    )
+}
+/// A copy of an automation clip placed right after it, curves and tensions kept.
+pub fn automation_duplicate(clip: &ph_core::Clip) -> Request {
+    let a = clip.automation().expect("an automation clip");
+    let pts: Vec<Value> = a
+        .points_in_order()
+        .into_iter()
+        .filter(|p| p.tick >= clip.offset)
+        .map(|p| {
+            json!({ "tick": p.tick - clip.offset, "value": p.value,
+                    "curve": p.curve, "tension": p.tension })
+        })
+        .collect();
+    req(
+        "automation.add_clip",
+        json!({ "target": a.target, "start": clip.start + clip.length,
+                "length": clip.length, "points": pts }),
+    )
+}
+pub fn automation_add_point(clip: ClipId, tick: Tick, value: f64, curve: &str) -> Request {
+    req(
+        "automation.add_point",
+        json!({ "clip": clip, "tick": tick, "value": value, "curve": curve }),
+    )
+}
+pub fn automation_move_point(clip: ClipId, point: PointId, tick: Tick, value: f64) -> Request {
+    req(
+        "automation.move_point",
+        json!({ "clip": clip, "point": point, "tick": tick, "value": value }),
+    )
+}
+pub fn automation_set_curve(clip: ClipId, point: PointId, curve: &str) -> Request {
+    req(
+        "automation.set_curve",
+        json!({ "clip": clip, "point": point, "curve": curve }),
+    )
+}
+pub fn automation_remove_points(clip: ClipId, points: &[PointId]) -> Request {
+    req(
+        "automation.remove_points",
+        json!({ "clip": clip, "points": points }),
+    )
+}
+/// Recorded knob movements (song ticks, plain values) as a new, thinned clip.
+pub fn automation_record(target: &ParamPath, samples: &[(Tick, f64)]) -> Request {
+    let s: Vec<Value> = samples
+        .iter()
+        .map(|(t, v)| json!({ "tick": t, "value": v }))
+        .collect();
+    req(
+        "automation.record",
+        json!({ "target": target, "samples": s }),
     )
 }
 pub fn track_mute(track: u32, muted: bool) -> Request {
@@ -567,6 +642,28 @@ mod tests {
         run(channel_move(c, 0));
         run(channel_clone(c));
         run(clip_add(0, p, 0, None));
+        let target: ParamPath = "insert/1/volume".parse().unwrap();
+        let a = run(automation_add_clip(
+            &target,
+            3840,
+            3840,
+            &[(0, 0.5), (3840, 1.0)],
+        ));
+        let clip = ClipId(a.result["clip"].as_u64().unwrap() as u32);
+        let pts: Vec<PointId> = a.result["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| PointId(p.as_u64().unwrap() as u32))
+            .collect();
+        run(automation_add_point(clip, 1920, 0.2, "s_curve"));
+        run(automation_move_point(clip, pts[0], 480, 0.6));
+        run(automation_set_curve(clip, pts[1], "hold"));
+        run(automation_remove_points(clip, &pts[1..]));
+        run(automation_record(
+            &target,
+            &[(0, 0.1), (240, 0.4), (480, 0.9)],
+        ));
         run(mixer_volume(1, 0.7));
         run(mixer_pan(1, 0.1));
         run(mixer_mute(1, false));

@@ -19,8 +19,8 @@
 
 use crate::audition::{Player, Port};
 use crate::plan::{
-    ACTIVE_CAP, Active, ChannelState, EVENT_CAP, NodeDef, NodeState, NoteEv, PREVIEW_CAP, Plan,
-    Preview, Transfer,
+    ACTIVE_CAP, Active, AutoKind, ChannelState, EFFECT_EVENT_CAP, EVENT_CAP, EVENT_RESERVE,
+    NodeDef, NodeState, NoteEv, PREVIEW_CAP, Plan, Preview, Transfer, channel_gain, strip_gain,
 };
 use crate::pool::{Job, Pool, reset_sched};
 use crate::rt::{Mailbox, Retire};
@@ -598,6 +598,12 @@ impl Runtime {
                 }
             }
         }
+        // pass 1b: automation (M2/T7). Song mode only; anywhere else automated parameters
+        // return to the project's values.
+        if !plan.autos.is_empty() {
+            let active = playing && mode == PlayMode::Song;
+            schedule_automation(plan, a, b, active, resync);
+        }
         // pass 2: choke groups across channels — a note-on cuts the group's other channels
         for g in 1..plan.choke.len() {
             let members = &plan.choke[g];
@@ -792,6 +798,77 @@ impl Runtime {
     }
 }
 
+/// Fills this block's automation: per-frame buffers for gains, `Param` events for processor
+/// parameters (see [`crate::automation::BoundTarget::schedule`]). Serial phase.
+fn schedule_automation(plan: &Plan, a: i64, b: i64, active: bool, resync: bool) {
+    for &(node, slot) in &plan.effect_events {
+        // SAFETY: serial phase, audio thread only.
+        if let NodeState::Insert(s) = unsafe { plan.state_mut(node) }
+            && let Some(e) = s.effects.get_mut(slot)
+        {
+            e.events.clear();
+        }
+    }
+    let frames = (b - a).max(0) as usize;
+    for t in &plan.autos {
+        // SAFETY: serial phase; one target at a time.
+        let rt = unsafe { t.rt_mut() };
+        match &t.kind {
+            AutoKind::Buffer => {
+                let n = frames.min(rt.buf.len());
+                rt.has = t.bound.fill(&plan.tempo, a, active, &mut rt.buf[..n]);
+            }
+            AutoKind::Param {
+                node,
+                slot,
+                id,
+                model,
+            } => {
+                // SAFETY: as above.
+                let events: Option<&mut Vec<Event>> = match (unsafe { plan.state_mut(*node) }, slot)
+                {
+                    (NodeState::Channel(Some(c)), None) => Some(&mut c.events),
+                    (NodeState::Insert(s), Some(k)) => s.effects.get_mut(*k).map(|e| &mut e.events),
+                    _ => None,
+                };
+                let Some(events) = events else { continue };
+                let cap = if slot.is_some() {
+                    EFFECT_EVENT_CAP
+                } else {
+                    EVENT_CAP - EVENT_RESERVE
+                };
+                let id = *id;
+                t.bound.schedule(
+                    &plan.tempo,
+                    *model,
+                    a,
+                    b,
+                    active,
+                    resync,
+                    &mut rt.last,
+                    |frame, value| {
+                        if events.len() < cap {
+                            events.push(Event {
+                                frame,
+                                kind: EventKind::Param { id, value },
+                            });
+                        }
+                    },
+                );
+            }
+            AutoKind::Tempo | AutoKind::Unresolved => {}
+        }
+    }
+    for &(node, slot) in &plan.effect_events {
+        // SAFETY: as above.
+        if let NodeState::Insert(s) = unsafe { plan.state_mut(node) }
+            && let Some(e) = s.effects.get_mut(slot)
+        {
+            e.events.sort_unstable_by_key(event_order);
+        }
+    }
+}
+
 fn event_order(e: &Event) -> (u32, u8, u8, u32) {
     match e.kind {
         // the relative order of the M1 kinds is unchanged (ph-node crate docs)
@@ -907,12 +984,35 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
                     r.fill(0.0);
                 }
             }
-            st.ramp[0].set(def.gain[0]);
-            st.ramp[1].set(def.gain[1]);
+            // SAFETY: the scheduling phase is over; automation buffers are read-only now.
+            let (av, ap) = unsafe {
+                (
+                    def.auto_vol.and_then(|i| plan.autos[i].frames()),
+                    def.auto_pan.and_then(|i| plan.autos[i].frames()),
+                )
+            };
             let [l, r] = &mut st.out;
-            for k in 0..n {
-                l[k] *= st.ramp[0].next();
-                r[k] *= st.ramp[1].next();
+            if av.is_none() && ap.is_none() {
+                st.ramp[0].set(def.gain[0]);
+                st.ramp[1].set(def.gain[1]);
+                for k in 0..n {
+                    l[k] *= st.ramp[0].next();
+                    r[k] *= st.ramp[1].next();
+                }
+            } else {
+                // automated volume and/or pan: a gain target per frame, smoothed by the ramps
+                let mut cache = (f32::NAN, f32::NAN, def.gain);
+                for k in 0..n {
+                    let vol = pick(av, k, def.volume);
+                    let pan = pick(ap, k, def.pan);
+                    if vol.to_bits() != cache.0.to_bits() || pan.to_bits() != cache.1.to_bits() {
+                        cache = (vol, pan, channel_gain(vol, pan, def.muted));
+                    }
+                    st.ramp[0].set(cache.2[0]);
+                    st.ramp[1].set(cache.2[1]);
+                    l[k] *= st.ramp[0].next();
+                    r[k] *= st.ramp[1].next();
+                }
             }
             st.micros += (t0.elapsed().as_secs_f32() * 1e6 - st.micros) * 0.05;
         }
@@ -928,11 +1028,29 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
             let [al, ar] = &mut bus.acc;
             al[..n].fill(0.0);
             ar[..n].fill(0.0);
-            for e in &node.inputs {
+            for (ei, e) in node.inputs.iter().enumerate() {
                 // SAFETY: sources completed before this node became ready.
                 let Some((sl, sr)) = (unsafe { output_of(plan, e.src) }) else {
                     continue;
                 };
+                // an automated send level is smoothed per frame (the edge ramp)
+                if let Some(ai) = e.auto
+                    && let Some(ramp) = st.edge_ramps.get_mut(ei)
+                {
+                    // SAFETY: the scheduling phase is over.
+                    let f = unsafe { plan.autos[ai].frames() };
+                    for k in 0..n {
+                        let target = match f {
+                            Some(f) if !f[k].is_nan() => f[k].clamp(0.0, 2.0) as f32,
+                            _ => e.gain,
+                        };
+                        ramp.set(target);
+                        let g = ramp.next() as f64;
+                        al[k] += sl[k] as f64 * g;
+                        ar[k] += sr[k] as f64 * g;
+                    }
+                    continue;
+                }
                 let g = e.gain as f64;
                 for k in 0..n {
                     al[k] += sl[k] as f64 * g;
@@ -970,7 +1088,7 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
                     let mut io = ProcessIo {
                         inputs: &ports[..slot.inputs],
                         outputs: &mut outs,
-                        events: &[],
+                        events: &es.events,
                     };
                     let _ = p.process(&pctx, &mut io);
                 }
@@ -988,11 +1106,41 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
                 }
                 es.micros += (te.elapsed().as_secs_f32() * 1e6 - es.micros) * 0.05;
             }
-            bus.ramp[0].set(def.gain[0]);
-            bus.ramp[1].set(def.gain[1]);
-            for k in 0..n {
-                bus.out[0][k] = bus.buf[0][k] * bus.ramp[0].next();
-                bus.out[1][k] = bus.buf[1][k] * bus.ramp[1].next();
+            // SAFETY: the scheduling phase is over.
+            let (av, ap, am) = unsafe {
+                (
+                    def.auto_vol.and_then(|i| plan.autos[i].frames()),
+                    def.auto_pan.and_then(|i| plan.autos[i].frames()),
+                    def.auto_mute.and_then(|i| plan.autos[i].frames()),
+                )
+            };
+            if av.is_none() && ap.is_none() && am.is_none() {
+                bus.ramp[0].set(def.gain[0]);
+                bus.ramp[1].set(def.gain[1]);
+                for k in 0..n {
+                    bus.out[0][k] = bus.buf[0][k] * bus.ramp[0].next();
+                    bus.out[1][k] = bus.buf[1][k] * bus.ramp[1].next();
+                }
+            } else {
+                let mut cache = (f32::NAN, f32::NAN, false, def.gain);
+                for k in 0..n {
+                    let vol = pick(av, k, def.volume);
+                    let pan = pick(ap, k, def.pan);
+                    let muted = match am {
+                        Some(f) if !f[k].is_nan() => f[k] >= 0.5,
+                        _ => def.muted,
+                    };
+                    if vol.to_bits() != cache.0.to_bits()
+                        || pan.to_bits() != cache.1.to_bits()
+                        || muted != cache.2
+                    {
+                        cache = (vol, pan, muted, strip_gain(vol, pan, muted));
+                    }
+                    bus.ramp[0].set(cache.3[0]);
+                    bus.ramp[1].set(cache.3[1]);
+                    bus.out[0][k] = bus.buf[0][k] * bus.ramp[0].next();
+                    bus.out[1][k] = bus.buf[1][k] * bus.ramp[1].next();
+                }
             }
             if ctx.meters {
                 for c in 0..2 {
@@ -1010,6 +1158,16 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
             bus.micros += (t0.elapsed().as_secs_f32() * 1e6 - bus.micros) * 0.05;
         }
         _ => {}
+    }
+}
+
+/// Frame `k` of an automation buffer, or `fallback` (the model value) where no clip
+/// covers the frame.
+#[inline]
+fn pick(frames: Option<&[f64]>, k: usize, fallback: f32) -> f32 {
+    match frames {
+        Some(f) if !f[k].is_nan() => f[k] as f32,
+        _ => fallback,
     }
 }
 

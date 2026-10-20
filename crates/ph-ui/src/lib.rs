@@ -6,6 +6,8 @@
 pub mod about;
 pub mod app;
 pub mod audio_editor;
+pub mod auto_editor;
+pub mod automation;
 pub mod brand;
 pub mod browser_model;
 pub mod core;

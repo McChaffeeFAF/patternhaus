@@ -88,6 +88,13 @@ pub fn title_of(core: &AppCore, id: WindowId) -> String {
                 .unwrap_or_else(|| "Effect".into());
             format!("{} - {fx}", insert_title(core, i.0))
         }
+        WindowId::Automation(c) => match core.project.clips.get(&c).and_then(|c| c.automation()) {
+            Some(a) => format!(
+                "{} - Automation",
+                crate::automation::target_name(&core.project, &a.target)
+            ),
+            None => "Automation".into(),
+        },
     };
     if t.trim().is_empty() {
         "Window".into()
@@ -119,7 +126,10 @@ pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
         WindowId::Mixer => Some(true),
         // rows of names are shortened to the window instead of scrolling sideways
         WindowId::History | WindowId::Agents => Some(false),
-        WindowId::Playlist | WindowId::ChannelRack | WindowId::PianoRoll => None,
+        WindowId::Playlist
+        | WindowId::ChannelRack
+        | WindowId::PianoRoll
+        | WindowId::Automation(_) => None,
     };
     let Some(x) = scroll_x else {
         show_raw(ui, core, id);
@@ -151,6 +161,7 @@ fn show_raw(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
         WindowId::Instrument(c) => panels::inspector::show(ui, core, c),
         WindowId::Effect(i, slot) => panels::mixer::effect_window(ui, core, i.0, slot as usize),
         WindowId::AudioEditor(s) => panels::audio_editor::show(ui, core, s),
+        WindowId::Automation(c) => panels::automation::show(ui, core, c),
     }
 }
 
@@ -657,6 +668,9 @@ pub fn window_help(id: WindowId) -> &'static str {
         WindowId::Effect(..) => "Effect: the parameters of one effect on a mixer insert.",
         WindowId::AudioEditor(_) => {
             "Audio editor: select, cut, copy, paste, trim, fade, normalise, reverse and slice one sample. Edits write new files; the original is never changed."
+        }
+        WindowId::Automation(_) => {
+            "Automation clip: click to add a point, drag to move it, right-click for the curve."
         }
     }
 }

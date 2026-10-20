@@ -91,4 +91,15 @@ Sources for the *Behaves* column:
 | Agents | `snapshot` shows an audio clip's waveform | `snapshot { kind: waveform, clip }` | 2026-10-19: ph-control test |
 | Audio | Long audio files stream from disk | engine prefetch thread (`ph_engine::stream`), `EngineStats.underruns` | n/a: engine internals (DESIGN §4), no user-facing FL setting is mirrored |
 
+## M2: automation (T7)
+
+| Area | Feature | Wired | Behaves |
+|---|---|---|---|
+| Automation | Automation clips in the playlist, with points and curve types (linear, hold, smooth, S-curve) on any instrument, effect, plugin, mixer, channel or send parameter and on tempo | `automation.add_clip` `automation.add_point` `automation.move_point` `automation.set_curve` `automation.remove_points` `automation.set_target`; moving, resizing and deleting are `playlist.*`; the engine plays them sample-accurately (`ph_engine::automation`) | 2026-10-19: engine tests (every target kind, block sizes 64/512/37, live = offline bit-exact, no allocation under swaps). Differs: curves are four fixed shapes with a tension bend, not FL's free tension handles; where clips overlap the latest-starting one wins (FL's rule is owner check pending) |
+| Automation | A parameter returns to its knob value when automation stops | engine: events and gain buffers fall back to the project's value at a clip's end, on stop and when a clip is deleted | 2026-10-19: engine tests. Owner check pending against FL (does FL jump back at the clip end or keep the last value?) |
+| Automation | "Create automation clip" from a knob's right-click menu | UI on every knob, fader and parameter grid control: `automation.add_clip` over the loop region, else the selected clips, else the bar at the playhead, on the first free track; opens its editor | 2026-10-19: UI tests. Owner check pending |
+| Automation | The clip's curve is drawn in the playlist; knobs wear a ring and follow the value while playing | `ph-ui` playlist and widgets | 2026-10-19: UI tests, pictures in both themes. Owner check pending |
+| Automation | Automation clip editor: add, move and delete points, change a curve by right-click, snap | `automation.add_point` `automation.move_point` `automation.remove_points` `automation.set_curve`; a floating window per clip (`WindowId::Automation`) | 2026-10-19: UI tests. Differs: no tension handles or point selection box yet |
+| Automation | Record automation from knob moves while playing | transport row record button (automation), `automation.record` writes the thinned samples as one undoable clip | 2026-10-19: UI tests and command tests. Differs: while a knob is dragged the audio follows after release (knobs commit on release), so you record by ear against what already plays |
+
 [notes]: ../formats/fl-behaviour-notes.md
