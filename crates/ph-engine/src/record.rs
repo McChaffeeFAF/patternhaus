@@ -7,8 +7,12 @@
 //!   thread.
 //! - [`RecordedTake::sample_entry`] is the registry entry the take becomes once T8 has
 //!   written its audio to `samples/` (`ph_core::Origin::Recorded`).
-//! - `Engine::arm`, `record_start`, `record_stop` and `set_monitor` are the engine API; until
-//!   T8 they return [`crate::EngineError::Unavailable`].
+//! - `Engine::arm`, `record_start`, `record_stop` and `set_monitor` are the engine API (M2/T8,
+//!   implemented in `rec_rt.rs`): the audio thread reads the armed inputs, pushes the frames
+//!   it records through a lock-free ring to a writer thread, and that thread appends them to
+//!   a WAV file in the project's `samples/` as they arrive.
+//! - An [`InputProvider`] lists and opens inputs. The device provider is `CpalInputs`
+//!   (`rec_device.rs`); [`SimulatedInputs`] plays fixed buffers, for tests.
 //!
 //! Offline renders never read inputs: [`crate::render_offline`] is the input-free path, and
 //! a monitored input is not part of the oracle comparison.
@@ -48,6 +52,166 @@ pub struct Arm {
     pub monitor: bool,
 }
 
+/// Armed inputs at most (slots in the audio thread's rig).
+pub const MAX_INPUTS: usize = 4;
+
+/// Options of [`crate::Engine::record_start`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordOptions {
+    /// The folder the takes are written to (`<project>/samples`). Created if missing.
+    pub dir: std::path::PathBuf,
+    /// File name stem: `Take` gives `Take 1.wav`, `Take 2.wav`, ... Existing files are never
+    /// overwritten; the number moves past them.
+    pub name: String,
+    /// Bars of metronome before recording starts (the song is held until they are over).
+    pub count_in_bars: u32,
+    /// Record only inside this range (ticks): punch in at the start, out at the end.
+    pub punch: Option<(Tick, Tick)>,
+    /// Overrides the measured round-trip latency compensation, in milliseconds.
+    pub latency_ms: Option<f64>,
+}
+
+impl RecordOptions {
+    pub fn new(dir: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            dir: dir.into(),
+            name: "Take".into(),
+            count_in_bars: 0,
+            punch: None,
+            latency_ms: None,
+        }
+    }
+}
+
+/// A take on disk: what [`crate::Engine::record_stop`] returns for each armed input.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RecordedFile {
+    pub input: InputInfo,
+    pub target: RecordTarget,
+    /// Where it was written.
+    pub path: std::path::PathBuf,
+    /// The file name, `Take 3.wav` (the project reference is `samples/<file>`).
+    pub file: String,
+    /// Song position where recording started (ticks).
+    pub start: Tick,
+    /// Recorded range in ticks (from the first to the last captured frame).
+    pub length: Tick,
+    pub frames: u64,
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// Round-trip latency in frames: the sound that belongs at `start` is this far into the
+    /// file, so the clip plays from `source_offset = latency_frames`.
+    pub latency_frames: u64,
+    /// Frames lost because the writer fell behind.
+    pub overflow: u64,
+    /// A write error, if the disk refused part of the take.
+    pub error: Option<String>,
+}
+
+/// What the latency readout shows.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct LatencyReport {
+    pub sample_rate: u32,
+    /// Input device buffering (frames), as measured or reported by the input.
+    pub input_frames: u32,
+    /// Output device buffering (frames), as measured by the output stream.
+    pub output_frames: u32,
+    /// Hearing the input through the engine (input + output).
+    pub monitor_seconds: f64,
+    /// What a take is shifted by.
+    pub compensation_frames: u32,
+}
+
+/// Where the recorder is.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+pub enum RecordPhase {
+    #[default]
+    Idle,
+    /// The metronome counts in.
+    CountIn,
+    Recording,
+}
+
+/// The recorder's state for the UI.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct RecordStatus {
+    pub phase: RecordPhase,
+    /// Armed inputs with their peak level since the last call (linear).
+    pub inputs: Vec<(InputId, f32)>,
+    /// Frames recorded so far by the first armed input.
+    pub frames: u64,
+}
+
+/// Lists and opens the audio inputs of a device. `open` hands the audio thread an
+/// [`InputSource`] that already runs; the engine calls it on the control thread.
+pub trait InputProvider: std::marker::Send {
+    fn list(&mut self) -> Vec<InputInfo>;
+    /// Opens `id` at `sample_rate`. `max_frames` is the largest block the audio thread reads
+    /// in one go.
+    fn open(
+        &mut self,
+        id: InputId,
+        sample_rate: u32,
+        max_frames: usize,
+    ) -> crate::EngineResult<Box<dyn InputSource>>;
+}
+
+/// Fixed buffers playing as inputs, for tests: every `open` starts a fresh [`SimulatedInput`].
+#[derive(Default)]
+pub struct SimulatedInputs {
+    entries: Vec<(InputInfo, Vec<Vec<f32>>, u32)>,
+}
+
+impl SimulatedInputs {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds an input playing `data` (`[channel][frame]`) with `latency` frames of simulated
+    /// device latency. Ids count up from 0.
+    pub fn with(
+        mut self,
+        name: &str,
+        sample_rate: u32,
+        data: Vec<Vec<f32>>,
+        latency: u32,
+    ) -> Self {
+        let id = InputId(self.entries.len() as u32);
+        let info = SimulatedInput::new(id, name, sample_rate, data.clone())
+            .info()
+            .clone();
+        self.entries.push((info, data, latency));
+        self
+    }
+}
+
+impl InputProvider for SimulatedInputs {
+    fn list(&mut self) -> Vec<InputInfo> {
+        self.entries.iter().map(|e| e.0.clone()).collect()
+    }
+
+    fn open(
+        &mut self,
+        id: InputId,
+        sample_rate: u32,
+        _max_frames: usize,
+    ) -> crate::EngineResult<Box<dyn InputSource>> {
+        let (info, data, latency) = self
+            .entries
+            .get(id.0 as usize)
+            .ok_or_else(|| crate::EngineError::Device(format!("no input {}", id.0)))?;
+        if info.sample_rate != sample_rate {
+            return Err(crate::EngineError::Device(format!(
+                "{} runs at {} Hz, the engine at {sample_rate} Hz",
+                info.name, info.sample_rate
+            )));
+        }
+        let mut s = SimulatedInput::new(id, &info.name, info.sample_rate, data.clone());
+        s.latency = *latency;
+        Ok(Box::new(s))
+    }
+}
+
 /// Monitoring latency (input buffer plus output buffer) in seconds, for the readout.
 pub fn monitor_latency(buffer_frames: u32, sample_rate: u32) -> f64 {
     2.0 * buffer_frames as f64 / sample_rate.max(1) as f64
@@ -60,6 +224,14 @@ pub trait InputSource: std::marker::Send {
     /// how many it wrote; fewer than asked means the input had nothing more (the rest is
     /// silence).
     fn read(&mut self, out: &mut [&mut [f32]]) -> usize;
+    /// Frames between a sound reaching the device and `read` delivering it (device buffer
+    /// plus anything queued). Real-time (a few atomic loads at most).
+    fn latency_frames(&self) -> u32 {
+        0
+    }
+    /// Drops audio queued while nobody was reading, so recording starts with the freshest
+    /// frames. Real-time.
+    fn flush(&mut self) {}
 }
 
 /// An input that plays a fixed buffer once.
@@ -67,6 +239,8 @@ pub struct SimulatedInput {
     info: InputInfo,
     data: Vec<Vec<f32>>,
     pos: usize,
+    /// Simulated device latency (frames), reported by `latency_frames`.
+    pub latency: u32,
 }
 
 impl SimulatedInput {
@@ -81,6 +255,7 @@ impl SimulatedInput {
             },
             data,
             pos: 0,
+            latency: 0,
         }
     }
 }
@@ -88,6 +263,10 @@ impl SimulatedInput {
 impl InputSource for SimulatedInput {
     fn info(&self) -> &InputInfo {
         &self.info
+    }
+
+    fn latency_frames(&self) -> u32 {
+        self.latency
     }
 
     fn read(&mut self, out: &mut [&mut [f32]]) -> usize {
@@ -270,22 +449,6 @@ mod tests {
             Origin::Recorded(Take { ref input, start, length: 24 }) if input == "Sim: In 1-2" && start == 2 * PPQ
         ));
         assert_eq!(monitor_latency(256, 48_000), 512.0 / 48_000.0);
-    }
-
-    #[test]
-    fn the_engine_recording_api_is_reserved_for_t8() {
-        let (engine, _dev) = crate::tests::sim(256, 0);
-        assert!(engine.inputs().is_empty());
-        let unavailable = |r: crate::EngineResult<()>| {
-            matches!(r, Err(crate::EngineError::Unavailable { track: "T8", .. }))
-        };
-        assert!(unavailable(engine.arm(InputId(0), RecordTarget::Track(0))));
-        assert!(unavailable(engine.set_monitor(InputId(0), true)));
-        assert!(unavailable(engine.record_start()));
-        assert!(unavailable(engine.record_stop().map(|_| ())));
-        engine.disarm(InputId(0));
-        let e = engine.record_start().unwrap_err().to_string();
-        assert_eq!(e, "audio input recording is not available until M2/T8");
     }
 
     #[test]

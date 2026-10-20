@@ -9,6 +9,7 @@ mod audition;
 mod automation;
 mod oracle;
 mod plugins;
+mod record;
 mod routing;
 mod rt_miri;
 mod rt_safety;

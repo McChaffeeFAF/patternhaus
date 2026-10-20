@@ -10,6 +10,7 @@
 use crate::runtime::Runtime;
 use crate::{EngineConfig, EngineError, EngineResult};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use std::sync::atomic::Ordering::Relaxed;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 
@@ -118,10 +119,19 @@ pub(crate) fn open(
                 }
             };
             let channels = sc.channels as usize;
+            let rate = sc.sample_rate as f64;
+            let rig_shared = rt.rig.shared.clone();
             let stream = device.build_output_stream(
                 sc,
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                move |data: &mut [f32], info: &cpal::OutputCallbackInfo| {
                     crate::rt::enable_ftz_daz();
+                    // how far ahead of the speakers this block is (recording latency
+                    // compensation); an atomic store, no allocation
+                    let ts = info.timestamp();
+                    let ahead = ts.playback.saturating_duration_since(ts.callback);
+                    rig_shared
+                        .out_latency
+                        .store((ahead.as_secs_f64() * rate).round() as u32, Relaxed);
                     crate::rt::no_alloc(|| rt.process_interleaved(data, channels));
                 },
                 |_err| {},

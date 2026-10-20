@@ -31,6 +31,8 @@ mod player;
 pub mod plugins;
 mod pool;
 pub mod record;
+mod rec_device;
+mod rec_rt;
 mod rt;
 mod runtime;
 mod sched;
@@ -220,6 +222,28 @@ struct Inner {
     plugins: Option<plugins::PluginEnv>,
     /// Plugin faults reported so far (M2/T3), oldest first.
     faults: Vec<plugins::PluginFaultReport>,
+    /// Audio input recording and monitoring (M2/T8).
+    rec: rec_rt::RecCtl,
+}
+
+impl Inner {
+    /// The tempo map the plan uses for the current project.
+    fn tempo_map(&self) -> tempo::TempoMap {
+        automation::AutomationEvaluator::new(&self.project).tempo_map(
+            self.project.settings.bpm,
+            self.sample_rate,
+            plan::TEMPO_RESOLUTION,
+        )
+    }
+
+    /// Playhead in ticks as the audio thread last reported it.
+    fn mirror_position(&self, shared: &Shared) -> Tick {
+        if shared.playing.load(Relaxed) {
+            shared.position.load(Relaxed)
+        } else {
+            self.mirror.position
+        }
+    }
 }
 
 /// Command ring capacity (transport, previews) between control and audio threads.
@@ -254,6 +278,7 @@ struct Parts {
     cmds: rtrb::Producer<Command>,
     collector: Collector,
     audition: Arc<audition::Port>,
+    rec: rec_rt::RecCtl,
 }
 
 /// Builds a runtime for `settings` with `project` loaded and the transport in `status`.
@@ -284,6 +309,11 @@ fn build(
         max_shed,
         port.clone(),
     );
+    let rec = rec_rt::RecCtl::new(
+        rt.rig.take_handles().expect("a new runtime has its rig handles"),
+        settings.sample_rate,
+        settings.max_frames,
+    );
     // carry the transport over (reconfigure)
     if status.mode != PlayMode::Song {
         rt.apply(Command::Transport(TransportCommand::SetMode(status.mode)));
@@ -308,6 +338,7 @@ fn build(
         cmds: tx,
         collector,
         audition: port,
+        rec,
     })
 }
 
@@ -354,15 +385,25 @@ impl Engine {
                 &st,
                 audio_clips::StreamPolicy::Live,
             )?;
-            let _ = tx.send((parts.ctl, parts.cmds, parts.collector, parts.audition));
+            let _ = tx.send((
+                parts.ctl,
+                parts.cmds,
+                parts.collector,
+                parts.audition,
+                parts.rec,
+            ));
             Ok(parts.rt)
         })?;
-        let (ctl, cmds, collector, audition) = rx
+        let (ctl, cmds, collector, audition, mut rec) = rx
             .recv()
             .map_err(|_| EngineError::Device("device thread ended unexpectedly".into()))?;
+        rec.set_provider(Some(Box::new(rec_device::CpalInputs::new(
+            config.exclusive,
+        ))));
         Ok(Inner {
             plugins: None,
             faults: Vec::new(),
+            rec,
             sample_rate: handle.sample_rate,
             buffer_frames: handle.buffer_frames,
             warnings: (0, Vec::new()),
@@ -408,6 +449,7 @@ impl Engine {
         let inner = Inner {
             plugins: None,
             faults: Vec::new(),
+            rec: parts.rec,
             sample_rate: settings.sample_rate,
             buffer_frames: settings.max_frames as u32,
             warnings: (0, Vec::new()),
@@ -605,38 +647,112 @@ impl Engine {
         port.post(Box::new(audition::Voice::new(data, rate, gain)));
     }
 
-    /// Stops the audition with a short fade.
-    /// Audio inputs the device offers (M2/T8; empty until then).
+    // ---- audio input recording (M2/T8), see `rec_rt.rs`
+
+    /// Replaces where audio inputs come from (the device by default; tests use
+    /// [`record::SimulatedInputs`]). Armed inputs are disarmed.
+    pub fn set_input_provider(&self, provider: Option<Box<dyn record::InputProvider>>) {
+        let mut g = self.lock();
+        let armed: Vec<_> = g.rec.armed().into_iter().map(|a| a.0.id).collect();
+        for id in armed {
+            g.rec.disarm(id);
+        }
+        g.rec.set_provider(provider);
+    }
+
+    /// Audio inputs the device offers right now (a fresh listing: new devices show up).
     pub fn inputs(&self) -> Vec<record::InputInfo> {
-        Vec::new()
+        self.lock().rec.inputs()
     }
 
-    /// Arms `input` to record into `target` (M2/T8).
+    /// Arms `input` to record into `target`, hearing it through the target's mixer insert.
     pub fn arm(&self, input: record::InputId, target: record::RecordTarget) -> EngineResult<()> {
-        let _ = (input, target);
-        Err(record_unavailable())
+        self.arm_with(record::Arm {
+            input,
+            target,
+            monitor: true,
+        })
     }
 
-    /// Disarms `input`. A no-op for inputs that are not armed.
+    /// [`Engine::arm`] with the monitor choice. Opens the input (on this thread).
+    pub fn arm_with(&self, arm: record::Arm) -> EngineResult<()> {
+        let mut g = self.lock();
+        let insert = match &arm.target {
+            record::RecordTarget::Channel(c) => g
+                .project
+                .channels
+                .get(c)
+                .map(|ch| ch.insert.0 as u32)
+                .ok_or_else(|| EngineError::Device(format!("channel {} does not exist", c.0)))?,
+            record::RecordTarget::Track(_) => 0,
+        };
+        g.rec.arm(arm.input, arm.target, arm.monitor, insert)
+    }
+
+    /// Disarms `input`. A no-op for inputs that are not armed (or while recording).
     pub fn disarm(&self, input: record::InputId) {
-        let _ = input;
+        self.lock().rec.disarm(input);
     }
 
-    /// Hear an armed input through its target (M2/T8).
+    /// Hear an armed input through its target (or stop hearing it). Monitoring is a live
+    /// feature: offline renders never include it.
     pub fn set_monitor(&self, input: record::InputId, on: bool) -> EngineResult<()> {
-        let _ = (input, on);
-        Err(record_unavailable())
+        self.lock().rec.set_monitor(input, on)
     }
 
-    /// Starts recording every armed input at the current position (M2/T8).
-    pub fn record_start(&self) -> EngineResult<()> {
-        Err(record_unavailable())
+    /// The armed inputs with their targets and monitor flags.
+    pub fn armed_inputs(&self) -> Vec<(record::InputInfo, record::RecordTarget, bool)> {
+        self.lock().rec.armed()
     }
 
-    /// Stops recording and hands back one take per armed input (M2/T8). The caller writes
-    /// them to `samples/` and adds them to the project through commands.
-    pub fn record_stop(&self) -> EngineResult<Vec<record::RecordedTake>> {
-        Err(record_unavailable())
+    /// Starts recording every armed input at the current position: after the count-in if
+    /// asked, inside the punch range if given. The song plays.
+    pub fn record_start(&self, opts: record::RecordOptions) -> EngineResult<()> {
+        let mut g = self.lock();
+        let inner = &mut *g;
+        let tempo = inner.tempo_map();
+        let ts = inner.project.settings.time_signature;
+        let beat_ticks = (ph_core::PPQ * 4 / ts.denominator.max(1) as Tick).max(1);
+        let bar_ticks = beat_ticks * ts.numerator.max(1) as Tick;
+        let at = inner.mirror_position(&self.shared);
+        let count_in = if opts.count_in_bars > 0 {
+            tempo.sample_at(at + bar_ticks * opts.count_in_bars as Tick) - tempo.sample_at(at)
+        } else {
+            0
+        };
+        let beat = tempo.sample_at(at + beat_ticks) - tempo.sample_at(at);
+        let punch = opts
+            .punch
+            .filter(|(a, b)| b > a)
+            .map(|(a, b)| (tempo.sample_at(a), tempo.sample_at(b)));
+        inner
+            .rec
+            .start(&opts, count_in, beat, ts.numerator.max(1) as u32, punch)
+    }
+
+    /// Stops recording and hands back one take per armed input that captured something. The
+    /// files are complete on disk; the caller adds them to the project through commands.
+    pub fn record_stop(&self) -> EngineResult<Vec<record::RecordedFile>> {
+        let mut g = self.lock();
+        let tempo = g.tempo_map();
+        let sr = g.sample_rate;
+        g.rec.stop(&tempo, sr)
+    }
+
+    /// Whether a recording is running (started and not stopped).
+    pub fn is_recording(&self) -> bool {
+        self.lock().rec.is_recording()
+    }
+
+    /// Phase, input levels and frames so far, for the record button and input meters. Levels
+    /// are the peak since the previous call.
+    pub fn record_status(&self) -> record::RecordStatus {
+        self.lock().rec.status()
+    }
+
+    /// The latency readout: input and output buffering, and what a take is shifted by.
+    pub fn latency(&self) -> record::LatencyReport {
+        self.lock().rec.latency()
     }
 
     pub fn stop_audition(&self) {
@@ -751,13 +867,6 @@ impl Engine {
             .filter(|p| !p.fault.is_dead())
             .filter_map(|p| Some((p.state_ref.clone()?, p.state_file().ok()?)))
             .collect()
-    }
-}
-
-fn record_unavailable() -> EngineError {
-    EngineError::Unavailable {
-        feature: "audio input recording",
-        track: "T8",
     }
 }
 

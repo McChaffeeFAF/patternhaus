@@ -23,6 +23,7 @@ use crate::plan::{
     NodeDef, NodeState, NoteEv, PREVIEW_CAP, Plan, Preview, Transfer, channel_gain, strip_gain,
 };
 use crate::pool::{Job, Pool, reset_sched};
+use crate::rec_rt::{Feeds, Rig, Transition};
 use crate::rt::{Mailbox, Retire};
 use crate::stats::{Shared, store_f32};
 use crate::{PlayMode, TransportCommand};
@@ -42,6 +43,20 @@ pub(crate) enum Command {
         velocity: f32,
         on: bool,
     },
+    /// A controller, pitch bend or channel pressure from a MIDI keyboard (M2/T8), sent to one
+    /// channel's instrument at the start of the next block.
+    PreviewMod {
+        channel: ChannelId,
+        what: ModKind,
+    },
+}
+
+/// What [`Command::PreviewMod`] carries.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub(crate) enum ModKind {
+    Cc { controller: u8, value: f32 },
+    Bend { value: f32 },
+    Pressure { value: f32 },
 }
 
 /// Per-block context shared by every node of a chunk.
@@ -60,6 +75,8 @@ pub(crate) struct ChunkCtx {
     pub limit: i64,
     /// The song loop region in samples while the transport loops (audio-clip pre-warm).
     pub looping: Option<(i64, i64)>,
+    /// Monitored input audio per insert (M2/T8); none unless an armed input is monitored.
+    pub feeds: Feeds,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +137,8 @@ pub(crate) struct Runtime {
     buffer_frames: u32,
     audition_port: Arc<Port>,
     audition: Player,
+    /// Recording and input monitoring (M2/T8).
+    pub rig: Rig,
 }
 
 // SAFETY: the job's raw plan pointer only refers to `self.plan` during `run_graph`.
@@ -151,6 +170,7 @@ impl Runtime {
             song: true,
             limit: i64::MAX,
             looping: None,
+            feeds: Feeds::NONE,
         };
         Self {
             plan,
@@ -180,6 +200,7 @@ impl Runtime {
             buffer_frames,
             audition_port,
             audition: Player::new(),
+            rig: Rig::new(n),
         }
     }
 
@@ -194,11 +215,25 @@ impl Runtime {
         let frames = left.len().min(right.len());
         self.poll_plan();
         self.drain_commands();
+        self.drain_rig();
         self.audition.poll(&self.audition_port);
         let mut done = 0;
         while done < frames {
-            let n = self.next_chunk(frames - done);
-            self.run_chunk(n);
+            let mut n = self.next_chunk(frames - done);
+            // a count-in ends exactly at its length
+            let counting = self.rig.count_in_left();
+            if let Some(left) = counting {
+                n = n.min(left);
+            }
+            let feeds = self.rig.pre_chunk(self.tr.pos, n, self.tr.playing);
+            self.run_chunk(n, feeds);
+            if counting.is_some() {
+                let sr = self.plan.settings.sample_rate as f64;
+                if self.rig.count_in_step(&mut self.out, n, sr) {
+                    self.tr.playing = true;
+                    self.resync = true;
+                }
+            }
             left[done..done + n].copy_from_slice(&self.out[0][..n]);
             right[done..done + n].copy_from_slice(&self.out[1][..n]);
             self.audition
@@ -333,6 +368,25 @@ impl Runtime {
         }
     }
 
+    /// Recorder messages (arm, monitor, start, stop). A start holds the transport for its
+    /// count-in, or plays at once.
+    fn drain_rig(&mut self) {
+        match self.rig.drain() {
+            Transition::None => {}
+            Transition::CountIn => {
+                self.tr.playing = false;
+                self.all_notes_off();
+                self.resync = true;
+            }
+            Transition::Roll => {
+                if !self.tr.playing {
+                    self.tr.playing = true;
+                    self.resync = true;
+                }
+            }
+        }
+    }
+
     pub fn apply(&mut self, cmd: Command) {
         match cmd {
             Command::Transport(t) => self.apply_transport(t),
@@ -352,6 +406,15 @@ impl Runtime {
                         velocity: velocity.clamp(0.0, 1.0),
                         on,
                     });
+                }
+            }
+            Command::PreviewMod { channel, what } => {
+                if let Some(i) = self.plan.channel_node(channel)
+                    // SAFETY: between blocks, audio thread only.
+                    && let Some(st) = unsafe { self.plan.channel_mut(i) }
+                    && st.preview_mod.len() < PREVIEW_CAP
+                {
+                    st.preview_mod.push(what);
                 }
             }
         }
@@ -465,7 +528,7 @@ impl Runtime {
         n.max(1)
     }
 
-    fn run_chunk(&mut self, n: usize) {
+    fn run_chunk(&mut self, n: usize, feeds: Feeds) {
         let a = self.tr.pos;
         let b = a + n as i64;
         self.schedule_events(a, b);
@@ -485,6 +548,7 @@ impl Runtime {
             } else {
                 None
             },
+            feeds,
         };
         self.run_graph(ctx);
         let m = self.plan.master();
@@ -573,6 +637,34 @@ impl Runtime {
                 }
             }
             st.preview.clear();
+            for m in 0..st.preview_mod.len() {
+                match st.preview_mod[m] {
+                    ModKind::Cc { controller, value } => {
+                        push_event(st, 0, EventKind::Cc { controller, value });
+                    }
+                    ModKind::Bend { value } => {
+                        push_event(st, 0, EventKind::PitchBend { value });
+                    }
+                    ModKind::Pressure { value } => {
+                        // channel pressure reaches every sounding preview note
+                        for k in 0..st.active.len() {
+                            if st.active[k].preview {
+                                let note_id = st.active[k].id;
+                                push_event(
+                                    st,
+                                    0,
+                                    EventKind::NoteExpression {
+                                        note_id,
+                                        kind: ph_node::NoteExpressionKind::Pressure,
+                                        value,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            st.preview_mod.clear();
             let stream = stream_of(i);
             if resync {
                 st.cursor = stream.partition_point(|e| e.start < a);
@@ -1055,6 +1147,23 @@ pub(crate) unsafe fn process_node(plan: &Plan, i: usize, ctx: &ChunkCtx) {
                 for k in 0..n {
                     al[k] += sl[k] as f64 * g;
                     ar[k] += sr[k] as f64 * g;
+                }
+            }
+            // monitored input audio (M2/T8): added to the insert's input like a channel
+            for f in &ctx.feeds.items[..ctx.feeds.n] {
+                if f.insert == def.insert as u32 {
+                    // SAFETY: the feed buffers belong to the runtime and hold `n` frames
+                    // for this chunk; nothing writes them while the graph runs.
+                    let (fl, fr) = unsafe {
+                        (
+                            std::slice::from_raw_parts(f.l, n),
+                            std::slice::from_raw_parts(f.r, n),
+                        )
+                    };
+                    for k in 0..n {
+                        al[k] += fl[k] as f64;
+                        ar[k] += fr[k] as f64;
+                    }
                 }
             }
             for k in 0..n {

@@ -19,6 +19,8 @@ ph-formats.workspace = true
 ph-plugin-host.workspace = true
 cpal.workspace = true
 rtrb.workspace = true
+hound.workspace = true
+midir.workspace = true
 assert_no_alloc.workspace = true
 
 [features]
