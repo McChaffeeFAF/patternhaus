@@ -283,9 +283,10 @@ impl ModelRing {
 }
 
 /// The end of a take (`rec_rt.rs`): the audio thread pushes frames, then sets `done` with
-/// `Release`; the writer loads `done` *before* draining and finishes once it saw `done` and
-/// the ring is empty. Every frame pushed before `done` must have been written by then, in
-/// order, however the two interleave.
+/// `Release`; the writer loads `done` *before* draining. Whenever the writer sees `done`, the
+/// drain that follows must return every frame pushed before it, in order, however the two
+/// interleave. (Bounded rounds keep the model small: a writer that has not seen `done` yet
+/// just tries again, and the frames it already took stay in order.)
 #[test]
 fn take_done_flag_publishes_every_pushed_frame() {
     loom::model(|| {
@@ -293,27 +294,30 @@ fn take_done_flag_publishes_every_pushed_frame() {
         let shared = Arc::new(TakeShared::new());
         let (r2, s2) = (ring.clone(), shared.clone());
         let audio = thread::spawn(move || {
-            for v in 1..=3u32 {
+            for v in 1..=2u32 {
                 assert!(r2.push(v));
             }
             s2.done.store(true, Release);
         });
         let mut written = Vec::new();
-        loop {
-            let finished = shared.done.load(Acquire);
+        let mut finished = false;
+        for _ in 0..2 {
+            finished = shared.done.load(Acquire);
             while let Some(v) = ring.pop() {
                 written.push(v);
             }
-            if finished && ring.pop().is_none() {
+            if finished {
                 break;
             }
-            thread::yield_now();
+        }
+        if finished {
+            // the writer saw `done`: nothing pushed before it can still be missing
+            assert_eq!(written, vec![1, 2], "frames lost after the done flag");
         }
         audio.join().unwrap();
-        assert_eq!(
-            written,
-            vec![1, 2, 3],
-            "the writer lost or reordered frames"
-        );
+        while let Some(v) = ring.pop() {
+            written.push(v);
+        }
+        assert_eq!(written, vec![1, 2], "the writer lost or reordered frames");
     });
 }

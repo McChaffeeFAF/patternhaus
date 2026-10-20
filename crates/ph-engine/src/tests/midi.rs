@@ -289,9 +289,12 @@ fn keyboard_events_under_plan_swaps_allocate_nothing() {
     let engine = Arc::new(engine);
     let (p, c) = project();
     engine.set_project(p.clone()).unwrap();
+    // one held note, so something sounds however the threads are scheduled
+    engine.preview_note(c, 57, 1.0, true);
+    let sent = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let player = {
-        let (e, stop) = (engine.clone(), stop.clone());
+        let (e, stop, sent) = (engine.clone(), stop.clone(), sent.clone());
         std::thread::spawn(move || {
             let mut r = Rng::new(7);
             while !stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -319,6 +322,7 @@ fn keyboard_events_under_plan_swaps_allocate_nothing() {
                 if r.below(3) == 0 {
                     e.preview_note(c, key, 0.0, false);
                 }
+                sent.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 std::thread::sleep(Duration::from_micros(150));
             }
         })
@@ -337,7 +341,15 @@ fn keyboard_events_under_plan_swaps_allocate_nothing() {
             }
         })
     };
-    let out = pull(&mut dev, 128 * 1500);
+    // pull until the player has sent a few hundred events (and at least 1500 blocks)
+    let mut out = Vec::new();
+    let t0 = Instant::now();
+    while out.len() < 128 * 1500
+        || (sent.load(std::sync::atomic::Ordering::Relaxed) < 300
+            && t0.elapsed() < Duration::from_secs(20))
+    {
+        out.extend(pull(&mut dev, 128));
+    }
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     player.join().unwrap();
     swapper.join().unwrap();

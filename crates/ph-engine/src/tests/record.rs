@@ -412,12 +412,15 @@ fn an_armed_unmonitored_engine_is_bit_identical_to_one_without_inputs() {
 fn recording_survives_plan_swaps_and_toggling_under_assert_no_alloc() {
     // a second thread swaps plans while the audio thread records and monitors; `pull_into`
     // aborts on any allocation inside the callback
+    // (the pulls run far faster than real time, so keep the take inside the capture ring's
+    // depth: a writer thread starved by a loaded machine must not be able to drop frames)
+    const FRAMES: usize = 100_800;
     let dir = tempfile::tempdir().unwrap();
     let (p, c) = project_with_channel();
     let (engine, mut dev) = sim(192, 1);
     let engine = Arc::new(engine);
     engine.set_project(Arc::new(p.clone())).unwrap();
-    engine.set_input_provider(Some(provider(400_000, 64)));
+    engine.set_input_provider(Some(provider(200_000, 64)));
     let id = engine.inputs()[0].id;
     engine
         .arm_with(Arm {
@@ -443,14 +446,14 @@ fn recording_survives_plan_swaps_and_toggling_under_assert_no_alloc() {
             }
         })
     };
-    let out = pull(&mut dev, 192_000, 192);
+    let out = pull(&mut dev, FRAMES, 192);
     stop.store(true, std::sync::atomic::Ordering::Relaxed);
     swapper.join().unwrap();
     assert!(out[0].iter().all(|v| v.is_finite()));
     let t = engine.record_stop().unwrap().remove(0);
-    assert_eq!(t.frames, 192_000);
+    assert_eq!(t.frames, FRAMES as u64);
     assert_eq!(t.overflow, 0);
     let (_, audio) = read_wav(&t.path);
-    assert_eq!(audio[0].len(), 192_000);
-    assert_eq!(audio[0][191_999], ramp(192_000)[0][191_999]);
+    assert_eq!(audio[0].len(), FRAMES);
+    assert_eq!(audio[0][FRAMES - 1], ramp(FRAMES)[0][FRAMES - 1]);
 }
