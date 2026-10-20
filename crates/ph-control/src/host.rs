@@ -24,6 +24,11 @@ pub struct EngineHost {
     resolver: Option<Arc<ph_engine::assets::FileResolver>>,
     /// Set while a UI takes `ui_requests` (plugin editors open only there).
     ui_attached: Arc<AtomicBool>,
+    /// MIDI input and learn (M2/T8); without it the `midi.*` commands refuse.
+    midi: Option<Arc<ph_engine::midi::MidiService>>,
+    /// MIDI notes are being collected for this pattern and channel (between `record.start`
+    /// and `record.stop`).
+    note_target: Option<NoteCapture>,
 }
 
 impl EngineHost {
@@ -44,7 +49,25 @@ impl EngineHost {
             recording: false,
             resolver: None,
             ui_attached: Arc::new(AtomicBool::new(false)),
+            midi: None,
+            note_target: None,
         }
+    }
+
+    /// Connects the `midi.*` commands and MIDI note recording to the MIDI service.
+    pub fn with_midi(mut self, midi: Arc<ph_engine::midi::MidiService>) -> Self {
+        self.midi = Some(midi);
+        self
+    }
+
+    fn midi(&self) -> CmdResult<&Arc<ph_engine::midi::MidiService>> {
+        self.midi
+            .as_ref()
+            .ok_or_else(|| CmdError::Host("this session has no MIDI input".into()))
+    }
+
+    fn rec_err(e: ph_engine::EngineError) -> CmdError {
+        CmdError::Host(e.to_string())
     }
 
     /// Shares the flag that says a UI is attached (see `Studio::set_ui_attached`).
@@ -72,7 +95,7 @@ impl EngineHost {
         };
         TransportState {
             playing: s.playing,
-            recording: self.recording,
+            recording: self.recording || self.engine.is_recording() || self.note_target.is_some(),
             mode,
             pattern,
             position: s.position,
@@ -413,6 +436,229 @@ impl Host for EngineHost {
 
     fn projects_dir(&self) -> Option<PathBuf> {
         self.projects_dir.clone()
+    }
+
+    // ---- recording and MIDI (M2/T8)
+
+    fn record_inputs(&mut self) -> CmdResult<RecordInputs> {
+        let armed = self.engine.armed_inputs();
+        let inputs = self
+            .engine
+            .inputs()
+            .into_iter()
+            .map(|i| {
+                let a = armed.iter().find(|(info, _, _)| info.id == i.id);
+                RecordInput {
+                    id: i.id.0,
+                    name: i.name,
+                    channels: i.channels,
+                    sample_rate: i.sample_rate,
+                    armed: a.is_some(),
+                    monitor: a.is_some_and(|a| a.2),
+                    track: a.and_then(|a| match a.1 {
+                        ph_engine::record::RecordTarget::Track(t) => Some(t),
+                        _ => None,
+                    }),
+                    channel: a.and_then(|a| match a.1 {
+                        ph_engine::record::RecordTarget::Channel(c) => Some(c),
+                        _ => None,
+                    }),
+                }
+            })
+            .collect();
+        let l = self.engine.latency();
+        let ms = |frames: u32| frames as f64 * 1000.0 / l.sample_rate.max(1) as f64;
+        Ok(RecordInputs {
+            inputs,
+            latency: LatencyInfo {
+                sample_rate: l.sample_rate,
+                input_frames: l.input_frames,
+                output_frames: l.output_frames,
+                monitor_ms: l.monitor_seconds * 1000.0,
+                compensation_ms: ms(l.compensation_frames),
+            },
+            recording: self.engine.is_recording() || self.note_target.is_some(),
+        })
+    }
+
+    fn record_arm(&mut self, arm: ArmRequest) -> CmdResult<()> {
+        let target = match (arm.track, arm.channel) {
+            (Some(t), None) => ph_engine::record::RecordTarget::Track(t),
+            (None, Some(c)) => ph_engine::record::RecordTarget::Channel(c),
+            _ => return Err(CmdError::Host("give a track or a channel".into())),
+        };
+        self.engine
+            .arm_with(ph_engine::record::Arm {
+                input: ph_engine::record::InputId(arm.input),
+                target,
+                monitor: arm.monitor,
+            })
+            .map_err(Self::rec_err)
+    }
+
+    fn record_disarm(&mut self, input: u32) -> CmdResult<()> {
+        self.engine.disarm(ph_engine::record::InputId(input));
+        Ok(())
+    }
+
+    fn record_set_monitor(&mut self, input: u32, on: bool) -> CmdResult<()> {
+        self.engine
+            .set_monitor(ph_engine::record::InputId(input), on)
+            .map_err(Self::rec_err)
+    }
+
+    fn record_start(&mut self, start: RecordStart) -> CmdResult<RecordStarted> {
+        if self.engine.is_recording() || self.note_target.is_some() {
+            return Err(CmdError::Host("already recording".into()));
+        }
+        let audio = self.engine.armed_inputs().len() as u32;
+        if audio == 0 && start.notes.is_none() {
+            return Err(CmdError::Host(
+                "nothing to record: arm an audio input (record.arm), or switch to pattern mode with a channel selected to record MIDI notes".into(),
+            ));
+        }
+        if audio > 0 {
+            let mut opts = ph_engine::record::RecordOptions::new(self.project_dir.join("samples"));
+            opts.count_in_bars = start.count_in_bars;
+            opts.punch = start.punch;
+            opts.latency_ms = start.latency_ms;
+            self.engine.record_start(opts).map_err(Self::rec_err)?;
+        }
+        if let Some(n) = start.notes {
+            let midi = self.midi()?.clone();
+            midi.set_target_channel(Some(n.channel));
+            midi.start_note_recording();
+            self.note_target = Some(n);
+            if audio == 0 {
+                self.engine.transport(TransportCommand::Play);
+            }
+        }
+        Ok(RecordStarted {
+            audio_inputs: audio,
+            notes: self.note_target.is_some(),
+        })
+    }
+
+    fn record_stop(&mut self) -> CmdResult<RecordOutcome> {
+        let audio = self.engine.is_recording();
+        if !audio && self.note_target.is_none() {
+            return Err(CmdError::Host("not recording".into()));
+        }
+        let end = self.engine.song_position();
+        let files = if audio {
+            self.engine.record_stop().map_err(Self::rec_err)
+        } else {
+            Ok(Vec::new())
+        };
+        let note_target = self.note_target.take();
+        let notes = match (&note_target, &self.midi) {
+            (Some(_), Some(m)) => m
+                .finish_note_recording(end)
+                .into_iter()
+                .map(|n| CapturedNote {
+                    key: n.key,
+                    velocity: n.velocity,
+                    start: n.start,
+                    length: n.length,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        self.engine.transport(TransportCommand::Stop);
+        let takes = files?
+            .into_iter()
+            .map(|f| TakeInfo {
+                input: f.input.name,
+                track: match f.target {
+                    ph_engine::record::RecordTarget::Track(t) => Some(t),
+                    _ => None,
+                },
+                channel: match f.target {
+                    ph_engine::record::RecordTarget::Channel(c) => Some(c),
+                    _ => None,
+                },
+                reference: format!("samples/{}", f.file),
+                start: f.start,
+                length: f.length,
+                frames: f.frames,
+                sample_rate: f.sample_rate,
+                channels: f.channels,
+                latency_frames: f.latency_frames,
+                overflow: f.overflow,
+                error: f.error,
+            })
+            .collect();
+        Ok(RecordOutcome {
+            takes,
+            notes,
+            note_target,
+        })
+    }
+
+    fn midi_target_channel(&self) -> Option<ph_core::ChannelId> {
+        self.midi.as_ref().and_then(|m| m.target_channel())
+    }
+
+    fn midi_inputs(&mut self) -> CmdResult<Vec<MidiInputEntry>> {
+        Ok(self
+            .midi()?
+            .inputs()
+            .into_iter()
+            .map(|i| MidiInputEntry {
+                name: i.name,
+                connected: i.connected,
+            })
+            .collect())
+    }
+
+    fn midi_learn(&mut self, target: Option<ph_core::ParamPath>) -> CmdResult<()> {
+        self.midi()?.learn(target);
+        Ok(())
+    }
+
+    fn midi_mappings(&mut self) -> CmdResult<Vec<MidiMappingEntry>> {
+        Ok(self
+            .midi()?
+            .mappings()
+            .into_iter()
+            .map(|m| MidiMappingEntry {
+                controller: m.controller,
+                device: m.device,
+                target: m.target,
+            })
+            .collect())
+    }
+
+    fn midi_map(&mut self, m: MidiMappingEntry) -> CmdResult<Option<MidiMappingEntry>> {
+        let old = self
+            .midi()?
+            .map(ph_engine::midi::Mapping {
+                controller: m.controller,
+                device: m.device,
+                target: m.target,
+            })
+            .map_err(|e| CmdError::Host(format!("could not save the MIDI mappings: {e}")))?;
+        Ok(old.map(|m| MidiMappingEntry {
+            controller: m.controller,
+            device: m.device,
+            target: m.target,
+        }))
+    }
+
+    fn midi_unmap(
+        &mut self,
+        controller: u8,
+        device: Option<String>,
+    ) -> CmdResult<Option<MidiMappingEntry>> {
+        let old = self
+            .midi()?
+            .unmap(controller, device.as_deref())
+            .map_err(|e| CmdError::Host(format!("could not save the MIDI mappings: {e}")))?;
+        Ok(old.map(|m| MidiMappingEntry {
+            controller: m.controller,
+            device: m.device,
+            target: m.target,
+        }))
     }
 
     fn set_project_dir(&mut self, dir: &Path) {

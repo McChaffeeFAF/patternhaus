@@ -25,6 +25,10 @@ pub struct Live {
     pub scope: Vec<f32>,
     /// Incremented on every poll, so tests and the UI can tell it is alive.
     pub polls: u64,
+    /// The recorder's phase and input levels (M2/T8).
+    pub record: ph_engine::record::RecordStatus,
+    /// An audio recording is running.
+    pub recording: bool,
 }
 
 impl Default for Live {
@@ -42,6 +46,8 @@ impl Default for Live {
             rms: Vec::new(),
             scope: Vec::new(),
             polls: 0,
+            record: Default::default(),
+            recording: false,
         }
     }
 }
@@ -188,6 +194,8 @@ fn run(engine: Arc<Engine>, ctx: Context, rx: Receiver<EngineMsg>, live: Arc<Mut
         let status = engine.status();
         let stats = engine.stats();
         let meters = engine.meters();
+        let record = engine.record_status();
+        let recording = engine.is_recording();
         // hold the peak briefly and let it fall ~ 20 dB/s
         let fall = 10f32.powf(-20.0 * dt / 20.0);
         peak.resize(meters.peak.len(), [0.0; 2]);
@@ -198,7 +206,7 @@ fn run(engine: Arc<Engine>, ctx: Context, rx: Receiver<EngineMsg>, live: Arc<Mut
                 active |= h[c] > 1e-4;
             }
         }
-        let playing = status.playing;
+        let playing = status.playing || recording;
         // a trace of the master level, 30 samples a second; it runs out when the sound stops
         if scope_at.elapsed() >= Duration::from_millis(33) {
             scope_at = Instant::now();
@@ -219,6 +227,25 @@ fn run(engine: Arc<Engine>, ctx: Context, rx: Receiver<EngineMsg>, live: Arc<Mut
             l.rms = meters.rms;
             l.scope = scope.iter().copied().collect();
             l.polls += 1;
+            // keep the highest level seen since the UI last looked
+            let held: Vec<_> = record
+                .inputs
+                .iter()
+                .map(|(id, p)| {
+                    let old = l
+                        .record
+                        .inputs
+                        .iter()
+                        .find(|(i, _)| i == id)
+                        .map_or(0.0, |(_, p)| *p);
+                    (*id, p.max(old * 0.9))
+                })
+                .collect();
+            l.record = ph_engine::record::RecordStatus {
+                inputs: held,
+                ..record.clone()
+            };
+            l.recording = recording;
         }
         // poll fast (faster than any display) while something moves, slowly when idle
         next_poll = Instant::now() + Duration::from_millis(if playing || active { 3 } else { 40 });

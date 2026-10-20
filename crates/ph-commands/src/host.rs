@@ -136,6 +136,208 @@ pub trait Host {
         let _ = (target, open);
         Err(no_plugins())
     }
+
+    // ---- recording and MIDI (M2/T8). Additive defaults: hosts without devices refuse.
+
+    /// The audio inputs with their armed state, and the latency readout.
+    fn record_inputs(&mut self) -> CmdResult<RecordInputs> {
+        Err(no_audio_input())
+    }
+
+    /// Arms an input (opens it).
+    fn record_arm(&mut self, arm: ArmRequest) -> CmdResult<()> {
+        let _ = arm;
+        Err(no_audio_input())
+    }
+
+    fn record_disarm(&mut self, input: u32) -> CmdResult<()> {
+        let _ = input;
+        Err(no_audio_input())
+    }
+
+    fn record_set_monitor(&mut self, input: u32, on: bool) -> CmdResult<()> {
+        let _ = (input, on);
+        Err(no_audio_input())
+    }
+
+    /// Starts recording: every armed input, and the MIDI notes if `start.notes` is given. The
+    /// song plays (after the count-in).
+    fn record_start(&mut self, start: RecordStart) -> CmdResult<RecordStarted> {
+        let _ = start;
+        Err(no_audio_input())
+    }
+
+    /// Stops recording and the transport; the takes are complete files in `samples/`. The
+    /// `record.stop` command adds them to the project.
+    fn record_stop(&mut self) -> CmdResult<RecordOutcome> {
+        Err(no_audio_input())
+    }
+
+    /// The channel MIDI notes, bend and unmapped controllers go to (the selected one), if any.
+    fn midi_target_channel(&self) -> Option<ph_core::ChannelId> {
+        None
+    }
+
+    /// The MIDI input devices.
+    fn midi_inputs(&mut self) -> CmdResult<Vec<MidiInputEntry>> {
+        Err(no_midi())
+    }
+
+    /// The next controller moved is mapped to `target`; `None` cancels.
+    fn midi_learn(&mut self, target: Option<ph_core::ParamPath>) -> CmdResult<()> {
+        let _ = target;
+        Err(no_midi())
+    }
+
+    fn midi_mappings(&mut self) -> CmdResult<Vec<MidiMappingEntry>> {
+        Err(no_midi())
+    }
+
+    /// Adds or replaces a mapping (per user, saved in the config folder). Returns the one it
+    /// replaced.
+    fn midi_map(&mut self, mapping: MidiMappingEntry) -> CmdResult<Option<MidiMappingEntry>> {
+        let _ = mapping;
+        Err(no_midi())
+    }
+
+    fn midi_unmap(
+        &mut self,
+        controller: u8,
+        device: Option<String>,
+    ) -> CmdResult<Option<MidiMappingEntry>> {
+        let _ = (controller, device);
+        Err(no_midi())
+    }
+}
+
+fn no_audio_input() -> CmdError {
+    CmdError::Host("this host has no audio input".into())
+}
+
+fn no_midi() -> CmdError {
+    CmdError::Host("this host has no MIDI input".into())
+}
+
+/// Where a recording goes (`record.arm`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ArmRequest {
+    pub input: u32,
+    /// A new audio clip on this playlist track.
+    pub track: Option<u32>,
+    /// Or the sample of this Sampler channel.
+    pub channel: Option<ph_core::ChannelId>,
+    pub monitor: bool,
+}
+
+/// An audio input as `record.list_inputs` shows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordInput {
+    pub id: u32,
+    pub name: String,
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub armed: bool,
+    pub monitor: bool,
+    /// Where it records, when armed.
+    pub track: Option<u32>,
+    pub channel: Option<ph_core::ChannelId>,
+}
+
+/// The latency readout.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LatencyInfo {
+    pub sample_rate: u32,
+    /// Input device buffering, frames.
+    pub input_frames: u32,
+    /// Output device buffering, frames.
+    pub output_frames: u32,
+    /// Hearing the input through the engine, milliseconds.
+    pub monitor_ms: f64,
+    /// What a take is moved by to land on the beat, milliseconds.
+    pub compensation_ms: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordInputs {
+    pub inputs: Vec<RecordInput>,
+    pub latency: LatencyInfo,
+    /// Recording runs now.
+    pub recording: bool,
+}
+
+/// MIDI notes are written into `pattern` for `channel`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NoteCapture {
+    pub pattern: ph_core::PatternId,
+    pub channel: ph_core::ChannelId,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordStart {
+    pub count_in_bars: u32,
+    pub punch: Option<(Tick, Tick)>,
+    /// Replaces the measured latency compensation.
+    pub latency_ms: Option<f64>,
+    /// Collect MIDI notes for this pattern and channel too.
+    pub notes: Option<NoteCapture>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordStarted {
+    /// Armed audio inputs recording.
+    pub audio_inputs: u32,
+    /// MIDI notes are being collected.
+    pub notes: bool,
+}
+
+/// One finished take.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TakeInfo {
+    /// The input's name.
+    pub input: String,
+    pub track: Option<u32>,
+    pub channel: Option<ph_core::ChannelId>,
+    /// `samples/Take 1.wav`.
+    pub reference: String,
+    pub start: Tick,
+    pub length: Tick,
+    pub frames: u64,
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// The clip plays from this many frames into the file.
+    pub latency_frames: u64,
+    pub overflow: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct CapturedNote {
+    pub key: u8,
+    pub velocity: f32,
+    pub start: Tick,
+    pub length: Tick,
+}
+
+/// What stopping a recording hands the `record.stop` command.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RecordOutcome {
+    pub takes: Vec<TakeInfo>,
+    pub notes: Vec<CapturedNote>,
+    pub note_target: Option<NoteCapture>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MidiInputEntry {
+    pub name: String,
+    pub connected: bool,
+}
+
+/// A controller mapped to a parameter, as `midi.list_mappings` shows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct MidiMappingEntry {
+    pub controller: u8,
+    pub device: Option<String>,
+    pub target: ph_core::ParamPath,
 }
 
 fn no_plugins() -> CmdError {

@@ -118,3 +118,52 @@ fn engine_swaps_plans_and_runs_the_pool() {
     drop(dev);
     drop(engine);
 }
+
+/// Input monitoring (M2/T8) on the simulated device: the rig's message ring, the source moving
+/// into the audio thread and back out to the writer thread's trash ring, the monitor feed's
+/// raw pointers into the insert node, and a controller message. (No take is recorded: Miri
+/// has no file system by default.)
+#[test]
+fn input_monitoring_moves_sources_between_threads() {
+    use crate::record::{Arm, RecordTarget, SimulatedInputs};
+    let mut e = Edit::new(&Project::empty("miri"));
+    let c = e.add_channel("a", synth(&[])).unwrap();
+    e.update_channel(c, |ch| ch.insert = InsertId(1)).unwrap();
+    let p = e.finish().0;
+    let (engine, mut dev) = Engine::start_simulated(
+        EngineConfig {
+            sample_rate: SR,
+            buffer_frames: 32,
+            threads: 2,
+            ..EngineConfig::default()
+        },
+        assets(),
+    )
+    .unwrap();
+    engine.set_project(Arc::new(p)).unwrap();
+    let dc = vec![vec![0.25f32; 4096]; 2];
+    engine.set_input_provider(Some(Box::new(SimulatedInputs::new().with("DC", SR, dc, 4))));
+    let id = engine.inputs()[0].id;
+    let (mut l, mut r) = (vec![0.0f32; 32], vec![0.0f32; 32]);
+    for k in 0..8 {
+        match k {
+            0 => engine
+                .arm_with(Arm {
+                    input: id,
+                    target: RecordTarget::Channel(c),
+                    monitor: true,
+                })
+                .unwrap(),
+            2 => engine.preview_midi(c, crate::midi::MidiMod::Bend { value: 0.5 }),
+            4 => engine.set_monitor(id, false).unwrap(),
+            6 => engine.disarm(id),
+            _ => {}
+        }
+        dev.pull_into(&mut l, &mut r);
+        if k == 1 {
+            assert!(peak(&l) > 0.01, "the monitored input is heard");
+        }
+    }
+    drop(dev);
+    drop(engine);
+}

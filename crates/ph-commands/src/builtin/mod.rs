@@ -22,7 +22,6 @@ mod file;
 pub(crate) mod history;
 #[cfg(test)]
 mod m2_behaviour;
-mod m2_stubs;
 mod mixer;
 mod note;
 mod pattern;
@@ -32,6 +31,9 @@ mod plugin;
 mod plugin_behaviour;
 mod project;
 mod query;
+mod record;
+#[cfg(test)]
+mod record_behaviour;
 mod sample;
 mod slicer;
 mod step;
@@ -64,7 +66,7 @@ pub fn register_builtin(r: &mut Registry) {
     audio::register(r);
     automation::register(r);
     slicer::register(r);
+    record::register(r);
     editor::register(r);
-    m2_stubs::register(r);
     plugin::register(r);
 }

@@ -92,7 +92,12 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         )
         .clicked()
         {
-            core.send(mapping::transport("stop"));
+            // stopping a recording keeps the takes: `record.stop` stops the transport too
+            if core.rec.active || live.recording {
+                core.toggle_recording();
+            } else {
+                core.send(mapping::transport("stop"));
+            }
         }
         let looping = live.status.loop_range.is_some();
         if icon_button(
@@ -142,6 +147,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         {
             core.auto_armed = !core.auto_armed;
         }
+        // audio and MIDI recording (M2/T8)
+        crate::recorder::show(ui, core);
         ui.add_space(6.0);
 
         tempo_lcd(ui, core, &theme, project.settings.bpm);

@@ -594,8 +594,8 @@ fn the_edit_buttons_do_what_they_say() {
     r.select_frames(4_000, 10_000);
     r.press_button("Cut");
     assert!(r.h.state().core.audio_clip.is_some());
-    // the Rec button is there but disabled until the recorder lands
-    assert!(r.h.get_by_label("Rec").accesskit_node().is_disabled());
+    // the Rec button records the armed inputs (M2/T8), so it is live
+    assert!(!r.h.get_by_label("Rec").accesskit_node().is_disabled());
 }
 
 #[test]

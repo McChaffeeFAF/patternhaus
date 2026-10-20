@@ -573,6 +573,103 @@ pub fn confirmed(mut r: Request) -> Request {
     r
 }
 
+// ---- MIDI and recording (M2/T8) ----------------------------------------------------------------
+
+/// The command a knob drag sends for `target`, with the plain value `value`. `None` when the
+/// target no longer exists in `project`.
+pub fn set_target(project: &ph_core::Project, target: &ParamPath, value: f64) -> Option<Request> {
+    use ph_commands::PluginTarget;
+    Some(match target {
+        ParamPath::Tempo => set_tempo(value),
+        ParamPath::ChannelVolume(c) => {
+            project.channels.get(c)?;
+            channel_volume(*c, value as f32)
+        }
+        ParamPath::ChannelPan(c) => {
+            project.channels.get(c)?;
+            channel_pan(*c, value as f32)
+        }
+        ParamPath::ChannelParam(c, p) => match &project.channels.get(c)?.instrument {
+            InstrumentSpec::Plugin { .. } => plugin_param(PluginTarget::Channel(*c), p, value),
+            _ => channel_param(*c, p, value),
+        },
+        ParamPath::InsertVolume(i) => {
+            project.insert(*i).ok()?;
+            mixer_volume(i.0, value as f32)
+        }
+        ParamPath::InsertPan(i) => {
+            project.insert(*i).ok()?;
+            mixer_pan(i.0, value as f32)
+        }
+        ParamPath::InsertMute(i) => {
+            project.insert(*i).ok()?;
+            mixer_mute(i.0, value >= 0.5)
+        }
+        ParamPath::InsertSend { insert, to } => {
+            project.insert(*insert).ok()?;
+            send_level(insert.0, to.0, value as f32)
+        }
+        ParamPath::EffectParam {
+            insert,
+            slot,
+            param,
+        } => {
+            let slot_ref = project.insert(*insert).ok()?.effects.get(*slot as usize)?;
+            match &slot_ref.effect {
+                EffectSpec::Plugin { .. } => plugin_param(
+                    PluginTarget::Effect {
+                        insert: insert.0,
+                        slot: *slot,
+                    },
+                    param,
+                    value,
+                ),
+                _ => effect_param(insert.0, *slot as usize, param, value),
+            }
+        }
+    })
+}
+
+/// MIDI learn for `target`; `None` cancels a learn in progress.
+pub fn midi_learn(target: Option<&ParamPath>) -> Request {
+    req("midi.learn", json!({ "target": target }))
+}
+pub fn midi_unmap(controller: u8, device: Option<&str>) -> Request {
+    req(
+        "midi.unmap",
+        json!({ "controller": controller, "device": device }),
+    )
+}
+pub fn record_list_inputs() -> Request {
+    req("record.list_inputs", json!({}))
+}
+pub fn record_arm(
+    input: u32,
+    track: Option<u32>,
+    channel: Option<ChannelId>,
+    monitor: bool,
+) -> Request {
+    req(
+        "record.arm",
+        json!({ "input": input, "track": track, "channel": channel, "monitor": monitor }),
+    )
+}
+pub fn record_disarm(input: u32) -> Request {
+    req("record.disarm", json!({ "input": input }))
+}
+pub fn record_monitor(input: u32, on: bool) -> Request {
+    req("record.set_monitor", json!({ "input": input, "on": on }))
+}
+pub fn record_start(count_in_bars: u32, punch: Option<(Tick, Tick)>) -> Request {
+    req(
+        "record.start",
+        json!({ "count_in_bars": count_in_bars, "punch": punch }),
+    )
+}
+pub fn record_stop() -> Request {
+    req("record.stop", json!({}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

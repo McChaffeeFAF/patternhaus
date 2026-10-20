@@ -100,8 +100,13 @@ fn toolbar(
                 play(core, st, loaded, rate);
             }
         }
-        btn_enabled(ui, false, "Rec")
-            .on_disabled_hover_text("Recording into the editor arrives with the recorder (M2/T8)");
+        let recording = core.rec.active;
+        if btn(ui, if recording { "Stop rec" } else { "Rec" })
+            .tip("Record the armed inputs (arm one under IN); the new take opens here")
+            .clicked()
+        {
+            core.toggle_recording();
+        }
         ui.separator();
         if btn(ui, "Zoom -").tip("Zoom out").clicked() {
             st.zoom(0.5, width * 0.5, width, frames);

@@ -147,6 +147,8 @@ pub(crate) struct ChannelState {
     pub events: Vec<Event>,
     pub active: Vec<Active>,
     pub preview: Vec<Preview>,
+    /// Controller, bend and pressure messages queued for the next block (M2/T8).
+    pub preview_mod: Vec<crate::runtime::ModKind>,
     pub next_id: u32,
     pub ramp: [Ramp; 2],
     pub all_off: bool,
@@ -654,6 +656,7 @@ fn new_channel_state(proc: Option<Box<dyn Processor>>, n: usize, gain: [f32; 2])
         events: Vec::with_capacity(EVENT_CAP),
         active: Vec::with_capacity(ACTIVE_CAP),
         preview: Vec::with_capacity(PREVIEW_CAP),
+        preview_mod: Vec::with_capacity(PREVIEW_CAP),
         next_id: 0,
         ramp: [Ramp::new(gain[0]), Ramp::new(gain[1])],
         all_off: false,

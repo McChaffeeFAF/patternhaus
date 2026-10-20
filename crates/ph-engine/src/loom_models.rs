@@ -6,11 +6,12 @@
 //! reordering it models) of the operations below.
 
 use crate::pool::Handoff;
+use crate::rec_rt::TakeShared;
 use crate::rt::Mailbox;
 use crate::sched::Sched;
 use crate::stream::Slot;
 use loom::sync::Arc;
-use loom::sync::atomic::{AtomicBool, AtomicUsize};
+use loom::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
 use loom::thread;
 use std::sync::atomic::Ordering::*;
 
@@ -237,5 +238,86 @@ fn stream_slot_seqlock() {
         assert!(slot.copy(2, 0, 1, [&mut l, &mut r], 0));
         assert_eq!((l, r), ([2.0], [-2.0]));
         assert!(!slot.copy(1, 0, 1, [&mut l, &mut r], 0), "block 1 is gone");
+    });
+}
+
+/// A one-slot-per-frame SPSC ring on loom atomics: the shape of the capture ring (`rtrb`
+/// itself is not instrumented, so the model carries its own with the same push / pop rules).
+struct ModelRing {
+    cells: [AtomicU32; 4],
+    head: AtomicUsize,
+    tail: AtomicUsize,
+}
+
+impl ModelRing {
+    fn new() -> Self {
+        Self {
+            cells: [
+                AtomicU32::new(0),
+                AtomicU32::new(0),
+                AtomicU32::new(0),
+                AtomicU32::new(0),
+            ],
+            head: AtomicUsize::new(0),
+            tail: AtomicUsize::new(0),
+        }
+    }
+    fn push(&self, v: u32) -> bool {
+        let t = self.tail.load(Relaxed);
+        if t - self.head.load(Acquire) >= self.cells.len() {
+            return false;
+        }
+        self.cells[t % self.cells.len()].store(v, Relaxed);
+        self.tail.store(t + 1, Release);
+        true
+    }
+    fn pop(&self) -> Option<u32> {
+        let h = self.head.load(Relaxed);
+        if h == self.tail.load(Acquire) {
+            return None;
+        }
+        let v = self.cells[h % self.cells.len()].load(Relaxed);
+        self.head.store(h + 1, Release);
+        Some(v)
+    }
+}
+
+/// The end of a take (`rec_rt.rs`): the audio thread pushes frames, then sets `done` with
+/// `Release`; the writer loads `done` *before* draining. Whenever the writer sees `done`, the
+/// drain that follows must return every frame pushed before it, in order, however the two
+/// interleave. (Bounded rounds keep the model small: a writer that has not seen `done` yet
+/// just tries again, and the frames it already took stay in order.)
+#[test]
+fn take_done_flag_publishes_every_pushed_frame() {
+    loom::model(|| {
+        let ring = Arc::new(ModelRing::new());
+        let shared = Arc::new(TakeShared::new());
+        let (r2, s2) = (ring.clone(), shared.clone());
+        let audio = thread::spawn(move || {
+            for v in 1..=2u32 {
+                assert!(r2.push(v));
+            }
+            s2.done.store(true, Release);
+        });
+        let mut written = Vec::new();
+        let mut finished = false;
+        for _ in 0..2 {
+            finished = shared.done.load(Acquire);
+            while let Some(v) = ring.pop() {
+                written.push(v);
+            }
+            if finished {
+                break;
+            }
+        }
+        if finished {
+            // the writer saw `done`: nothing pushed before it can still be missing
+            assert_eq!(written, vec![1, 2], "frames lost after the done flag");
+        }
+        audio.join().unwrap();
+        while let Some(v) = ring.pop() {
+            written.push(v);
+        }
+        assert_eq!(written, vec![1, 2], "the writer lost or reordered frames");
     });
 }

@@ -118,6 +118,9 @@ pub fn default_plugin_config() -> ph_engine::plugins::HostConfig {
 pub struct Studio {
     pub session: SessionHandle,
     pub engine: Arc<Engine>,
+    /// MIDI input, learn and note recording (M2/T8). Starts without devices; a front end
+    /// with a keyboard calls [`Studio::use_midi_devices`].
+    pub midi: Arc<ph_engine::midi::MidiService>,
     /// `ui.*` command requests for the UI to act on. Headless front ends may ignore it.
     pub ui_requests: Receiver<UiRequest>,
     /// Latest snapshot the engine was given.
@@ -205,8 +208,14 @@ impl Studio {
 
         let (ui_tx, ui_requests) = channel();
         let ui_attached = Arc::new(AtomicBool::new(false));
+        let midi = Arc::new(ph_engine::midi::MidiService::start(
+            engine.clone(),
+            Box::new(ph_engine::midi::NoMidi),
+            ph_engine::midi::MappingStore::memory(),
+        ));
         let host = EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx)
             .with_resolver(resolver)
+            .with_midi(midi.clone())
             .with_ui_flag(ui_attached.clone());
         let registry = Arc::new(studio_registry());
         let session = Session::new(registry.clone(), (*project).clone());
@@ -238,6 +247,7 @@ impl Studio {
         Ok(Studio {
             session,
             engine,
+            midi,
             ui_requests,
             latest,
             pump_stop,
@@ -248,6 +258,18 @@ impl Studio {
             ui_hint: Arc::new(Mutex::new(None)),
             ui_attached,
         })
+    }
+
+    /// Points MIDI at the system's devices (hot-plug included) and keeps the user's controller
+    /// mappings in `config_dir` (`midi-mappings.json`; in memory when `None`). Mappings are
+    /// per user, never part of a project.
+    pub fn use_midi_devices(&self, config_dir: Option<&std::path::Path>) {
+        self.midi.set_store(match config_dir {
+            Some(d) => ph_engine::midi::MappingStore::open(d),
+            None => ph_engine::midi::MappingStore::memory(),
+        });
+        self.midi
+            .set_backend(Box::new(ph_engine::midi::MidirBackend));
     }
 
     /// The UI says it is there (it takes `ui_requests`, e.g. opens plugin editors). Headless
@@ -288,6 +310,7 @@ impl Studio {
         StudioHandle {
             session: self.session.clone(),
             engine: self.engine.clone(),
+            midi: self.midi.clone(),
             latest: self.latest.clone(),
             config: self.config.clone(),
             assets: self.assets.clone(),
@@ -304,6 +327,7 @@ impl Studio {
 pub struct StudioHandle {
     pub session: SessionHandle,
     pub engine: Arc<Engine>,
+    pub midi: Arc<ph_engine::midi::MidiService>,
     latest: Arc<Mutex<Arc<Project>>>,
     pub config: Arc<StudioConfig>,
     pub assets: Arc<dyn ph_node::AssetResolver>,
@@ -390,5 +414,7 @@ pub fn studio_registry() -> Registry {
 mod coverage;
 #[cfg(test)]
 mod plugin_tests;
+#[cfg(test)]
+mod record_tests;
 #[cfg(test)]
 mod tests;

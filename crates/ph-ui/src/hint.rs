@@ -119,8 +119,7 @@ pub enum MenuChoice {
 }
 
 /// The entries every control's right-click menu ends with: Reset (when the control has a
-/// default), Create automation clip (when the control has a target), MIDI learn (a placeholder,
-/// disabled until it exists) and Help.
+/// default), Create automation clip and MIDI learn (when the control has a target) and Help.
 /// Call from inside a `context_menu` closure, after any entries of the control's own.
 pub fn standard_entries(ui: &mut Ui, can_reset: bool, hint: &UiHint) -> MenuChoice {
     standard_entries_auto(ui, can_reset, hint, None)
@@ -156,11 +155,44 @@ pub fn standard_entries_auto(
             r.on_disabled_hover_text("This control cannot be automated");
         }
     }
-    {
-        let (label, why) = ("MIDI learn…", "MIDI mapping lands in a later milestone");
-        let r = ui.add_enabled(false, egui::Button::new(crate::theme::caps(label)));
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, false, label));
-        r.on_disabled_hover_text(why);
+    match auto {
+        Some((target, _)) => {
+            // MIDI learn (M2/T8): the next controller moved is mapped to this control
+            let view = crate::midi::view(ui.ctx());
+            let learning = view
+                .as_ref()
+                .is_some_and(|v| v.learning.as_ref() == Some(target));
+            if learning {
+                if crate::widgets::menu_item(ui, "Cancel MIDI learn", "").clicked() {
+                    crate::midi::request(ui.ctx(), crate::midi::MidiRequest::CancelLearn);
+                    ui.close();
+                }
+            } else if crate::widgets::menu_item(ui, "MIDI learn…", "").clicked() {
+                crate::midi::request(ui.ctx(), crate::midi::MidiRequest::Learn(target.clone()));
+                ui.close();
+            }
+            if let Some(v) = &view {
+                for (cc, dev) in v.mapped.get(target).into_iter().flatten() {
+                    let label = format!("Remove MIDI mapping (CC {cc})");
+                    if crate::widgets::menu_item(ui, &label, "").clicked() {
+                        crate::midi::request(
+                            ui.ctx(),
+                            crate::midi::MidiRequest::Unmap {
+                                controller: *cc,
+                                device: dev.clone(),
+                            },
+                        );
+                        ui.close();
+                    }
+                }
+            }
+        }
+        None => {
+            let label = "MIDI learn…";
+            let r = ui.add_enabled(false, egui::Button::new(crate::theme::caps(label)));
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, false, label));
+            r.on_disabled_hover_text("This control cannot be mapped to a MIDI controller");
+        }
     }
     if crate::widgets::menu_item(ui, "Help", "").clicked() {
         let h = hint.clone();
