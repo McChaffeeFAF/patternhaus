@@ -107,7 +107,8 @@ fn an_agent_records_a_take_into_the_project_in_one_undo_step() {
     assert_eq!(c.1.source_offset, 240);
     assert_eq!(c.1.sample, entry.id);
     // the transport stopped, and nothing records any more
-    assert!(!s.engine.status().playing);
+    // (the engine publishes its status asynchronously)
+    wait_for("the transport to stop", || !s.engine.status().playing);
     assert!(run(&s, "transport.get_state", json!({}))["recording"] == false);
     // one undo step takes the clip and the registry entry away; the file stays on disk
     run(&s, "history.undo", json!({}));
