@@ -64,3 +64,89 @@ fn every_served_command_has_a_behaviour_test() {
         .collect();
     assert!(untested.is_empty(), "no behaviour test calls {untested:?}");
 }
+
+/// The M2 command families (M2 criterion 8), and the M2 commands outside them.
+const M2_FAMILIES: &[&str] = &[
+    "audio.",
+    "automation.",
+    "plugin.",
+    "record.",
+    "midi.",
+    "slicer.",
+    "editor.",
+    "sample.",
+];
+const M2_SINGLES: &[&str] = &["file.import_flp", "query.node_params"];
+
+fn is_m2(id: &str) -> bool {
+    M2_FAMILIES.iter().any(|f| id.starts_with(f)) || M2_SINGLES.contains(&id)
+}
+
+/// True when `"id"` appears in `src` as a command a test runs: the first argument of a call
+/// (`run("id"`, `Request::new("id"`), or the second after a borrowed context (`run(&s, "id"`,
+/// `s.run(&agent, "id"`), not merely somewhere in a string or a comment.
+fn called_in(src: &str, id: &str) -> bool {
+    let quoted = format!("\"{id}\"");
+    src.match_indices(&quoted).any(|(at, _)| {
+        let before = src[..at].trim_end();
+        if before.ends_with('(') {
+            return true;
+        }
+        let Some(rest) = before.strip_suffix(',') else {
+            return false;
+        };
+        // `(&<one short argument>,`: a borrowed context first (`&s`, `&agent`, `&who`), with no
+        // quote, closing paren or other comma in it
+        let Some(open) = rest.rfind('(') else {
+            return false;
+        };
+        let arg = rest[open + 1..].trim_start();
+        arg.starts_with('&') && arg.len() <= 40 && !arg.contains(['"', ')', ',', ';', '\n'])
+    })
+}
+
+/// M2 criterion 8, beyond the M1 guards: every M2 command is *called* by a behaviour test (not
+/// just named in one), and its schema refuses unknown parameters (`deny_unknown_fields`), so a
+/// misspelt parameter from an agent is an error instead of being ignored.
+#[test]
+fn every_m2_command_is_called_by_a_behaviour_test_and_refuses_unknown_params() {
+    let sources = BEHAVIOUR_SOURCES.join("\n");
+    let reg = studio_registry();
+    let m2: Vec<_> = reg.list("").into_iter().filter(|s| is_m2(s.id)).collect();
+    assert!(m2.len() >= 45, "the M2 commands are served: {}", m2.len());
+    let uncalled: Vec<_> = m2
+        .iter()
+        .filter(|s| !called_in(&sources, s.id))
+        .map(|s| s.id)
+        .collect();
+    assert!(uncalled.is_empty(), "no behaviour test runs {uncalled:?}");
+    let open: Vec<_> = m2
+        .iter()
+        .filter(|s| s.params["additionalProperties"] != serde_json::json!(false))
+        .map(|s| s.id)
+        .collect();
+    assert!(open.is_empty(), "these accept unknown params: {open:?}");
+}
+
+#[test]
+fn called_in_tells_a_call_from_a_mention() {
+    assert!(called_in(
+        r#"r.run("audio.split", json!({}))"#,
+        "audio.split"
+    ));
+    assert!(called_in(r#"run(&s, "audio.split", p)"#, "audio.split"));
+    assert!(called_in(
+        r#"s.run(&agent, "audio.split", p)"#,
+        "audio.split"
+    ));
+    assert!(called_in(
+        r#"Request::new("audio.split", p)"#,
+        "audio.split"
+    ));
+    assert!(!called_in(r#"// see "audio.split""#, "audio.split"));
+    assert!(!called_in(r#"assert_eq!(x, "audio.split")"#, "audio.split"));
+    assert!(!called_in(
+        r#"let ids = ["audio.split", "audio.duplicate"];"#,
+        "audio.split"
+    ));
+}
