@@ -166,7 +166,12 @@ impl Agent {
     /// learns of a change once the bridge delivers it, so a reply never misses its own command's
     /// warning.
     fn warnings_for(&self, project: &Project) -> Vec<String> {
-        ph_engine::project_warnings(project, self.studio.assets.as_ref())
+        // with the engine's plugin host, so a scanned plugin is not reported as silent
+        ph_engine::project_warnings_with(
+            project,
+            self.studio.assets.as_ref(),
+            self.studio.engine.plugin_env().as_ref(),
+        )
     }
 
     pub fn new(studio: StudioHandle, grants: Arc<Grants>) -> Arc<Agent> {
@@ -774,8 +779,20 @@ impl Agent {
             include_tail: tail,
             block_frames: 512,
         };
-        let audio = ph_engine::render_offline(&proj, &settings, self.studio.assets.as_ref())
-            .map_err(|e| format!("render failed: {e}"))?;
+        // plugins render from fresh instances loaded with the live session's states, exactly
+        // like `file.export_audio` (`EngineHost::render`)
+        let plugins = self
+            .studio
+            .engine
+            .plugin_env()
+            .map(|env| env.with_states(self.studio.engine.plugin_states()));
+        let audio = ph_engine::render_offline_with(
+            &proj,
+            &settings,
+            self.studio.assets.as_ref(),
+            plugins.as_ref(),
+        )
+        .map_err(|e| format!("render failed: {e}"))?;
         let bar = project.settings.time_signature.ticks_per_bar();
         let r = Arc::new(Rendered {
             audio,
