@@ -86,6 +86,14 @@ pub struct HistoryEntry {
     pub summary: Option<String>,
 }
 
+/// What a dry run produced.
+pub(crate) struct Dry {
+    pub project: Project,
+    pub patches: PatchSet,
+    pub results: Vec<Executed>,
+    pub summaries: Vec<String>,
+}
+
 /// The authoritative project plus its history.
 ///
 /// Single-threaded by design: the co-editing queue (T1) owns a `Session` on the control
@@ -99,6 +107,8 @@ pub struct Session {
     pub(crate) undone: BTreeSet<u64>,
     next_txn: u64,
     pub(crate) solo: SoloState,
+    /// Agent proposals (preview mode): pending ones and the recent decisions.
+    pub(crate) proposals: crate::proposal::ProposalBook,
 }
 
 impl Session {
@@ -110,6 +120,7 @@ impl Session {
             undone: BTreeSet::new(),
             next_txn: 1,
             solo: SoloState::default(),
+            proposals: Default::default(),
         }
     }
 
@@ -157,12 +168,37 @@ impl Session {
                 )),
             };
         }
+        let Dry {
+            project: work,
+            patches: all,
+            mut results,
+            summaries,
+        } = self.dry_batch(caller, &reqs, host)?;
+        if !all.is_empty() {
+            let txn = self.commit(caller.author.clone(), EntryKind::Do, reqs, all, summaries);
+            for r in results.iter_mut().filter(|r| !r.changed.is_empty()) {
+                r.txn = Some(txn);
+            }
+            self.project = Arc::new(work);
+        }
+        Ok(results)
+    }
+
+    /// Runs `reqs` against a copy of the project without committing anything: the project
+    /// they would produce, their patches and results. [`Session::batch`] commits the same
+    /// thing; agent proposals keep it as a preview.
+    pub(crate) fn dry_batch(
+        &self,
+        caller: &Caller,
+        reqs: &[Request],
+        host: &mut dyn Host,
+    ) -> CmdResult<Dry> {
         let registry = self.registry.clone();
         let mut work: Project = (*self.project).clone();
         let mut all = PatchSet::default();
         let mut results = Vec::with_capacity(reqs.len());
         let mut summaries = Vec::new();
-        for req in &reqs {
+        for req in reqs {
             let cmd = registry.get(&req.command)?;
             let spec = cmd.spec();
             if !caller.grant.allows(spec.scope) {
@@ -212,14 +248,12 @@ impl Session {
             });
             all.extend(out.patches);
         }
-        if !all.is_empty() {
-            let txn = self.commit(caller.author.clone(), EntryKind::Do, reqs, all, summaries);
-            for r in results.iter_mut().filter(|r| !r.changed.is_empty()) {
-                r.txn = Some(txn);
-            }
-            self.project = Arc::new(work);
-        }
-        Ok(results)
+        Ok(Dry {
+            project: work,
+            patches: all,
+            results,
+            summaries,
+        })
     }
 
     fn commit(
@@ -393,6 +427,7 @@ impl Session {
         self.history.clear();
         self.undone.clear();
         self.solo = SoloState::default();
+        self.proposals.project_replaced();
     }
 
     /// Solo state (a view of the mix, not part of the saved project).
@@ -416,4 +451,11 @@ pub struct UndoReport {
     pub txn: u64,
     /// Conflicts that were skipped (`Skip`) or overridden (`Force`); empty for a clean undo.
     pub conflicts: Vec<UndoConflict>,
+}
+
+impl Session {
+    /// The last transaction number handed out (0 before the first).
+    pub(crate) fn last_txn(&self) -> u64 {
+        self.next_txn - 1
+    }
 }
