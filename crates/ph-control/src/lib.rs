@@ -14,6 +14,7 @@
 mod agent;
 mod connections;
 mod diff;
+mod diff_m2;
 mod endpoint;
 mod events;
 mod grants;
@@ -23,6 +24,7 @@ mod jsonrpc;
 mod mcp;
 mod node_params;
 mod views;
+mod views_m2;
 
 pub use agent::{Agent, ToolOutput, ToolSpec};
 pub use connections::{ConnGuard, ConnectionInfo, Connections, Protocol};
