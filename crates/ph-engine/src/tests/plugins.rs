@@ -11,7 +11,7 @@ use ph_plugin_host::testing::{CRASH_ID, GAIN_ID, GAIN_LATENCY, SYNTH_ID, test_pl
 use std::sync::OnceLock;
 
 /// One host per test binary, scanned once through the helper process.
-fn host() -> Arc<PluginHost> {
+pub(super) fn host() -> Arc<PluginHost> {
     static HOST: OnceLock<Arc<PluginHost>> = OnceLock::new();
     HOST.get_or_init(|| {
         let p = test_plugins();
@@ -28,7 +28,7 @@ fn host() -> Arc<PluginHost> {
     .clone()
 }
 
-fn env(dir: &std::path::Path) -> PluginEnv {
+pub(super) fn env(dir: &std::path::Path) -> PluginEnv {
     PluginEnv::new(host(), dir)
 }
 
