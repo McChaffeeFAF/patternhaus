@@ -1823,7 +1823,7 @@ DEALINGS IN THE SOFTWARE.
 ### Boost Software License 1.0
 
 Used by:
-- [clipboard-win 5.4.1](https://github.com/DoumanAsh/clipboard-win)
+- [clipboard-win 5.4.3](https://github.com/DoumanAsh/clipboard-win)
 
 ```
 Boost Software License - Version 1.0 - August 17th, 2003
@@ -5204,7 +5204,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Used by:
 - [tokio-util 0.7.20](https://github.com/tokio-rs/tokio)
-- [tokio 1.53.2](https://github.com/tokio-rs/tokio)
+- [tokio 1.54.1](https://github.com/tokio-rs/tokio)
 
 ```
 MIT License
