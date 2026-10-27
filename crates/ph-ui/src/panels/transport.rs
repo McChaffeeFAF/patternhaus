@@ -204,7 +204,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                         .hint_menu("Pattern", &cur, "click to choose the pattern to edit");
                 });
                 if icon_button(ui, &theme, Icon::Plus, false, "New pattern", "").clicked() {
-                    core.send(mapping::pattern_add());
+                    core.add_pattern();
                 }
                 if icon_button(ui, &theme, Icon::Clone, false, "Clone pattern", "Ctrl+L").clicked()
                     && let Some(p) = core.sel.pattern

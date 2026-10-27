@@ -684,10 +684,20 @@ pub fn paint_clip(
             col.accent_ink.gamma_multiply(0.25),
         );
     }
-    // ---- label and badges
+    // ---- label and badges, in the stretch of the strip the fade handles leave free
     let badges = badges_of(a, entry);
     let label = cx.project.clip_label(c);
-    let inner_w = (r.width() - 8.0 - 2.0 * HANDLE_R).max(0.0);
+    let handles = r.width() > 3.0 * HANDLE_R;
+    let (lx0, lx1) = if handles {
+        label_span(
+            r,
+            r.left() + (fin as f64 * ppt) as f32,
+            r.right() - (fout as f64 * ppt) as f32,
+        )
+    } else {
+        (r.left() + 4.0 + HANDLE_R, r.right() - 4.0 - HANDLE_R)
+    };
+    let inner_w = (lx1 - lx0).max(0.0);
     let badge_w = if inner_w > 150.0 && !badges.is_empty() {
         (badges.chars().count() as f32 * 5.6).min(inner_w * 0.45)
     } else {
@@ -695,7 +705,7 @@ pub fn paint_clip(
     };
     crate::paint::text_fit(
         &gp.with_clip_rect(r.intersect(gp.clip_rect())),
-        r.left_top() + Vec2::new(4.0 + HANDLE_R, 1.0),
+        Pos2::new(lx0, r.top() + 1.0),
         Align2::LEFT_TOP,
         &label,
         FontId::new(11.0, crate::fonts::body_medium()),
@@ -705,7 +715,7 @@ pub fn paint_clip(
     if badge_w > 0.0 {
         crate::paint::text_fit(
             &gp.with_clip_rect(r.intersect(gp.clip_rect())),
-            r.right_top() + Vec2::new(-4.0 - HANDLE_R, 2.0),
+            Pos2::new(lx1, r.top() + 2.0),
             Align2::RIGHT_TOP,
             &badges,
             FontId::new(9.0, crate::fonts::cond()),
@@ -720,6 +730,25 @@ pub fn paint_clip(
             Stroke::new(1.5, col.selection),
             StrokeKind::Inside,
         );
+    }
+}
+
+/// The stretch of the label strip `(x0, x1)` the clip's name and badges may use: clear of
+/// both fade handles (at `fin_x` and `fout_x`), which slide along the strip as the fades grow.
+/// Normally the stretch between the handles; when a long fade-in leaves too little room there,
+/// the stretch left of the fade-in handle, whichever is wider (M2/T10: the name used to start at
+/// a fixed inset, so a fade-in handle drew over it).
+pub fn label_span(r: Rect, fin_x: f32, fout_x: f32) -> (f32, f32) {
+    const GAP: f32 = 2.0;
+    let left = (r.left() + 4.0 + HANDLE_R).max(fin_x + HANDLE_R + GAP);
+    let right = (r.right() - 4.0 - HANDLE_R).min(fout_x - HANDLE_R - GAP);
+    let between = (left, right.max(left));
+    let before = (r.left() + 4.0, (fin_x - HANDLE_R - GAP).min(right));
+    let width = |s: (f32, f32)| s.1 - s.0;
+    if width(between) < 40.0 && width(before) > width(between) {
+        before
+    } else {
+        between
     }
 }
 
@@ -1096,6 +1125,31 @@ pub fn curve_name(c: FadeCurve) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_clip_name_stays_clear_of_the_fade_handles() {
+        let r = Rect::from_min_size(Pos2::new(100.0, 50.0), Vec2::new(300.0, 40.0));
+        // a handle's box spans x +- HANDLE_R; the label must not start or end inside one
+        let clear =
+            |(x0, x1): (f32, f32), handle: f32| x1 <= handle - HANDLE_R || x0 >= handle + HANDLE_R;
+        // no fades: the old fixed inset
+        assert_eq!(label_span(r, r.left(), r.right()), (110.0, 390.0));
+        // a fade-in a quarter of the clip long: the name starts after its handle
+        let fin = r.left() + 75.0;
+        let s = label_span(r, fin, r.right());
+        assert!(s.0 >= fin + HANDLE_R && clear(s, fin), "{s:?}");
+        assert!(s.1 - s.0 > 150.0);
+        // both fades: between the handles
+        let fout = r.right() - 60.0;
+        let s = label_span(r, fin, fout);
+        assert!(clear(s, fin) && clear(s, fout), "{s:?}");
+        assert!(s.0 < s.1);
+        // a fade-in over nearly the whole clip: the name goes left of its handle instead
+        let fin = r.right() - 20.0;
+        let s = label_span(r, fin, r.right());
+        assert!(clear(s, fin), "{s:?}");
+        assert!(s.1 - s.0 > 200.0 && s.0 < fin, "{s:?}");
+    }
 
     /// 120 BPM: 1920 ticks per second. A 48 kHz file of 4 s, a clip of one second at tick
     /// 3840 playing from frame 24 000.

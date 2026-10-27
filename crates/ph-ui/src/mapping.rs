@@ -52,6 +52,18 @@ pub fn channel_add(name: &str, instrument: &InstrumentSpec, insert: Option<u32>)
         json!({ "name": name, "instrument": instrument, "insert": insert }),
     )
 }
+/// [`channel_add`] with a colour (the UI passes its theme's, `Theme::object_color`).
+pub fn channel_add_colored(
+    name: &str,
+    instrument: &InstrumentSpec,
+    insert: Option<u32>,
+    color: u32,
+) -> Request {
+    req(
+        "channel.add",
+        json!({ "name": name, "instrument": instrument, "insert": insert, "color": color }),
+    )
+}
 pub fn channel_remove(c: ChannelId) -> Request {
     req("channel.remove", json!({ "channel": c }))
 }
@@ -133,6 +145,10 @@ pub fn pattern_length_steps(p: PatternId, steps: u32) -> Request {
 
 pub fn pattern_add() -> Request {
     req("pattern.add", json!({}))
+}
+/// [`pattern_add`] with a colour (the UI passes its theme's, `Theme::object_color`).
+pub fn pattern_add_colored(color: u32) -> Request {
+    req("pattern.add", json!({ "color": color }))
 }
 pub fn pattern_clone(p: PatternId) -> Request {
     req("pattern.clone", json!({ "pattern": p }))

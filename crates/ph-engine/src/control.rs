@@ -31,6 +31,8 @@ pub(crate) struct Controller {
     pub audio: AudioCtx,
     /// Plugin nodes of the most recently compiled plan (M2/T3).
     pub plugins: BTreeMap<PluginSlot, LivePlugin>,
+    /// Analyser feeds of the most recently compiled plan, by (insert, slot) (M2/T10).
+    pub analyzers: BTreeMap<(u32, u32), Arc<ph_effects::analyzer::Feed>>,
 }
 
 impl Controller {
@@ -47,6 +49,7 @@ impl Controller {
             board: Arc::new(StatsBoard::default()),
             audio: AudioCtx::new(policy),
             plugins: BTreeMap::new(),
+            analyzers: BTreeMap::new(),
         }
     }
 
@@ -67,6 +70,7 @@ impl Controller {
         )?;
         self.next_id += 1;
         self.plugins = shadow.plugins.clone();
+        self.analyzers = shadow.analyzers.clone();
         self.installed = shadow;
         self.pending = None;
         self.board = plan.board.clone();
@@ -119,6 +123,7 @@ impl Controller {
         self.next_id += 1;
         self.board = plan.board.clone();
         self.plugins = shadow.plugins.clone();
+        self.analyzers = shadow.analyzers.clone();
         if let Some(stale) = self.mailbox.put(plan) {
             drop(stale);
         }

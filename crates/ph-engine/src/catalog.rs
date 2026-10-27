@@ -57,8 +57,12 @@ impl AssetResolver for NoAssets {
     }
 }
 
-/// Live measurements of the most recently activated analyser effect (`ph.fx.analyzer`), for
-/// the UI's analyser window. `None` until one has been activated. Reading is lock-free.
+/// One analyser effect's lock-free measurements (`ph.fx.analyzer`).
+pub use ph_effects::analyzer::Feed as AnalyzerFeed;
+
+/// Live measurements of the most recently activated analyser effect (`ph.fx.analyzer`).
+/// `None` until one has been activated. Reading is lock-free. A window for one mixer slot uses
+/// [`crate::Engine::analyzer_feed`] instead, which is that slot's own instance.
 pub fn analyzer_feed() -> Option<Arc<ph_effects::analyzer::Feed>> {
     ph_effects::analyzer::latest_feed()
 }

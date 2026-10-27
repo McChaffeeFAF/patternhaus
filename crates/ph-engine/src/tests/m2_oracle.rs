@@ -327,3 +327,64 @@ fn audio_automation_plugins_and_a_recording_input_keep_live_equal_to_offline() {
         );
     }
 }
+
+/// Follow-up (M2/T10): each analyser effect's window reads its own instance. Two analysers on
+/// two inserts, a synth on one of them only: the engine hands out one feed per slot, the
+/// sounding insert's feed sees the signal and the silent one's does not, and a parameter
+/// edit (the node is reused across the plan swap) keeps the same feed.
+#[test]
+fn every_analyser_slot_has_its_own_feed() {
+    let mut e = Edit::new(&Project::empty("analysers"));
+    let c = e.add_channel("Synth", synth(&[])).unwrap();
+    e.update_channel(c, |ch| ch.insert = InsertId(1)).unwrap();
+    // a second channel, with no notes, keeps insert 2 in the graph
+    let quiet = e.add_channel("Quiet", synth(&[])).unwrap();
+    e.update_channel(quiet, |ch| ch.insert = InsertId(2))
+        .unwrap();
+    for i in [1u32, 2] {
+        e.update_insert(InsertId(i), |ins| ins.effects.push(fx("analyzer", &[])))
+            .unwrap();
+    }
+    let pat = e.add_pattern("P").unwrap();
+    e.add_note(pat, c, NoteSpec::new(57, 0, 8 * PPQ)).unwrap();
+    e.add_clip(0, pat, 0).unwrap();
+    let p = e.finish().0;
+    let (engine, mut dev) = sim(256, 1);
+    engine.set_project(Arc::new(p.clone())).unwrap();
+    engine.transport(TransportCommand::Play);
+    let mut l = vec![0.0f32; 24_576];
+    let mut r = vec![0.0f32; 24_576];
+    for k in 0..96 {
+        dev.pull_into(
+            &mut l[k * 256..(k + 1) * 256],
+            &mut r[k * 256..(k + 1) * 256],
+        );
+    }
+    let a = engine
+        .analyzer_feed(1, 0)
+        .expect("insert 1 has an analyser");
+    let b = engine
+        .analyzer_feed(2, 0)
+        .expect("insert 2 has an analyser");
+    assert!(engine.analyzer_feed(3, 0).is_none());
+    assert!(!Arc::ptr_eq(&a, &b), "one feed per analyser");
+    assert!(a.updates() > 0 && a.peak()[0] > 0.01, "{:?}", a.peak());
+    assert!(
+        b.peak()[0] < 1e-6,
+        "the silent insert's analyser: {:?}",
+        b.peak()
+    );
+    assert!(a.short_term_lufs() > b.short_term_lufs());
+    // a parameter edit swaps the plan but keeps the analyser node, and with it the feed
+    let mut e = Edit::new(&p);
+    e.update_insert(InsertId(1), |ins| {
+        ins.effects[0] = fx("analyzer", &[("tilt", 1.0)]);
+    })
+    .unwrap();
+    engine.set_project(Arc::new(e.finish().0)).unwrap();
+    for _ in 0..8 {
+        dev.pull(256);
+    }
+    let a2 = engine.analyzer_feed(1, 0).unwrap();
+    assert!(Arc::ptr_eq(&a, &a2), "the reused node keeps its feed");
+}

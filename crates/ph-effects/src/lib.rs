@@ -92,14 +92,30 @@ pub fn builtin(name: &str) -> Option<Box<dyn Processor>> {
 
 /// Build an effect from a project spec, applying `params` by stable id.
 pub fn create(spec: &EffectSpec) -> Result<Box<dyn Processor>, String> {
+    create_with_feed(spec).map(|(p, _)| p)
+}
+
+/// [`create`], plus the measurement feed when the effect is the analyser (`ph.fx.analyzer`),
+/// so a host can show each analyser instance's own measurements (M2/T10).
+#[allow(clippy::type_complexity)]
+pub fn create_with_feed(
+    spec: &EffectSpec,
+) -> Result<(Box<dyn Processor>, Option<std::sync::Arc<analyzer::Feed>>), String> {
     match spec {
         EffectSpec::Builtin { name, params } => {
-            let mut p = builtin(name).ok_or_else(|| {
-                format!(
-                    "unknown built-in effect `{name}` (available: {})",
-                    BUILTIN.join(", ")
-                )
-            })?;
+            let (mut p, feed): (Box<dyn Processor>, _) = if common::short_name(name) == "analyzer" {
+                let a = analyzer::Analyzer::new();
+                let feed = a.feed();
+                (Box::new(a), Some(feed))
+            } else {
+                let p = builtin(name).ok_or_else(|| {
+                    format!(
+                        "unknown built-in effect `{name}` (available: {})",
+                        BUILTIN.join(", ")
+                    )
+                })?;
+                (p, None)
+            };
             for (key, value) in params {
                 let id = p
                     .descriptor()
@@ -107,7 +123,7 @@ pub fn create(spec: &EffectSpec) -> Result<Box<dyn Processor>, String> {
                     .ok_or_else(|| format!("effect `{name}` has no parameter `{key}`"))?;
                 p.set_param(id, *value);
             }
-            Ok(p)
+            Ok((p, feed))
         }
         EffectSpec::Plugin { .. } => {
             Err("external plugin effects are not available until M2".into())

@@ -368,13 +368,19 @@ fn detail(ui: &mut Ui, core: &mut AppCore) {
         .id_salt("mixer_detail")
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.add(
-                    egui::Label::new(
-                        RichText::new(format!("{}  (insert {ins})", insert_label(ins, &m)))
-                            .font(FontId::new(15.0, crate::fonts::cond_bold())),
-                    )
-                    .truncate(),
-                );
+                // a hair narrower than the row: egui's truncation rounds the galley up to whole
+                // pixels, which let a long CJK name end 1-2 px past the panel uncut (M2/T10)
+                let w = (ui.available_width() - 3.0).max(0.0);
+                ui.scope(|ui| {
+                    ui.set_max_width(w);
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(format!("{}  (insert {ins})", insert_label(ins, &m)))
+                                .font(FontId::new(15.0, crate::fonts::cond_bold())),
+                        )
+                        .truncate(),
+                    );
+                });
                 if ins > 0 {
                     let mut route = m.route_to_master;
                     if ui
@@ -682,7 +688,9 @@ fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effe
         .truncate(),
     );
     if desc.id == "ph.fx.analyzer" {
-        analyzer_view(ui, Id::new(("fx_analyzer", insert, index)), &theme);
+        // this slot's own analyser, not whichever one started last
+        let feed = core.studio.engine.analyzer_feed(insert, index as u32);
+        analyzer_view(ui, Id::new(("fx_analyzer", insert, index)), feed, &theme);
     }
     let overrides = match effect {
         EffectSpec::Builtin { params, .. } => params.clone(),
@@ -711,13 +719,19 @@ fn effect_panel(ui: &mut Ui, core: &mut AppCore, insert: u32, index: usize, effe
 }
 
 /// The analyser effect's window: live spectrum, short-term / momentary loudness, phase
-/// correlation and peak meters, from the lock-free feed of the most recently activated
-/// analyser (`ph_engine::catalog::analyzer_feed`).
-fn analyzer_view(ui: &mut Ui, id: Id, theme: &crate::theme::Theme) {
+/// correlation and peak meters, from the lock-free feed of the analyser in this window's own
+/// slot (`ph_engine::Engine::analyzer_feed`; M2/T10: it used to show the most recently
+/// activated analyser, whichever slot that was).
+fn analyzer_view(
+    ui: &mut Ui,
+    id: Id,
+    feed: Option<std::sync::Arc<ph_engine::catalog::AnalyzerFeed>>,
+    theme: &crate::theme::Theme,
+) {
     const DB_LO: f32 = -100.0;
     const DB_HI: f32 = 0.0;
     let c = &theme.colors;
-    let Some(feed) = ph_engine::catalog::analyzer_feed() else {
+    let Some(feed) = feed else {
         ui.label(widgets::caption(
             theme,
             "No analyser is running yet: play the project to see its spectrum.",

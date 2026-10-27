@@ -264,6 +264,24 @@ fn channel_commands() {
         "channel",
     );
     assert_eq!(r.p().channel(ChannelId(lead)).unwrap().insert, InsertId(3));
+    // a colour at creation (the UI passes its theme's colour, M2/T10); else the palette
+    let pad = r.id(
+        "channel.add",
+        json!({ "name": "Pad", "instrument": { "kind": "synth" }, "color": 0x2dd4bf }),
+        "channel",
+    );
+    assert_eq!(r.p().channel(ChannelId(pad)).unwrap().color, 0x2dd4bf);
+    assert_eq!(
+        r.p().channel(ChannelId(lead)).unwrap().color,
+        ph_core::default_color(lead)
+    );
+    assert!(matches!(
+        r.err(
+            "channel.add",
+            json!({ "name": "X", "instrument": { "kind": "synth" }, "color": 0x1000000 })
+        ),
+        CmdError::Model(_)
+    ));
     r.notes(pat, kick, &[(36, 0, 240), (36, 960, 240)]);
 
     r.run("channel.rename", json!({ "channel": kick, "name": "Boom" }));
@@ -382,6 +400,28 @@ fn channel_commands() {
 }
 
 #[test]
+fn pattern_add_takes_a_colour() {
+    // the UI passes its theme's colour (M2/T10); without one the model's palette applies
+    let mut r = Rig::new();
+    let a = r.pattern();
+    assert_eq!(
+        r.p().pattern(PatternId(a)).unwrap().header().color,
+        ph_core::default_color(a)
+    );
+    let b = r.id(
+        "pattern.add",
+        json!({ "name": "Hook", "color": 0xf472b6 }),
+        "pattern",
+    );
+    let h = r.p().pattern(PatternId(b)).unwrap().header();
+    assert_eq!((h.name.as_str(), h.color), ("Hook", 0xf472b6));
+    assert!(matches!(
+        r.err("pattern.add", json!({ "color": 0x1000000 })),
+        CmdError::Model(_)
+    ));
+}
+
+#[test]
 fn pattern_commands() {
     let mut r = Rig::new();
     let a = r.pattern();
@@ -394,7 +434,6 @@ fn pattern_commands() {
     );
     let h = r.p().pattern(PatternId(a)).unwrap().header();
     assert_eq!((h.name.as_str(), h.color), ("Verse", 0x00ff00));
-
     let out = r.run("pattern.set_length", json!({ "pattern": a, "steps": 32 }));
     assert_eq!(out.result["length"], 32 * 240);
     let out = r.run(

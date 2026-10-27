@@ -7,8 +7,9 @@
 //! (400 ms) and short-term (3 s) loudness per ITU-R BS.1770-4 with K-weighting.
 //!
 //! Results are published lock-free through a [`Feed`] (relaxed atomics, no allocation or
-//! locks on the audio thread). A UI finds the feed of the most recently activated analyser
-//! with [`latest_feed`].
+//! locks on the audio thread). A host gets each instance's own feed from
+//! [`crate::create_with_feed`] (the engine keeps them per mixer slot:
+//! `ph_engine::Engine::analyzer_feed`); [`latest_feed`] is the most recently activated one.
 
 use crate::common::{Fft, Params, SilenceTracker, impl_processor, input, output, stereo_desc};
 use ph_dsp::filter::{Biquad, BiquadCoefs};

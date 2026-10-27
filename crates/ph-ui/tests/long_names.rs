@@ -32,6 +32,40 @@ const NOSPACE: &str =
 const SPACED: &str =
     "Lng Channel with a rather long descriptive name that keeps going and going on";
 const UNICODE: &str = "Lng \u{c9}dition sp\u{e9}ciale \u{f1}and\u{fa} \u{c5}\u{c4}\u{d6} \u{957f}\u{540d}\u{524d}\u{7684}\u{30c1}\u{30e3}\u{30f3}\u{30cd}\u{30eb}\u{540d}\u{524d}\u{30c6}\u{30b9}\u{30c8}\u{9577}\u{3044}\u{9577}\u{3044}";
+/// CJK names (M2/T10, with the CJK fallback font): Japanese with no spaces, Chinese with
+/// spaces, Korean mixed with Chinese and Latin.
+const CJK_NOSPACE: &str =
+    "超長いチャンネル名前テスト低音シンセサイザー長い長い名前のチャンネルです超長い名前";
+const CJK_SPACED: &str =
+    "低音 合成器 通道 名字 非常 长 的 测试 名称 继续 继续 再 继续 一直 写 下去 的 名字";
+const CJK_MIXED: &str =
+    "베이스 드럼 채널 이름이 아주 길어요 长名字 테스트 Kick 808 한국어 이름 계속 계속";
+
+/// The names a scene gives the project, its patterns, channels, inserts and tracks.
+#[derive(Clone, Copy)]
+struct Names {
+    nospace: &'static str,
+    spaced: &'static str,
+    unicode: &'static str,
+}
+
+const LATIN: Names = Names {
+    nospace: NOSPACE,
+    spaced: SPACED,
+    unicode: UNICODE,
+};
+
+const CJK: Names = Names {
+    nospace: CJK_NOSPACE,
+    spaced: CJK_SPACED,
+    unicode: CJK_MIXED,
+};
+
+/// Han, kana or Hangul.
+fn is_cjk(c: char) -> bool {
+    matches!(c as u32, 0x3040..=0x30ff | 0x3400..=0x9fff | 0xac00..=0xd7af)
+}
+
 const SAMPLE: &str =
     "C:/Users/someone/Music/Samples/Lng 80s Remix Tronicbo-long-file-name-that-goes-on-and-on.wav";
 const AGENT: &str = "Lng-Agent-Client-With-An-Extremely-Long-Name-Version-1.2.3-Preview";
@@ -82,7 +116,7 @@ struct Stress {
 const AUDIO_FILE: &str =
     "Lng Audio Clip Tronicbo with a very very long file name that goes on and on and on.wav";
 
-fn stress() -> Stress {
+fn stress(n: Names) -> Stress {
     let (fx, _) = fixture(false);
     let mut app = fx.app;
     run(&mut app, mapping::set_tempo(124.0));
@@ -90,17 +124,17 @@ fn stress() -> Stress {
         &mut app,
         Request::new(
             "project.rename",
-            serde_json::json!({ "title": format!("{SPACED} {NOSPACE}") }),
+            serde_json::json!({ "title": format!("{} {}", n.spaced, n.nospace) }),
         ),
     );
     let mut patterns = vec![];
-    for n in [SPACED, NOSPACE, UNICODE] {
+    for name in [n.spaced, n.nospace, n.unicode] {
         let id = ph_core::PatternId(
             run(&mut app, mapping::pattern_add())["pattern"]
                 .as_u64()
                 .unwrap() as u32,
         );
-        run(&mut app, mapping::pattern_rename(id, n));
+        run(&mut app, mapping::pattern_rename(id, name));
         patterns.push(id);
     }
     let sampler = |s: &str| InstrumentSpec::Sampler {
@@ -114,15 +148,18 @@ fn stress() -> Stress {
         params: Default::default(),
     };
     let mut chans = vec![];
-    for (i, (n, inst)) in [
-        (NOSPACE, sampler(SAMPLE)),
-        (SPACED, synth),
-        (UNICODE, sampler("factory:drums/haus808/kick")),
+    for (i, (name, inst)) in [
+        (n.nospace, sampler(SAMPLE)),
+        (n.spaced, synth),
+        (n.unicode, sampler("factory:drums/haus808/kick")),
     ]
     .into_iter()
     .enumerate()
     {
-        let r = run(&mut app, mapping::channel_add(n, &inst, Some(1 + i as u32)));
+        let r = run(
+            &mut app,
+            mapping::channel_add(name, &inst, Some(1 + i as u32)),
+        );
         chans.push(ph_core::ChannelId(r["channel"].as_u64().unwrap() as u32));
     }
     let note = |k: u8, s: u64| mapping::NewNote {
@@ -140,11 +177,14 @@ fn stress() -> Stress {
         &mut app,
         mapping::step_set_row(patterns[0], chans[0], &[true, false, false, false, true]),
     );
-    for (i, n) in [UNICODE, NOSPACE, SPACED, NOSPACE].iter().enumerate() {
-        run(&mut app, mapping::mixer_rename(1 + i as u32, n));
+    for (i, name) in [n.unicode, n.nospace, n.spaced, n.nospace]
+        .iter()
+        .enumerate()
+    {
+        run(&mut app, mapping::mixer_rename(1 + i as u32, name));
     }
-    for (i, n) in [SPACED, NOSPACE, UNICODE].iter().enumerate() {
-        run(&mut app, mapping::track_rename(i as u32, n));
+    for (i, name) in [n.spaced, n.nospace, n.unicode].iter().enumerate() {
+        run(&mut app, mapping::track_rename(i as u32, name));
         run(&mut app, mapping::clip_add(i as u32, patterns[i], 0, None));
         run(
             &mut app,
@@ -171,9 +211,9 @@ fn stress() -> Stress {
     // an agent edits things: the history gets rows by a long-named author
     let agent = Caller::agent(AGENT, ph_commands::Grant(vec![ph_commands::Scope::Full]));
     let s = &app.core.studio.session;
-    s.execute(&agent, mapping::channel_rename(chans[2], UNICODE))
+    s.execute(&agent, mapping::channel_rename(chans[2], n.unicode))
         .unwrap();
-    s.execute(&agent, mapping::pattern_rename(patterns[1], SPACED))
+    s.execute(&agent, mapping::pattern_rename(patterns[1], n.spaced))
         .unwrap();
     app.core.hooks.agents = Some(std::sync::Arc::new(Fake));
     pump_until(&mut app, 800, |a| a.core.project.channels.len() == 3);
@@ -224,8 +264,12 @@ fn stress() -> Stress {
     app.core.browser.tab = 2;
     app.core.browser.filter = "lng".into();
     app.core.browser.rescan();
-    app.core
-        .toast(ph_ui::core::ToastKind::Info, format!("{SPACED} {NOSPACE}"));
+    app.core.toast(
+        ph_ui::core::ToastKind::Info,
+        format!("{} {}", n.spaced, n.nospace),
+    );
+    // the UI shows exactly the session's project before anything is checked
+    settle(&mut app);
     Stress {
         app,
         _dir: fx.dir,
@@ -320,7 +364,7 @@ fn collect(shapes: &[egui::epaint::ClippedShape]) -> Vec<Seen> {
 const TOL: f32 = 2.0;
 
 fn is_user(t: &str) -> bool {
-    t.contains("Lng") || t.contains('\u{957f}') || t.contains("Tronicbo")
+    t.contains("Lng") || t.contains('\u{957f}') || t.contains("Tronicbo") || t.chars().any(is_cjk)
 }
 
 fn check(scene: &str, theme: &str, seen: &[Seen], window: Option<Rect>, fails: &mut Vec<String>) {
@@ -385,8 +429,8 @@ fn shots() -> PathBuf {
     d
 }
 
-fn run_theme(theme: &str, prefix: &str) {
-    let s = stress();
+fn run_theme(theme: &str, prefix: &str, names: Names) {
+    let s = stress(names);
     let (sampler, synth, audio, auto) = (s.sampler, s.synth, s.audio, s.auto);
     let _keep = s._dir;
     let mut h = harness(s.app);
@@ -468,6 +512,27 @@ fn run_theme(theme: &str, prefix: &str) {
             "{theme}/{name}: only {users} user texts on screen"
         );
         check(name, theme, &seen, win, &mut fails);
+        // with the system's CJK faces, every CJK character on screen has a glyph (no boxes)
+        if ph_ui::fonts::cjk_complete() {
+            for s in seen.iter().filter(|s| s.text.chars().any(is_cjk)) {
+                let missing: Vec<char> = s
+                    .text
+                    .chars()
+                    .filter(|c| is_cjk(*c))
+                    .filter(|c| {
+                        !h.ctx.fonts_mut(|f| {
+                            f.has_glyph(&egui::FontId::new(13.0, ph_ui::fonts::body()), *c)
+                        })
+                    })
+                    .collect();
+                if !missing.is_empty() {
+                    fails.push(format!(
+                        "[{theme}/{name}] NO GLYPH {missing:?} in {:?}",
+                        s.text
+                    ));
+                }
+            }
+        }
     }
     // the picture for the docs: the rack and the mixer, the two places a long name hurt most
     only(&mut h, &[WindowId::ChannelRack, WindowId::Mixer]);
@@ -493,10 +558,22 @@ fn run_theme(theme: &str, prefix: &str) {
 
 #[test]
 fn long_names_stay_inside_their_space_neon_slate() {
-    run_theme("neon-slate", "neon");
+    run_theme("neon-slate", "neon", LATIN);
 }
 
 #[test]
 fn long_names_stay_inside_their_space_red_line() {
-    run_theme("red-line", "red");
+    run_theme("red-line", "red", LATIN);
+}
+
+/// The same scenes with Chinese, Japanese and Korean names (M2/T10): with the CJK fallback
+/// faces the names are real glyphs, wider than Latin ones, and must still fit.
+#[test]
+fn long_cjk_names_stay_inside_their_space_neon_slate() {
+    run_theme("neon-slate", "neon-cjk", CJK);
+}
+
+#[test]
+fn long_cjk_names_stay_inside_their_space_red_line() {
+    run_theme("red-line", "red-cjk", CJK);
 }
