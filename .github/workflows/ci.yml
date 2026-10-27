@@ -69,6 +69,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets
       - name: M1 acceptance (criterion 1) and the --connect endpoint e2e
         run: cargo test -p ph-cli --test acceptance_m1 --test e2e_connect
+      - name: M2 acceptance (criterion 1) and the combined oracle (criterion 6)
+        run: |
+          cargo test -p ph-cli --test acceptance_m2 -- --nocapture
+          cargo test -p ph-engine --lib m2_oracle
       - name: golden renders, oracle and round trip (criteria 4, 6, 8)
         run: cargo xtask golden
       - run: cargo test --workspace
