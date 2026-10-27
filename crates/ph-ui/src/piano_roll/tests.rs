@@ -576,25 +576,27 @@ fn every_snap_option_snaps_what_you_draw() {
 /// follow-up): the line's luminance against the lane, composited as the painter does.
 #[test]
 fn fine_grid_lines_are_visible_in_both_themes() {
-    fn lum(c: egui::Color32) -> f32 {
-        let f = |v: u8| v as f32 / 255.0;
-        0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
-    }
-    // premultiplied `line` over an opaque `bg`
-    fn over(line: egui::Color32, bg: egui::Color32) -> egui::Color32 {
+    // luminance of a premultiplied `line` composited over an opaque `bg`, and of `bg` alone
+    fn lum_over(line: egui::Color32, bg: egui::Color32) -> (f32, f32) {
         let a = line.a() as f32 / 255.0;
-        let mix = |l: u8, b: u8| (l as f32 + b as f32 * (1.0 - a)).round().min(255.0) as u8;
-        egui::Color32::from_rgb(
-            mix(line.r(), bg.r()),
-            mix(line.g(), bg.g()),
-            mix(line.b(), bg.b()),
+        let mix = |l: u8, b: u8| ((l as f32 + b as f32 * (1.0 - a)).round().min(255.0)) / 255.0;
+        let f = |v: u8| v as f32 / 255.0;
+        let l = 0.2126 * mix(line.r(), bg.r())
+            + 0.7152 * mix(line.g(), bg.g())
+            + 0.0722 * mix(line.b(), bg.b());
+        (
+            l,
+            0.2126 * f(bg.r()) + 0.7152 * f(bg.g()) + 0.0722 * f(bg.b()),
         )
     }
     let contrast = |t: &crate::theme::Theme, strength: f32| {
         let c = &t.colors;
         [c.key_white, c.key_black]
             .iter()
-            .map(|lane| (lum(over(c.grid_bar.gamma_multiply(strength), *lane)) - lum(*lane)).abs())
+            .map(|lane| {
+                let (l, b) = lum_over(c.grid_bar.gamma_multiply(strength), *lane);
+                (l - b).abs()
+            })
             .fold(f32::MAX, f32::min)
     };
     for t in [
