@@ -79,7 +79,9 @@ fn sample_label(p: &Project, a: &AudioClip) -> String {
 
 fn track_name(p: &Project, track: u32) -> String {
     match p.tracks.get(track as usize) {
-        Some(t) if !t.name.is_empty() => format!("track {} ({})", track + 1, t.name),
+        Some(t) if !t.name.is_empty() && t.name != format!("Track {}", track + 1) => {
+            format!("track {} ({})", track + 1, t.name)
+        }
         _ => format!("track {}", track + 1),
     }
 }
@@ -327,9 +329,7 @@ pub fn overview_extra(p: &Project) -> Value {
         .values()
         .filter(|c| c.automation().is_some())
         .count();
-    let plugins = plugins_view(p)["plugins"]
-        .as_array()
-        .map_or(0, |a| a.len());
+    let plugins = plugins_view(p)["plugins"].as_array().map_or(0, |a| a.len());
     json!({
         "audio_clips": audio,
         "automation_clips": auto,

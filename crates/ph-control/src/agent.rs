@@ -32,6 +32,8 @@ pub enum Block {
     Text(String),
     /// PNG bytes.
     Image(Vec<u8>),
+    /// WAV bytes (a short rendered excerpt, see `render` with `listen`).
+    Audio(Vec<u8>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,8 +43,8 @@ pub struct ToolOutput {
 }
 
 impl ToolOutput {
-    /// MCP-shaped JSON: `{ content: [text | image blocks], isError, value }` where `value` is the
-    /// first text block parsed as JSON. Images are base64 PNG.
+    /// MCP-shaped JSON: `{ content: [text | image | audio blocks], isError, value }` where `value` is the
+    /// first text block parsed as JSON. Images are base64 PNG, audio is base64 WAV.
     pub fn to_json(self) -> Value {
         use base64::Engine as _;
         let value = self.value();
@@ -55,6 +57,11 @@ impl ToolOutput {
                     "type": "image",
                     "mimeType": "image/png",
                     "data": base64::engine::general_purpose::STANDARD.encode(png),
+                }),
+                Block::Audio(wav) => json!({
+                    "type": "audio",
+                    "mimeType": "audio/wav",
+                    "data": base64::engine::general_purpose::STANDARD.encode(wav),
                 }),
             })
             .collect();
@@ -112,7 +119,17 @@ const DIRECT: &[(&str, &str)] = &[
     ("play", "transport.play"),
     ("stop", "transport.stop"),
     ("export_audio", "file.export_audio"),
+    ("add_audio_clip", "audio.add_clip"),
+    ("fit_to_tempo", "audio.fit_to_tempo"),
+    ("add_automation", "automation.add_clip"),
+    ("add_plugin_instrument", "plugin.add_instrument"),
+    ("add_plugin_effect", "plugin.add_effect"),
+    ("propose", "proposal.submit"),
 ];
+
+#[path = "agent_m2.rs"]
+mod m2;
+pub use m2::{MAX_LISTEN_BYTES, MAX_LISTEN_SECONDS};
 
 struct Rendered {
     audio: AudioBuffer,
@@ -127,6 +144,8 @@ pub struct Agent {
     grants: Arc<Grants>,
     connections: Arc<crate::connections::Connections>,
     seen: Mutex<HashMap<String, u64>>,
+    /// Per client: the last proposal decision it has been told about.
+    seen_decisions: Mutex<HashMap<String, u64>>,
     cache: Mutex<Option<(RenderKey, Arc<Rendered>)>>,
 }
 
@@ -175,6 +194,7 @@ impl Agent {
             grants,
             connections: Arc::default(),
             seen: Mutex::default(),
+            seen_decisions: Mutex::default(),
             cache: Mutex::default(),
         })
     }
@@ -237,16 +257,19 @@ impl Agent {
             ),
             tool(
                 "get_state",
-                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
+                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
                 json!({ "type": "object", "properties": {
                     "view": { "type": "string" }, "args": { "type": "object" } } }),
                 true,
             ),
             tool(
                 "render",
-                "Render the song (or the first pattern when the playlist is empty) offline to a WAV or FLAC under the project's renders folder. Returns the file path and a quick analysis (loudness, true peak, clipping, key). range: { from_bar, to_bar } (1-based, inclusive).",
+                "Render the song (or the first pattern when the playlist is empty) offline to a WAV or FLAC under the project's renders folder. Returns the file path and a quick analysis (loudness, true peak, clipping, key). range: { from_bar, to_bar } (1-based, inclusive). With listen: true it also returns a short excerpt as audio content (16-bit WAV, 24 kHz) for models that can hear: at most 15 seconds and 1.5 MB, default 8 s from the start of range; choose the part with listen_range { from_bar, to_bar } and the length with listen_seconds.",
                 json!({ "type": "object", "properties": {
                     "range": range_schema(), "format": { "type": "string", "enum": ["wav", "flac"] },
+                    "listen": { "type": "boolean", "description": "also return a short audio excerpt as audio content (max 15 s / 1.5 MB)" },
+                    "listen_range": range_schema(),
+                    "listen_seconds": { "type": "number", "description": "excerpt length in seconds, 0.5-15, default 8" },
                     "name": { "type": "string", "description": "file name without extension" },
                     "bit_depth": { "type": "integer", "enum": [16, 24, 32] },
                     "sample_rate": { "type": "integer" } } }),
@@ -254,10 +277,11 @@ impl Agent {
             ),
             tool(
                 "analyze",
-                "Hear the result as numbers. what: any of loudness (LUFS integrated/short-term, true peak, RMS, crest), spectrum (7 bands + centroid), health (clipping, DC, phase, mono loss, energy per bar), onsets, key, chords, clashes (semitone note clashes), masking (per-channel spectral overlap), or \"all\". Default: loudness, spectrum, health, key, chords, clashes.",
+                "Hear the result as numbers. what: any of loudness (LUFS integrated/short-term, true peak, RMS, crest), spectrum (7 bands + centroid), health (clipping, DC, phase, mono loss, energy per bar), onsets, key, chords, clashes (semitone note clashes), masking (per-channel spectral overlap), reference (compare the mix with a reference track you supply in `reference`: tonal balance per band in dB, integrated and short-term loudness, stereo width and correlation, plain-language suggestions), or \"all\" (not reference). Default: loudness, spectrum, health, key, chords, clashes.",
                 json!({ "type": "object", "properties": {
                     "range": range_schema(),
-                    "what": { "type": "array", "items": { "type": "string" } } } }),
+                    "what": { "type": "array", "items": { "type": "string" } },
+                    "reference": { "description": "for what: [\"reference\"]: a registered sample id (get_state view audio) or an audio file inside the project or library folders; it is read, never copied" } } }),
                 true,
             ),
             tool(
@@ -306,12 +330,16 @@ impl Agent {
                 let s = c.spec();
                 v.push(ToolSpec {
                     name: (*name).into(),
-                    description: format!("{} (shortcut for run {{ id: \"{cmd}\" }})", s.summary),
+                    description: m2::direct_doc(name).map_or_else(
+                        || format!("{} (shortcut for run {{ id: \"{cmd}\" }})", s.summary),
+                        String::from,
+                    ),
                     input_schema: s.params.clone(),
                     read_only: !s.mutating,
                 });
             }
         }
+        v.extend(m2::extra_tools());
         v
     }
 
@@ -341,12 +369,14 @@ impl Agent {
             "undo_mine" => self.undo_redo(&caller, &args, true),
             "redo_mine" => self.undo_redo(&caller, &args, false),
             "history" => self.history_tool(&args),
+            "proposal_status" => self.proposal_status(client, &args),
             other => match DIRECT.iter().find(|(n, _)| *n == other) {
                 Some((_, cmd)) => self.run_one(&caller, Request::new(cmd, args.clone())),
                 None => ToolOutput::error(format!("unknown tool {other:?}")),
             },
         };
-        self.with_events(client, out)
+        let out = self.with_events(client, out);
+        self.with_decisions(client, out)
     }
 
     /// Appends what other authors did since this client last looked.
@@ -491,6 +521,7 @@ impl Agent {
         if !d.is_empty() {
             v["changes"] = d.to_json();
         }
+        self.attach_previews(&mut v, done);
         let w = self.warnings_for(after);
         if !w.is_empty() {
             v["engine_warnings"] = json!(w);
@@ -633,6 +664,10 @@ impl Agent {
         let warnings = self.studio.engine.stats().warnings;
         let r: Result<Value, String> = match view {
             "overview" => Ok(views::overview(&p, &warnings)),
+            "audio" => Ok(crate::views_m2::audio_view(&p)),
+            "automation" => Ok(crate::views_m2::automation_view(&p)),
+            "plugins" => Ok(crate::views_m2::plugins_view(&p)),
+            "proposals" => self.proposals_view(),
             "notes" => views::notes_view(&p, &a),
             "pattern" => views::pattern_view(&p, &a),
             "sections" => Ok(views::sections_view(&p)),
@@ -692,7 +727,7 @@ impl Agent {
                 }
             }
             other => Err(format!(
-                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, transport, session, ui, events, warnings, raw"
+                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, audio, automation, plugins, proposals, transport, session, ui, events, warnings, raw"
             )),
         };
         match r {
@@ -842,10 +877,12 @@ impl Agent {
         if !w.is_empty() {
             v["engine_warnings"] = json!(w);
         }
-        if p.channels.is_empty() || p.patterns.values().all(|x| x.note_count() == 0) {
+        let has_audio = p.clips.values().any(|c| c.audio().is_some());
+        if !has_audio && (p.channels.is_empty() || p.patterns.values().all(|x| x.note_count() == 0))
+        {
             v["note"] = json!("the project has no notes, so the render is silent");
         }
-        ToolOutput::json(v)
+        self.attach_listen(&p, range, args, v)
     }
 
     fn analyze_tool(&self, args: &Value) -> ToolOutput {
@@ -874,8 +911,16 @@ impl Agent {
             .map(String::from)
             .to_vec();
         }
-        const KNOWN: [&str; 8] = [
-            "loudness", "spectrum", "health", "onsets", "key", "chords", "clashes", "masking",
+        const KNOWN: [&str; 9] = [
+            "loudness",
+            "spectrum",
+            "health",
+            "onsets",
+            "key",
+            "chords",
+            "clashes",
+            "masking",
+            "reference",
         ];
         if let Some(bad) = what.iter().find(|w| !KNOWN.contains(&w.as_str())) {
             return ToolOutput::error(format!(
@@ -883,6 +928,14 @@ impl Agent {
                 KNOWN.join(", ")
             ));
         }
+        let reference = if what.iter().any(|w| w == "reference") {
+            match self.load_reference(&p, &args["reference"]) {
+                Ok(r) => Some(r),
+                Err(e) => return ToolOutput::error(e),
+            }
+        } else {
+            None
+        };
         let needs_audio = what.iter().any(|w| !matches!(w.as_str(), "clashes"));
         let timing = views::timing(&p);
         let sr = 48_000;
@@ -967,6 +1020,10 @@ impl Agent {
                         "note": "notes a semitone apart, sounding together, from different pitched channels",
                     })
                 }
+                ("reference", Some(c)) => match &reference {
+                    Some(r) => self.reference_report(c, sr, r),
+                    None => json!(null),
+                },
                 ("masking", Some(_)) => match self.masking(&p, range, sr) {
                     Ok(v) => v,
                     Err(e) => return ToolOutput::error(e),
@@ -1424,7 +1481,7 @@ fn range_schema() -> Value {
     })
 }
 
-fn tool(name: &str, description: &str, schema: Value, read_only: bool) -> ToolSpec {
+pub(self) fn tool(name: &str, description: &str, schema: Value, read_only: bool) -> ToolSpec {
     ToolSpec {
         name: name.into(),
         description: description.into(),

@@ -21,12 +21,14 @@ mod grants;
 mod headless;
 mod host;
 mod jsonrpc;
+#[cfg(test)]
+mod m2_agent_tests;
 mod mcp;
 mod node_params;
 mod views;
 mod views_m2;
 
-pub use agent::{Agent, ToolOutput, ToolSpec};
+pub use agent::{Agent, MAX_LISTEN_BYTES, MAX_LISTEN_SECONDS, ToolOutput, ToolSpec};
 pub use connections::{ConnGuard, ConnectionInfo, Connections, Protocol};
 pub use diff::{Diff, diff};
 pub use endpoint::{

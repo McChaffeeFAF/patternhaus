@@ -892,6 +892,7 @@ fn snapshot_shows_an_audio_clips_waveform_and_the_playlist_draws_it() {
             match b {
                 Block::Text(t) => caption.push_str(&t),
                 Block::Image(p) => png = p,
+                Block::Audio(_) => {}
             }
         }
         (caption, png)

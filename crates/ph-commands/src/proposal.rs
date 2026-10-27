@@ -317,15 +317,15 @@ impl Session {
         }
         for r in &reqs {
             let spec = self.registry().get(&r.command)?.spec();
-            if !spec.mutating {
-                return Err(CmdError::Other(format!(
-                    "{} does not change the project, so it cannot be part of a proposal",
-                    spec.id
-                )));
-            }
             if not_previewable(spec.id) {
                 return Err(CmdError::Other(format!(
                     "{} acts outside the project (transport, files, UI, hardware) and cannot be previewed; run it directly",
+                    spec.id
+                )));
+            }
+            if !spec.mutating {
+                return Err(CmdError::Other(format!(
+                    "{} does not change the project, so it cannot be part of a proposal",
                     spec.id
                 )));
             }

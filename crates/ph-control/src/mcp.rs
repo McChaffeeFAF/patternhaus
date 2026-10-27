@@ -27,7 +27,7 @@ pub const OVERVIEW_URI: &str = "patternhaus://project/overview";
 const INSTRUCTIONS: &str = "Patternhaus is a DAW you drive through commands. Start with get_state (overview), then list_commands / describe_command / run. \
 Times are ticks: 960 per quarter note, 240 per 16th step; note 60 = C4. Build with run_batch (one undo step), then HEAR it: render + analyze (LUFS, spectrum, key, chords, clashes) \
 and SEE it: snapshot (piano_roll, playlist, waveform, spectrogram). Every change returns a musical diff. Factory samples are factory:drums/haus808/kick etc.; synth presets are listed by node_params. \
-Other authors' edits are reported in while_you_worked blocks and in the patternhaus://events resource.";
+Audio clips, automation and plugins are commands too: add_audio_clip, fit_to_tempo, add_automation, add_plugin_instrument; get_state views audio, automation, plugins. For a bigger change use propose: the person previews it as ghost notes and accepts or rejects (proposal_status reads the decision). render with listen: true returns a short audio excerpt; analyze what [\"reference\"] compares the mix to a reference track. \nOther authors' edits are reported in while_you_worked blocks and in the patternhaus://events resource.";
 
 pub struct PatternhausServer {
     agent: Arc<Agent>,
@@ -121,6 +121,10 @@ fn to_result(out: ToolOutput) -> CallToolResult {
         .into_iter()
         .map(|b| match b {
             Block::Text(t) => ContentBlock::text(t),
+            Block::Audio(wav) => ContentBlock::audio(
+                base64::engine::general_purpose::STANDARD.encode(wav),
+                "audio/wav",
+            ),
             Block::Image(png) => ContentBlock::image(
                 base64::engine::general_purpose::STANDARD.encode(png),
                 "image/png",

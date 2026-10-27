@@ -89,6 +89,24 @@ fn relative(s: &Spectrum) -> Vec<Option<f64>> {
         .collect()
 }
 
+/// A band this far under the whole signal is effectively empty.
+const NEGLIGIBLE_DB: f64 = -50.0;
+/// Differences are reported up to this size; beyond it a band is just "absent on one side".
+const MAX_BAND_DIFF_DB: f64 = 24.0;
+
+/// Mix band minus reference band, both relative to their own overall level. `None` when the
+/// band is empty on both sides, or silent on both.
+fn band_diff(mix: Option<f64>, reference: Option<f64>) -> Option<f64> {
+    if mix.is_none() && reference.is_none() {
+        return None;
+    }
+    let (m, r) = (mix.unwrap_or(-80.0), reference.unwrap_or(-80.0));
+    if m < NEGLIGIBLE_DB && r < NEGLIGIBLE_DB {
+        return None;
+    }
+    Some(round((m - r).clamp(-MAX_BAND_DIFF_DB, MAX_BAND_DIFF_DB), 1))
+}
+
 /// Side level relative to mid (dB) of a stereo signal; `None` for mono or silence.
 fn side_to_mid_db(ch: &[Vec<f32>]) -> Option<f64> {
     if ch.len() < 2 {
@@ -104,8 +122,8 @@ fn side_to_mid_db(ch: &[Vec<f32>]) -> Option<f64> {
     if m2 + s2 < 1e-12 {
         return None;
     }
-    // A pure mono signal has no side: report a -60 dB floor instead of -inf.
-    Some(round(10.0 * (s2 / m2.max(1e-12)).max(1e-6).log10(), 1))
+    // A pure mono signal has no side: report a -40 dB floor instead of -inf.
+    Some(round(10.0 * (s2 / m2.max(1e-12)).max(1e-4).log10(), 1))
 }
 
 fn band_advice(band: &str, more: bool) -> &'static str {
@@ -179,7 +197,7 @@ pub fn compare(
             high_hz: m.high_hz,
             mix_db: m.level_db,
             reference_db: r.level_db,
-            diff_db: sub(*mrel, *rrel),
+            diff_db: band_diff(*mrel, *rrel),
         })
         .collect();
 

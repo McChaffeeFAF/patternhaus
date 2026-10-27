@@ -38,10 +38,7 @@ pub fn instrument_line(old: &InstrumentSpec, new: &InstrumentSpec, name: &str) -
                 ..
             },
         ) if a == b => {
-            let n = pb
-                .iter()
-                .filter(|(k, v)| pa.get(*k) != Some(v))
-                .count();
+            let n = pb.iter().filter(|(k, v)| pa.get(*k) != Some(v)).count();
             if sa != sb && n == 0 {
                 format!("{name}: plugin {b} state changed")
             } else if n > 0 {
@@ -50,9 +47,12 @@ pub fn instrument_line(old: &InstrumentSpec, new: &InstrumentSpec, name: &str) -
                 format!("{name}: plugin {b} settings changed")
             }
         }
-        (_, Plugin {
-            format, plugin_id, ..
-        }) => format!(
+        (
+            _,
+            Plugin {
+                format, plugin_id, ..
+            },
+        ) => format!(
             "{name}: instrument is now plugin {plugin_id} ({})",
             format_name(*format)
         ),
@@ -86,7 +86,12 @@ pub fn instrument_line(old: &InstrumentSpec, new: &InstrumentSpec, name: &str) -
     }
 }
 
-fn audio_changes(p: &Project, o: &(Clip, AudioClip), n: &(Clip, AudioClip), t: &Timing) -> Vec<String> {
+fn audio_changes(
+    p: &Project,
+    o: &(Clip, AudioClip),
+    n: &(Clip, AudioClip),
+    t: &Timing,
+) -> Vec<String> {
     let ((oc, oa), (nc, na)) = (o, n);
     let mut parts = Vec::new();
     if oa.sample != na.sample {
@@ -127,7 +132,14 @@ fn audio_changes(p: &Project, o: &(Clip, AudioClip), n: &(Clip, AudioClip), t: &
         parts.push(format!("pitch {:+.2} -> {:+.2} st", oa.pitch(), na.pitch()));
     }
     if oa.reverse != na.reverse {
-        parts.push(if na.reverse { "reversed" } else { "forwards again" }.into());
+        parts.push(
+            if na.reverse {
+                "reversed"
+            } else {
+                "forwards again"
+            }
+            .into(),
+        );
     }
     if oa.stretch != na.stretch {
         parts.push(format!(
@@ -215,7 +227,12 @@ fn auto_changes(
             s.push(format!("~{edited} edited"));
         }
         let range = match auto_range(na) {
-            Some((lo, hi)) => format!(", now {} point(s) from {} to {}", na.points.len(), r3(lo), r3(hi)),
+            Some((lo, hi)) => format!(
+                ", now {} point(s) from {} to {}",
+                na.points.len(),
+                r3(lo),
+                r3(hi)
+            ),
             None => ", now empty".into(),
         };
         parts.push(format!("points {}{range}", s.join(" ")));
@@ -270,20 +287,22 @@ pub fn m2_lines(before: &Project, after: &Project, t: &Timing, lines: &mut Vec<S
                 }
                 Some(_) => {}
             },
-            (_, Some(a)) => match old.and_then(|o| o.automation().map(|oa| (o.clone(), oa.clone()))) {
-                None => auto_added.push(automation_clip_line(after, c, a, t)),
-                Some(o) if o.0 != *c || o.1 != **a => {
-                    let parts = auto_changes(after, &o, &(c.clone(), (*a).clone()), t);
-                    if !parts.is_empty() {
-                        lines.push(format!(
-                            "automation of {} (clip {id}): {}",
-                            target_words(after, &a.target),
-                            parts.join("; ")
-                        ));
+            (_, Some(a)) => {
+                match old.and_then(|o| o.automation().map(|oa| (o.clone(), oa.clone()))) {
+                    None => auto_added.push(automation_clip_line(after, c, a, t)),
+                    Some(o) if o.0 != *c || o.1 != **a => {
+                        let parts = auto_changes(after, &o, &(c.clone(), (*a).clone()), t);
+                        if !parts.is_empty() {
+                            lines.push(format!(
+                                "automation of {} (clip {id}): {}",
+                                target_words(after, &a.target),
+                                parts.join("; ")
+                            ));
+                        }
                     }
+                    Some(_) => {}
                 }
-                Some(_) => {}
-            },
+            }
             _ => {}
         }
     }
@@ -306,7 +325,11 @@ pub fn m2_lines(before: &Project, after: &Project, t: &Timing, lines: &mut Vec<S
         match v.len() {
             0 => {}
             1..=3 => lines.push(format!("{label} {}", v.join("; "))),
-            n => lines.push(format!("{label} {}; ...and {} more", v[..3].join("; "), n - 3)),
+            n => lines.push(format!(
+                "{label} {}; ...and {} more",
+                v[..3].join("; "),
+                n - 3
+            )),
         }
     }
 }

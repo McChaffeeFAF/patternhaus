@@ -434,7 +434,10 @@ pub fn overview(p: &Project, warnings: &[String]) -> Value {
         "sections": sections_view(p)["text"],
         "warnings": warnings,
     });
-    if let (Some(o), Some(extra)) = (v.as_object_mut(), crate::views_m2::overview_extra(p).as_object().cloned()) {
+    if let (Some(o), Some(extra)) = (
+        v.as_object_mut(),
+        crate::views_m2::overview_extra(p).as_object().cloned(),
+    ) {
         o.extend(extra);
     }
     v

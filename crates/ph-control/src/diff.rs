@@ -95,7 +95,11 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
                     lines.push(format!("renamed channel {} -> {}", o.name, c.name));
                 }
                 if o.instrument != c.instrument {
-                    lines.push(crate::diff_m2::instrument_line(&o.instrument, &c.instrument, &c.name));
+                    lines.push(crate::diff_m2::instrument_line(
+                        &o.instrument,
+                        &c.instrument,
+                        &c.name,
+                    ));
                 }
                 if o.volume != c.volume {
                     lines.push(format!(
