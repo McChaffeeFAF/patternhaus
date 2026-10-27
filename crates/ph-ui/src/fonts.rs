@@ -116,6 +116,12 @@ fn cjk_candidates() -> Vec<(PathBuf, u32)> {
             ],
         ));
     } else if cfg!(target_os = "macos") {
+        // first: a plain TrueType face covering Han, kana and Hangul; the system CJK
+        // collections below can list glyphs that egui's renderer cannot draw
+        v.push((
+            PathBuf::from("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+            0,
+        ));
         v.extend(under(
             Path::new("/System/Library/Fonts"),
             &[
