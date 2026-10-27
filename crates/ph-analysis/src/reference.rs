@@ -90,7 +90,7 @@ fn relative(s: &Spectrum) -> Vec<Option<f64>> {
 }
 
 /// A band this far under the whole signal is effectively empty.
-const NEGLIGIBLE_DB: f64 = -50.0;
+const NEGLIGIBLE_DB: f64 = -40.0;
 /// Differences are reported up to this size; beyond it a band is just "absent on one side".
 const MAX_BAND_DIFF_DB: f64 = 24.0;
 

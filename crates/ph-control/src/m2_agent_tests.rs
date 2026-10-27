@@ -517,6 +517,9 @@ fn analyze_compares_the_mix_with_a_reference() {
         json!({ "what": ["reference"], "reference": "samples/ref.wav", "range": { "from_bar": 1, "to_bar": 4 } }),
     );
     let r = &v["reference"];
+    if std::env::var_os("PH_T9_SHOW").is_some() {
+        eprintln!("{}", serde_json::to_string_pretty(r).unwrap());
+    }
     assert_eq!(r["reference"]["name"], "ref.wav");
     assert_eq!(r["bands"].as_array().unwrap().len(), 7);
     let band = |n: &str| {

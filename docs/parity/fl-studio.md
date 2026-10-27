@@ -118,4 +118,18 @@ Sources for the *Behaves* column:
 | MIDI | MIDI learn on any knob; mappings per user | knob right-click "MIDI learn…"; `midi.learn` `midi.map` `midi.unmap` `midi.list_mappings`; `<config>/midi-mappings.json` | 2026-10-19: UI and command tests. Differs: the mapping is by project object id, so it applies to whatever has that id in another project |
 | MIDI | Mapped controllers record as automation while armed | the mapped move is written through `automation.record` like a knob drag | 2026-10-19: UI test |
 
+
+## M2: agent abilities (T9)
+
+Agent features have no FL counterpart (DESIGN §5); each row names the command or tool and the test that covers it.
+
+| Area | Feature | Wired | Behaves |
+|---|---|---|---|
+| Agents | Audio clips, automation, plugins reachable as tools | `add_audio_clip` (`audio.add_clip`), `fit_to_tempo` (`audio.fit_to_tempo`), `add_automation` (`automation.add_clip`), `add_plugin_instrument` (`plugin.add_instrument`), `add_plugin_effect` (`plugin.add_effect`); every other `audio.*` `sample.*` `slicer.*` `editor.*` `automation.*` `plugin.*` `record.*` `midi.*` command through `run` | 2026-10-27: ph-control `every_m2_command_family_is_reachable_and_described` (every command lists, describes itself, every parameter has a description) |
+| Agents | `get_state` shows audio clips (file, range, mode, bpm), automation clips (target, points, range) and plugin instances | `get_state { view: audio / automation / plugins }`, counts in `overview` | 2026-10-27: ph-control `views_and_diffs_describe_audio_and_automation_in_words`, `plugin_instances_show_in_the_view_and_the_diff` |
+| Agents | Musical diffs for audio and automation edits in words | the `changes` lines of every reply and event | 2026-10-27: same tests |
+| Agents | Rendered audio for audio-capable models | `render { listen: true }` | 2026-10-27: ph-control `render_can_return_a_bounded_audio_excerpt` (valid WAV, length and byte limits hold) |
+| Agents | Reference-track comparison: tonal balance per band, integrated and short-term loudness, stereo width and correlation, suggestions | `analyze { what: ["reference"], reference }` | 2026-10-27: ph-analysis `reference` known-answer tests; ph-control `analyze_compares_the_mix_with_a_reference` (generated audio; the reference is never copied) |
+| Agents | Preview mode: a batch as a proposal, ghost notes and clips, Accept or Reject, one undo step on accept, stale reported | `propose` / `proposal.submit`, `proposal.accept`, `proposal.reject`, `proposal.list`, `proposal.get`, `proposal_status`; UI strip, ghosts and Agents panel section | 2026-10-27: ph-commands `proposal_behaviour`, ph-control `a_proposal_previews_then_lands_...`, `a_rejected_proposal...`, `a_stale_proposal...`, ph-ui `tests/proposals.rs` (offscreen clicks). Owner check pending ([M2-agent](../manual-tests/M2-agent.md)) |
+
 [notes]: ../formats/fl-behaviour-notes.md

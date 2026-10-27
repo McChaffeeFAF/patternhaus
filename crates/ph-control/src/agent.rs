@@ -1481,7 +1481,7 @@ fn range_schema() -> Value {
     })
 }
 
-pub(self) fn tool(name: &str, description: &str, schema: Value, read_only: bool) -> ToolSpec {
+fn tool(name: &str, description: &str, schema: Value, read_only: bool) -> ToolSpec {
     ToolSpec {
         name: name.into(),
         description: description.into(),
