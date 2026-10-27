@@ -11,6 +11,7 @@
 //! - [`tempo`]: BPM, loop length and onsets of audio material (sample registry, slicer).
 //! - [`music`]: key and chord estimation from notes (exact) and from audio (chroma).
 //! - [`masking`]: spectral masking between stems and note clashes.
+//! - [`reference`]: tonal balance, loudness and stereo width against a reference track.
 //! - [`image`]: spectrogram, waveform, piano roll and playlist PNGs.
 
 pub mod health;
@@ -19,6 +20,7 @@ pub mod loudness;
 pub mod masking;
 pub mod music;
 pub mod onsets;
+pub mod reference;
 pub mod spectrum;
 pub mod tempo;
 mod text;

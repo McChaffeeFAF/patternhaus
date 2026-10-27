@@ -505,6 +505,8 @@ pub struct DrawCtx<'a> {
     pub now: f64,
     /// Decoded waveforms of audio clips (M2/T6).
     pub waves: &'a crate::waveform::SharedWaves,
+    /// Clips an agent proposed but nobody has accepted yet (M2/T9), drawn as ghosts.
+    pub previews: &'a [crate::proposals::PreviewClip],
 }
 
 /// Result of showing the playlist: commands plus header edits.
@@ -859,6 +861,28 @@ pub fn show(ui: &mut egui::Ui, st: &mut PlaylistState, cx: &DrawCtx<'_>) -> PlSh
             }
         }
     }
+    // an agent's proposal, not yet accepted: ghost clips in the agent's colour
+    for c in cx.previews {
+        let r = st
+            .clip_rect(c.track as i32, c.start, c.length)
+            .translate(grid.min.to_vec2())
+            .shrink2(Vec2::new(0.0, 1.0));
+        if !r.intersects(grid) {
+            continue;
+        }
+        let g = gp.with_clip_rect(grid);
+        crate::proposals::paint_ghost_box(&g, r, col.agent, c.removed);
+        crate::paint::text_fit(
+            &g.with_clip_rect(r.intersect(grid)),
+            r.left_top() + Vec2::new(4.0, 1.0),
+            Align2::LEFT_TOP,
+            &format!("{}: {}", c.author.trim_start_matches("agent:"), c.label),
+            FontId::new(10.5, crate::fonts::body_medium()),
+            col.text,
+            r.width() - 8.0,
+        );
+    }
+
     // columns of clips that are gone are forgotten
     {
         let live = &st.audio_views;

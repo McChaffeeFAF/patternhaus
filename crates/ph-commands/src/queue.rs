@@ -38,6 +38,7 @@ type Job = Box<dyn FnOnce(&mut Session, &mut dyn Host) + Send>;
 enum Msg {
     Job(Job),
     Subscribe(Sender<Change>),
+    SubscribeProposals(Sender<ProposalNote>),
 }
 
 /// A reply that has not arrived yet.
@@ -160,6 +161,21 @@ impl SessionHandle {
         self.call(|s, _| s.history().to_vec())
     }
 
+    /// Every proposal (agent preview mode): pending ones and recent decisions.
+    pub fn proposals(&self) -> CmdResult<Vec<ProposalInfo>> {
+        self.call(|s, _| s.proposals())
+    }
+
+    /// Receives a [`ProposalNote`] whenever a proposal is submitted or decided, in order.
+    pub fn subscribe_proposals(&self) -> CmdResult<Receiver<ProposalNote>> {
+        let (tx, rx) = mpsc::channel();
+        self.tx
+            .send(Msg::SubscribeProposals(tx))
+            .map_err(|_| closed())?;
+        self.call(|_, _| ())?;
+        Ok(rx)
+    }
+
     /// Receives a [`Change`] after every request that changes the project, in order. The
     /// channel is unbounded: drain it, or drop the receiver to unsubscribe.
     pub fn subscribe(&self) -> CmdResult<Receiver<Change>> {
@@ -174,15 +190,23 @@ impl SessionHandle {
 
 fn control_loop(mut session: Session, mut host: Box<dyn Host + Send>, rx: Receiver<Msg>) {
     let mut subscribers: Vec<Sender<Change>> = Vec::new();
+    let mut proposal_subs: Vec<Sender<ProposalNote>> = Vec::new();
     while let Ok(msg) = rx.recv() {
         match msg {
             Msg::Subscribe(tx) => subscribers.push(tx),
+            Msg::SubscribeProposals(tx) => proposal_subs.push(tx),
             Msg::Job(job) => {
                 let before_len = session.history().len();
                 let before_project = session.project().clone();
                 let ran = catch_unwind(AssertUnwindSafe(|| job(&mut session, &mut *host)));
                 // A panicking command leaves the session as it was (a batch only commits at
                 // the end), and its caller sees a closed reply; keep serving everyone else.
+                // Proposal changes go out even when nobody follows project changes.
+                if ran.is_ok() {
+                    for note in session.take_proposal_notes() {
+                        proposal_subs.retain(|s| s.send(note.clone()).is_ok());
+                    }
+                }
                 if ran.is_err() || subscribers.is_empty() {
                     continue;
                 }

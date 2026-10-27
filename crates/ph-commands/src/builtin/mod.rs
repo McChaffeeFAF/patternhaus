@@ -30,6 +30,9 @@ mod plugin;
 #[cfg(test)]
 mod plugin_behaviour;
 mod project;
+mod proposal;
+#[cfg(test)]
+mod proposal_behaviour;
 mod query;
 mod record;
 #[cfg(test)]
@@ -46,6 +49,10 @@ mod util;
 pub(crate) use channel::solo_channel;
 pub(crate) use file::{import_flp_project, open_project};
 pub(crate) use mixer::solo_insert;
+pub(crate) use proposal::{
+    accept as proposal_accept, get as proposal_get, list as proposal_list,
+    reject as proposal_reject, submit as proposal_submit,
+};
 
 use crate::*;
 
@@ -69,4 +76,5 @@ pub fn register_builtin(r: &mut Registry) {
     record::register(r);
     editor::register(r);
     plugin::register(r);
+    proposal::register(r);
 }

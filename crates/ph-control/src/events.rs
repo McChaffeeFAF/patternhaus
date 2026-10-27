@@ -16,7 +16,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 pub struct Event {
     /// Monotonic sequence number.
     pub seq: u64,
-    /// `edit`, `project_replaced`, `transport`, `overload`, `warnings` or `plugin_fault`.
+    /// `edit`, `project_replaced`, `transport`, `overload`, `warnings`, `plugin_fault` or
+    /// `proposal` (an agent proposal was submitted, accepted, rejected or went stale).
     pub kind: &'static str,
     /// `human` or `agent:<name>` for edits.
     pub author: Option<String>,
@@ -82,6 +83,29 @@ impl EventHub {
                         Some(change.txn),
                         summary,
                         json!({ "changes": d.lines, "objects": change.paths.len() }),
+                    );
+                }
+            })
+            .map_err(|e| e.to_string())?;
+
+        let notes = session.subscribe_proposals().map_err(|e| e.to_string())?;
+        let h = hub.clone();
+        std::thread::Builder::new()
+            .name("ph-events-proposals".into())
+            .spawn(move || {
+                for n in notes {
+                    let verb = match n.state {
+                        "pending" => "proposed",
+                        "accepted" => "proposal accepted:",
+                        "rejected" => "proposal rejected:",
+                        _ => "proposal went stale:",
+                    };
+                    h.publish(
+                        "proposal",
+                        Some(n.author.to_string()),
+                        None,
+                        format!("{verb} \"{}\"", n.title),
+                        json!({ "proposal": n.id, "state": n.state, "reason": n.reason }),
                     );
                 }
             })

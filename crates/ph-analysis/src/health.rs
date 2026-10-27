@@ -30,6 +30,23 @@ pub struct BarEnergy {
     pub peak_dbfs: Option<f64>,
 }
 
+/// Stereo correlation of the first two channels, -1 (out of phase) to +1 (mono); `None` for
+/// mono or silent audio.
+pub fn analyze_correlation(channels: &[Vec<f32>]) -> Option<f64> {
+    if channels.len() < 2 {
+        return None;
+    }
+    let n = channels[0].len().min(channels[1].len());
+    let (mut ll, mut rr, mut lr) = (0.0f64, 0.0f64, 0.0f64);
+    for (l, r) in channels[0][..n].iter().zip(&channels[1][..n]) {
+        let (l, r) = (*l as f64, *r as f64);
+        ll += l * l;
+        rr += r * r;
+        lr += l * r;
+    }
+    (ll > 1e-12 && rr > 1e-12).then(|| round(lr / (ll * rr).sqrt(), 3))
+}
+
 const CLIP_LEVEL: f32 = 0.9999;
 
 /// `first_bar` is the (1-based) bar number of the first sample.

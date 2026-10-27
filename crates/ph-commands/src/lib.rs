@@ -9,6 +9,7 @@
 mod audio_edit;
 mod builtin;
 mod host;
+mod proposal;
 mod queue;
 mod registry;
 mod session;
@@ -19,6 +20,9 @@ mod undo_props;
 
 pub use builtin::register_builtin;
 pub use host::*;
+pub use proposal::{
+    Ghost, GhostNote, MAX_PENDING_PER_AUTHOR, ProposalInfo, ProposalNote, ProposalStatus,
+};
 pub use queue::*;
 pub use registry::*;
 pub use session::*;

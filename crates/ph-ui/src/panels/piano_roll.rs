@@ -10,6 +10,7 @@ use egui::Ui;
 
 pub fn show(ui: &mut Ui, core: &mut AppCore) {
     super::track_hover(ui, core, crate::keymap::Context::PianoRoll);
+    crate::proposals::bar(ui, core);
     let theme = core.theme.clone();
     let project = core.project.clone();
     core.fix_selection();
@@ -98,6 +99,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         })
         .collect();
     let flashes = core.flashes.clone();
+    let previews = crate::proposals::roll_previews(&core.proposals, pattern);
     let cx = DrawCtx {
         project: &project,
         theme: &theme,
@@ -105,6 +107,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         flashes: &flashes,
         now: core.now,
         agent_selected: &agent_notes,
+        previews: &previews,
     };
     let outs = piano_roll::show(ui, &mut core.roll, &cx);
     if !outs.is_empty() {

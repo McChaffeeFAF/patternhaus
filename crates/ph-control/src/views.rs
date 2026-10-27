@@ -310,8 +310,23 @@ fn effect_name(e: &EffectSpec) -> String {
 
 fn channel_line(c: &Channel) -> String {
     let inst = match &c.instrument {
-        InstrumentSpec::Sampler { sample, .. } => {
-            format!("sampler {}", sample.as_deref().unwrap_or("(no sample)"))
+        InstrumentSpec::Sampler {
+            sample,
+            slices,
+            root_key,
+            ..
+        } => {
+            let file = sample.as_deref().unwrap_or("(no sample)");
+            if slices.is_empty() {
+                format!("sampler {file}")
+            } else {
+                format!(
+                    "sliced sampler {file} ({} slices on keys {}-{})",
+                    slices.len(),
+                    note_name(*root_key),
+                    note_name(root_key.saturating_add(slices.len() as u8 - 1))
+                )
+            }
         }
         InstrumentSpec::Synth { preset, .. } => {
             format!("synth {}", preset.as_deref().unwrap_or("(init)"))
@@ -406,7 +421,7 @@ pub fn overview(p: &Project, warnings: &[String]) -> Value {
     .div_ceil(t.ticks_per_bar());
     let key = key_from_notes(&pn, &t);
     let spans = chords_from_notes(&pn, &t, 1, bars.min(64) as u32, ChordGrain::Auto);
-    json!({
+    let mut v = json!({
         "title": p.settings.title,
         "bpm": p.settings.bpm,
         "time_signature": format!("{}/{}", p.settings.time_signature.numerator, p.settings.time_signature.denominator),
@@ -418,7 +433,14 @@ pub fn overview(p: &Project, warnings: &[String]) -> Value {
         "chords": progression(&spans),
         "sections": sections_view(p)["text"],
         "warnings": warnings,
-    })
+    });
+    if let (Some(o), Some(extra)) = (
+        v.as_object_mut(),
+        crate::views_m2::overview_extra(p).as_object().cloned(),
+    ) {
+        o.extend(extra);
+    }
+    v
 }
 
 #[cfg(test)]

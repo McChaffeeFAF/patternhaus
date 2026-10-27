@@ -321,6 +321,7 @@ fn run_frame(
             theme,
             playhead: Some(1000),
             flashes: &flashes,
+            previews: &[],
             now: i as f64 / 60.0,
             agent_selected: &agent,
         };

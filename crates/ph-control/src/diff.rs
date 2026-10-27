@@ -95,7 +95,11 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
                     lines.push(format!("renamed channel {} -> {}", o.name, c.name));
                 }
                 if o.instrument != c.instrument {
-                    lines.push(format!("{}: instrument changed", c.name));
+                    lines.push(crate::diff_m2::instrument_line(
+                        &o.instrument,
+                        &c.instrument,
+                        &c.name,
+                    ));
                 }
                 if o.volume != c.volume {
                     lines.push(format!(
@@ -206,19 +210,19 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
     let added: Vec<String> = after
         .clips
         .iter()
-        .filter(|(k, _)| !before.clips.contains_key(k))
+        .filter(|(k, c)| c.pattern().is_some() && !before.clips.contains_key(k))
         .map(|(_, c)| clip_line(after, c))
         .collect();
     let removed: Vec<String> = before
         .clips
         .iter()
-        .filter(|(k, _)| !after.clips.contains_key(k))
+        .filter(|(k, c)| c.pattern().is_some() && !after.clips.contains_key(k))
         .map(|(_, c)| clip_line(before, c))
         .collect();
     let moved = after
         .clips
         .iter()
-        .filter(|(k, c)| before.clips.get(k).is_some_and(|o| o != *c))
+        .filter(|(k, c)| c.pattern().is_some() && before.clips.get(k).is_some_and(|o| o != *c))
         .count();
     if !added.is_empty() {
         lines.push(format!("playlist: added {}", join_some(&added)));
@@ -242,6 +246,8 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
             ));
         }
     }
+
+    crate::diff_m2::m2_lines(before, after, &t, &mut lines);
 
     // mixer
     for (i, (o, n)) in before.mixer.iter().zip(after.mixer.iter()).enumerate() {

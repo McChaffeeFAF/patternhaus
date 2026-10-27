@@ -1297,6 +1297,8 @@ pub struct DrawCtx<'a> {
     pub now: f64,
     /// Notes highlighted because an agent called `ui.select`.
     pub agent_selected: &'a BTreeSet<NoteId>,
+    /// Notes an agent proposed but nobody has accepted yet (M2/T9), drawn as ghosts.
+    pub previews: &'a [crate::proposals::PreviewNote],
 }
 
 pub const FLASH_SECS: f64 = 2.0;
@@ -1612,6 +1614,23 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         );
         gp.rect_filled(r, CornerRadius::same(3), col.agent.gamma_multiply(k));
         gp.galley(r.min + Vec2::new(3.0, 1.0), g, col.accent_ink);
+    }
+
+    // an agent's proposal, not yet accepted: ghost notes in the agent's colour
+    for n in cx.previews {
+        let mut r = view
+            .note_rect(n.key, n.start, n.length)
+            .translate(origin.to_vec2());
+        if !r.intersects(grid_rect) {
+            continue;
+        }
+        r.max.y -= 1.0;
+        crate::proposals::paint_ghost_box(
+            &gp,
+            crate::proposals::at_least_px(r, MIN_NOTE_PX),
+            col.agent,
+            n.removed,
+        );
     }
 
     // in-flight new note and box
