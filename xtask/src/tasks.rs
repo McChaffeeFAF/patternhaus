@@ -49,6 +49,23 @@ const PERF_GATED: &[&str] = &[
     "one_thread_dsp_load_mean_pct",
     "one_thread_dsp_load_median_pct",
 ];
+/// The DSP load target of M1 and M2 criterion 7, in percent of the buffer duration.
+const PERF_TARGET_PCT: f64 = 25.0;
+/// The loads held to [`PERF_TARGET_PCT`]: (metric, what it measures).
+const PERF_TARGETS: &[(&str, &str)] = &[
+    (
+        "all_cores_dsp_load_mean_pct",
+        "reference project (M1 criterion 7)",
+    ),
+    (
+        "audio_all_cores_dsp_load_mean_pct",
+        "+ 8 stretched audio clips",
+    ),
+    (
+        "automation_all_cores_dsp_load_mean_pct",
+        "+ 8 stretched clips + 4 automation clips (M2 crit. 7)",
+    ),
+];
 /// A gated metric fails above baseline × this (a regression of more than 10%).
 const PERF_TOLERANCE: f64 = 1.10;
 
@@ -80,7 +97,14 @@ pub fn perf(root: &Path, report_only: bool, update: bool) -> Result<(), Vec<Stri
         "metric", "baseline", "current", "change"
     );
     for (key, value) in current.as_object().into_iter().flatten() {
-        let (Some(now), Some(base)) = (value.as_f64(), baseline[key].as_f64()) else {
+        let Some(now) = value.as_f64() else {
+            continue;
+        };
+        let Some(base) = baseline[key].as_f64() else {
+            // measured, but the committed baseline predates it (M2 loads): report only
+            if key.ends_with("_pct") {
+                println!("{key:<34} {:>10} {now:>10.2}   (no baseline)", "-");
+            }
             continue;
         };
         let change = if base > 0.0 {
@@ -96,6 +120,25 @@ pub fn perf(root: &Path, report_only: bool, update: bool) -> Result<(), Vec<Stri
         if gated && now > base * PERF_TOLERANCE {
             errors.push(format!(
                 "{key}: {now:.2} vs baseline {base:.2} ({change:+.1}%, limit +10%)"
+            ));
+        }
+    }
+    // M1 criterion 7 and M2 criterion 7: mean DSP load on all cores within 25%
+    println!();
+    println!("DSP load against the {PERF_TARGET_PCT:.0}% target (all cores, mean):");
+    for (key, label) in PERF_TARGETS {
+        let Some(now) = current[*key].as_f64() else {
+            continue;
+        };
+        let verdict = if now <= PERF_TARGET_PCT {
+            "within"
+        } else {
+            "OVER"
+        };
+        println!("  {label:<52} {now:>6.2}%  {verdict}");
+        if now > PERF_TARGET_PCT {
+            errors.push(format!(
+                "{label}: {now:.2}% mean DSP load, above the {PERF_TARGET_PCT:.0}% target"
             ));
         }
     }
