@@ -112,14 +112,23 @@ struct Add {
     /// Mixer insert to route to (0 = master).
     #[serde(default)]
     insert: Option<u32>,
+    /// Colour as 0xRRGGBB (a plain integer in JSON); omit for the default palette.
+    #[serde(default)]
+    color: Option<Color>,
 }
 
 fn add(ctx: &mut CommandCtx<'_>, p: Add) -> CmdResult<CommandOutput> {
+    if p.color.is_some_and(|c| c > 0xFF_FFFF) {
+        return invalid("colour must be 0xRRGGBB");
+    }
     let mut ed = Edit::new(ctx.project);
     let id = ed.add_channel(&p.name, p.instrument)?;
     if let Some(i) = p.insert {
         insert(ctx.project, i)?;
         ed.update_channel(id, |c| c.insert = InsertId(i))?;
+    }
+    if let Some(color) = p.color {
+        ed.update_channel(id, |c| c.color = color)?;
     }
     Ok(CommandOutput::from_edit(
         ed,

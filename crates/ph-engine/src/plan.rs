@@ -446,6 +446,9 @@ pub(crate) struct Shadow {
     pub tracks: BTreeMap<u32, TrackShadow>,
     /// Plugin nodes of the plan (M2/T3), for the control side.
     pub plugins: BTreeMap<PluginSlot, LivePlugin>,
+    /// Measurement feeds of the plan's analyser effects by (insert, slot) (M2/T10), so each
+    /// analyser window shows its own instance.
+    pub analyzers: BTreeMap<(u32, u32), Arc<ph_effects::analyzer::Feed>>,
     /// Processor parameters automation drove in this plan (M2/T7): when a later plan no
     /// longer automates one, it is set back to the project's value at the swap.
     pub auto_params: Vec<ParamPath>,
@@ -489,6 +492,7 @@ impl Shadow {
             inserts: BTreeMap::new(),
             tracks: BTreeMap::new(),
             plugins: BTreeMap::new(),
+            analyzers: BTreeMap::new(),
             auto_params: Vec::new(),
         }
     }
@@ -862,6 +866,7 @@ pub(crate) fn compile(
         inserts: BTreeMap::new(),
         tracks: BTreeMap::new(),
         plugins: BTreeMap::new(),
+        analyzers: BTreeMap::new(),
         auto_params: Vec::new(),
     };
     let info = |seed: u64| ActivateInfo {
@@ -1078,6 +1083,10 @@ pub(crate) fn compile(
                         if let Some(lp) = prev.plugins.get(&pslot) {
                             shadow.plugins.insert(pslot, lp.clone());
                         }
+                        let akey = (*x as u32, si as u32);
+                        if let Some(f) = prev.analyzers.get(&akey) {
+                            shadow.analyzers.insert(akey, f.clone());
+                        }
                         let desc = os.desc.clone().expect("filtered");
                         for (pid, v) in param_diff(&os.params, &ps, &desc) {
                             params.push(ParamSet {
@@ -1105,10 +1114,15 @@ pub(crate) fn compile(
                                 shadow.plugins.insert(pslot, live);
                                 p
                             }),
-                            None => ph_effects::create(&slot.effect).ok().map(|mut p| {
-                                p.activate(&info(seed(2, *x as u64, si as u64)));
-                                p
-                            }),
+                            None => ph_effects::create_with_feed(&slot.effect).ok().map(
+                                |(mut p, feed)| {
+                                    p.activate(&info(seed(2, *x as u64, si as u64)));
+                                    if let Some(f) = feed {
+                                        shadow.analyzers.insert((*x as u32, si as u32), f);
+                                    }
+                                    p
+                                },
+                            ),
                         };
                         let d = p.as_ref().map(|p| Arc::new(p.descriptor().clone()));
                         (p, d)

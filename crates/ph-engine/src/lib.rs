@@ -833,6 +833,13 @@ impl Engine {
         self.lock().ctl.plugins.values().cloned().collect()
     }
 
+    /// The measurement feed of the analyser effect (`ph.fx.analyzer`) in mixer insert
+    /// `insert`, effect slot `slot`, if the current plan has one there (M2/T10). Each analyser
+    /// window reads its own instance; reading is lock-free.
+    pub fn analyzer_feed(&self, insert: u32, slot: u32) -> Option<Arc<ph_effects::analyzer::Feed>> {
+        self.lock().ctl.analyzers.get(&(insert, slot)).cloned()
+    }
+
     /// The plugin node at `slot`, if the current plan has one.
     pub fn plugin(&self, slot: plugins::PluginSlot) -> Option<plugins::LivePlugin> {
         self.lock().ctl.plugins.get(&slot).cloned()

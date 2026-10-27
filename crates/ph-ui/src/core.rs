@@ -996,7 +996,14 @@ impl AppCore {
     }
 
     pub fn add_channel(&mut self, name: &str, inst: &InstrumentSpec) {
-        self.send(mapping::channel_add(name, inst, None));
+        let color = self.theme.object_color(self.project.channels.len());
+        self.send(mapping::channel_add_colored(name, inst, None, color));
+    }
+
+    /// A new empty pattern in the theme's next object colour.
+    pub fn add_pattern(&mut self) {
+        let color = self.theme.object_color(self.project.patterns.len());
+        self.send(mapping::pattern_add_colored(color));
     }
 
     /// Click-to-preview in the browser: plays the entry on the engine's audition voice,

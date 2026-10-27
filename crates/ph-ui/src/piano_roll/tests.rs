@@ -573,6 +573,46 @@ fn every_snap_option_snaps_what_you_draw() {
     }
 }
 
+/// The 1/32 and 1/64 lines stand out from the note lanes they cross in both themes (M1
+/// follow-up): the line's luminance against the lane, composited as the painter does.
+#[test]
+fn fine_grid_lines_are_visible_in_both_themes() {
+    // luminance of a premultiplied `line` composited over an opaque `bg`, and of `bg` alone
+    fn lum_over(line: egui::Color32, bg: egui::Color32) -> (f32, f32) {
+        let a = line.a() as f32 / 255.0;
+        let mix = |l: u8, b: u8| ((l as f32 + b as f32 * (1.0 - a)).round().min(255.0)) / 255.0;
+        let f = |v: u8| v as f32 / 255.0;
+        let l = 0.2126 * mix(line.r(), bg.r())
+            + 0.7152 * mix(line.g(), bg.g())
+            + 0.0722 * mix(line.b(), bg.b());
+        (
+            l,
+            0.2126 * f(bg.r()) + 0.7152 * f(bg.g()) + 0.0722 * f(bg.b()),
+        )
+    }
+    let contrast = |t: &crate::theme::Theme, strength: f32| {
+        let c = &t.colors;
+        [c.key_white, c.key_black]
+            .iter()
+            .map(|lane| {
+                let (l, b) = lum_over(c.grid_bar.gamma_multiply(strength), *lane);
+                (l - b).abs()
+            })
+            .fold(f32::MAX, f32::min)
+    };
+    for t in [
+        crate::theme::Theme::neon_slate(),
+        crate::theme::Theme::red_line(),
+    ] {
+        let fine = contrast(&t, TIER_STRENGTH[4]);
+        let was = contrast(&t, 0.36);
+        println!("{}: 1/64 line contrast {fine:.4} (was {was:.4})", t.id);
+        assert!(fine >= was * 1.3, "{}: {fine} vs {was}", t.id);
+        // still a hierarchy: each tier dimmer than the one above
+        assert!(TIER_STRENGTH.windows(2).all(|w| w[0] > w[1]));
+    }
+}
+
 #[test]
 fn grid_tiers_fade_in_with_zoom() {
     // all five are drawn at the default zoom, each finer one dimmer than the last

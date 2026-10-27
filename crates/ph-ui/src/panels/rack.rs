@@ -53,7 +53,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         ui.horizontal(|ui| {
             ui.label("No pattern yet.");
             if btn(ui, "New pattern").clicked() {
-                core.send(mapping::pattern_add());
+                core.add_pattern();
             }
         });
         return;

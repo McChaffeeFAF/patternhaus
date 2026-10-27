@@ -249,17 +249,25 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
             }
             Action::Add(name, kind) => core.add_channel_from(&name, &kind),
             Action::AddKit(samples) => {
+                let first = core.project.channels.len();
+                let theme = core.theme.clone();
                 let reqs: Vec<_> = samples
                     .iter()
                     .take(16)
-                    .map(|(n, r)| {
+                    .enumerate()
+                    .map(|(i, (n, r))| {
                         let inst = ph_core::InstrumentSpec::Sampler {
                             slices: Vec::new(),
                             sample: Some(r.clone()),
                             root_key: 60,
                             params: Default::default(),
                         };
-                        mapping::channel_add(&bm::channel_name(n), &inst, None)
+                        mapping::channel_add_colored(
+                            &bm::channel_name(n),
+                            &inst,
+                            None,
+                            theme.object_color(first + i),
+                        )
                     })
                     .collect();
                 core.send_batch(reqs);

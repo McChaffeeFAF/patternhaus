@@ -26,6 +26,8 @@ serde_json.workspace = true
 toml.workspace = true
 ron.workspace = true
 memory-stats = "1"
+# reads a system font's character map (the CJK fallback, `fonts.rs`); already in the tree via epaint
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 egui_kittest.workspace = true

@@ -525,6 +525,70 @@ impl Theme {
         ]);
         v
     }
+
+    /// The colours new channels and patterns made in the UI get, in turn (0xRRGGBB): the
+    /// theme's pattern colours (c1-c5) without any whose hue is near the agent colour, so a
+    /// new object never reads as an agent's edit (M1 follow-up, done in M2/T10). Agents and
+    /// the CLI still get the model's palette (`ph_core::default_color`).
+    pub fn object_colors(&self) -> Vec<u32> {
+        let pack = |c: Color32| ((c.r() as u32) << 16) | ((c.g() as u32) << 8) | c.b() as u32;
+        let agent = hue(self.colors.agent);
+        let far = |c: &Color32| match (agent, hue(*c)) {
+            (Some(a), Some(h)) => hue_distance(a, h) >= AGENT_HUE_CLEARANCE,
+            _ => true,
+        };
+        let v: Vec<u32> = self
+            .colors
+            .pattern
+            .iter()
+            .filter(|c| far(c))
+            .map(|c| pack(*c))
+            .collect();
+        if v.is_empty() {
+            // a theme whose whole palette sits on the agent hue: fall back to the neutral set
+            vec![0x94a3b8]
+        } else {
+            v
+        }
+    }
+
+    /// The colour for the `n`-th new channel or pattern (cycling through [`Self::object_colors`]).
+    pub fn object_color(&self, n: usize) -> u32 {
+        let v = self.object_colors();
+        v[n % v.len()]
+    }
+}
+
+/// New objects keep at least this many degrees of hue away from the agent colour.
+pub const AGENT_HUE_CLEARANCE: f32 = 45.0;
+
+/// Hue in degrees (0..360), or `None` for a colour too grey to have one.
+pub fn hue(c: Color32) -> Option<f32> {
+    let (r, g, b) = (
+        c.r() as f32 / 255.0,
+        c.g() as f32 / 255.0,
+        c.b() as f32 / 255.0,
+    );
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    if max <= 0.0 || d / max < 0.25 {
+        return None;
+    }
+    let h = if max == r {
+        60.0 * (((g - b) / d).rem_euclid(6.0))
+    } else if max == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    Some(h.rem_euclid(360.0))
+}
+
+/// The shorter way round the hue circle between two hues, in degrees.
+pub fn hue_distance(a: f32, b: f32) -> f32 {
+    let d = (a - b).abs().rem_euclid(360.0);
+    d.min(360.0 - d)
 }
 
 /// Tracking presets (fractions of the font size): menus +6%, labels +12%, captions +20%.
@@ -548,6 +612,36 @@ pub fn caps_sized(text: &str, size: f32, track: f32) -> egui::RichText {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_objects_take_theme_colours_clear_of_the_agent_hue() {
+        for t in [Theme::neon_slate(), Theme::red_line()] {
+            let agent = hue(t.colors.agent).expect("the agent colour has a hue");
+            let v = t.object_colors();
+            assert!(v.len() >= 3, "{}: {v:x?}", t.id);
+            for c in &v {
+                let col = Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, *c as u8);
+                if let Some(h) = hue(col) {
+                    assert!(
+                        hue_distance(h, agent) >= AGENT_HUE_CLEARANCE,
+                        "{}: {c:06x} at {h} deg is near the agent hue {agent}",
+                        t.id
+                    );
+                }
+                // and every one is one of the theme's own pattern colours
+                assert!(t.swatches()[..5].contains(c), "{}: {c:06x}", t.id);
+            }
+            assert_eq!(t.object_color(0), v[0]);
+            assert_eq!(t.object_color(v.len()), v[0], "cycles");
+        }
+        // Neon Slate's violet c2 (#7c8cff) sits 37 degrees from its agent purple: skipped
+        assert!(!Theme::neon_slate().object_colors().contains(&0x7c8cff));
+        // the model's palette, which the UI used before, has an orchid next to it
+        let agent = hue(Theme::neon_slate().colors.agent).unwrap();
+        let orchid = hue(Color32::from_rgb(0xba, 0x55, 0xd3)).unwrap();
+        assert!(hue_distance(agent, orchid) < AGENT_HUE_CLEARANCE);
+        assert_eq!(hue_distance(350.0, 10.0), 20.0);
+    }
 
     #[test]
     fn builtin_themes_parse() {

@@ -131,6 +131,11 @@ pub fn tier_alpha(px: f32) -> f32 {
     ((px - TIER_MIN_PX) / (TIER_FULL_PX - TIER_MIN_PX)).clamp(0.0, 1.0)
 }
 
+/// Line strength per tier (bar, beat, 1/16, 1/32, 1/64), brightest first: each tier one step
+/// dimmer. M2/T10 raised the 1/32 and 1/64 tiers (were 0.46 and 0.36), which were barely
+/// visible at the 1/64 zoom.
+pub const TIER_STRENGTH: [f32; 5] = [1.0, 0.8, 0.64, 0.56, 0.5];
+
 /// One level of the time grid.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct GridTier {
@@ -202,8 +207,6 @@ pub fn paint_time_grid(
         }
         p.add(Shape::mesh(mesh));
     }
-    // line strength per tier, brightest first: each tier one step dimmer
-    const STRENGTH: [f32; 5] = [1.0, 0.8, 0.6, 0.46, 0.36];
     // the bar tier thins out (every 2nd, 4th... bar) when bars are closer than the fade limit
     let mut bar_step = 1u64;
     while ((bar * bar_step) as f64 * px_per_tick) < TIER_MIN_PX as f64 && bar_step < 1 << 20 {
@@ -219,7 +222,7 @@ pub fn paint_time_grid(
         } else {
             tier.ticks
         };
-        let colour = c.grid_bar.gamma_multiply(STRENGTH[level] * tier.alpha);
+        let colour = c.grid_bar.gamma_multiply(TIER_STRENGTH[level] * tier.alpha);
         let first = (t0 / step as f64).floor() as u64;
         let last = (t1 / step as f64).ceil() as u64;
         let mut mesh = egui::Mesh::default();

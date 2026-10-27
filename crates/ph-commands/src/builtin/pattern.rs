@@ -72,13 +72,22 @@ struct Add {
     /// Display name; defaults to "Pattern N".
     #[serde(default)]
     name: Option<String>,
+    /// Colour as 0xRRGGBB (a plain integer in JSON); omit for the default palette.
+    #[serde(default)]
+    color: Option<Color>,
 }
 
 fn add(ctx: &mut CommandCtx<'_>, p: Add) -> CmdResult<CommandOutput> {
+    if p.color.is_some_and(|c| c > 0xFF_FFFF) {
+        return invalid("colour must be 0xRRGGBB");
+    }
     let n = ctx.project.patterns.len() + 1;
     let name = p.name.unwrap_or_else(|| format!("Pattern {n}"));
     let mut ed = Edit::new(ctx.project);
     let id = ed.add_pattern(&name)?;
+    if let Some(color) = p.color {
+        ed.update_pattern(id, |h| h.color = color)?;
+    }
     Ok(CommandOutput::from_edit(
         ed,
         json!({ "pattern": id }),
