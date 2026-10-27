@@ -11,7 +11,7 @@ Stretch) are listed in the last sections. The optional ASIO build is GPLv3 as a 
 
 ## Overview
 
-- MIT License (338 crates)
+- MIT License (339 crates)
 - Apache License 2.0 (16 crates)
 - Mozilla Public License 2.0 (10 crates)
 - BSD 3-Clause "New" or "Revised" License (4 crates)
@@ -1823,7 +1823,7 @@ DEALINGS IN THE SOFTWARE.
 ### Boost Software License 1.0
 
 Used by:
-- [clipboard-win 5.4.1](https://github.com/DoumanAsh/clipboard-win)
+- [clipboard-win 5.4.3](https://github.com/DoumanAsh/clipboard-win)
 
 ```
 Boost Software License - Version 1.0 - August 17th, 2003
@@ -4234,6 +4234,40 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 Used by:
+- [winresource 0.1.34](https://github.com/BenjaminRi/winresource)
+
+```
+Copyright 2016 Max Resch
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+```
+
+### MIT License
+
+Used by:
 - [nohash-hasher 0.2.0](https://github.com/paritytech/nohash-hasher)
 
 ```
@@ -5204,7 +5238,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Used by:
 - [tokio-util 0.7.20](https://github.com/tokio-rs/tokio)
-- [tokio 1.53.2](https://github.com/tokio-rs/tokio)
+- [tokio 1.54.1](https://github.com/tokio-rs/tokio)
 
 ```
 MIT License
@@ -6748,6 +6782,10 @@ under the SIL Open Font License 1.1. Source: the official Google Fonts repositor
 - Barlow, Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)
 - Barlow Condensed, Copyright 2017 The Barlow Project Authors (https://github.com/jpt/barlow)
 - Share Tech Mono, Copyright (c) 2012, Carrois Type Design, Ralph du Carrois
+
+Chinese, Japanese and Korean text falls back to CJK fonts already installed on the user's
+system (for example Microsoft YaHei and Malgun Gothic on Windows), read at runtime. No CJK
+font is bundled or distributed with Patternhaus.
 
 ### SIL Open Font License 1.1 (Barlow, Barlow Condensed)
 
