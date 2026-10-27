@@ -65,6 +65,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         }
     }
 
+    crate::proposals::section(ui, core);
     section_label(ui, "CONNECTED", &theme);
     match &dir {
         Some(d) => {

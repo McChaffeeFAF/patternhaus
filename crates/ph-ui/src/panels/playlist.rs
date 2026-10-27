@@ -12,6 +12,7 @@ use egui::Ui;
 
 pub fn show(ui: &mut Ui, core: &mut AppCore) {
     super::track_hover(ui, core, crate::keymap::Context::Playlist);
+    crate::proposals::bar(ui, core);
     let theme = core.theme.clone();
     let project = core.project.clone();
     let live = core.live();
@@ -103,6 +104,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         );
     });
 
+    let previews = crate::proposals::playlist_previews(&core.proposals);
     let cx = DrawCtx {
         project: &project,
         theme: &theme,
@@ -113,6 +115,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         agent_selected: &core.agent_select,
         now: core.now,
         waves: &core.waves,
+        previews: &previews,
     };
     let res = playlist::show(ui, &mut core.playlist, &cx);
     browser_drop(ui, core);

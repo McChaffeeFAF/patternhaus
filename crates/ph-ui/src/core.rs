@@ -261,6 +261,12 @@ pub struct AppCore {
     pub agent_select: BTreeSet<ObjectPath>,
     agent_select_at: f64,
     pub history: Vec<HistoryEntry>,
+    /// Agent proposals (preview mode): pending ones and recent decisions, as the session
+    /// holds them. Refreshed when one is submitted or decided and after every edit.
+    pub proposals: Vec<ph_commands::ProposalInfo>,
+    proposal_notes: Receiver<ph_commands::ProposalNote>,
+    proposals_dirty: bool,
+    proposals_pending: Option<Pending<Vec<ph_commands::ProposalInfo>>>,
     pub txn_times: HashMap<u64, std::time::SystemTime>,
     history_dirty: bool,
     history_pending: Option<Pending<Vec<HistoryEntry>>>,
@@ -379,6 +385,25 @@ impl AppCore {
         // everything committed before the subscription is in it, everything after arrives on
         // `changes`.
         let project = studio.session.project().map_err(|e| e.to_string())?;
+        // Proposals (agent preview mode) announce themselves: wake the UI when one is submitted
+        // or decided.
+        let raw_notes = studio
+            .session
+            .subscribe_proposals()
+            .map_err(|e| e.to_string())?;
+        let (note_tx, proposal_notes) = std::sync::mpsc::channel();
+        let wake = ctx.clone();
+        std::thread::Builder::new()
+            .name("ph-ui-proposals".into())
+            .spawn(move || {
+                for n in raw_notes {
+                    if note_tx.send(n).is_err() {
+                        break;
+                    }
+                    wake.request_repaint();
+                }
+            })
+            .map_err(|e| e.to_string())?;
         let link = EngineLink::spawn(studio.engine.clone(), ctx.clone());
         let dispatch = Dispatcher::new(studio.session.clone());
         let paths_for_waves = paths.clone();
@@ -410,6 +435,10 @@ impl AppCore {
             agent_select: BTreeSet::new(),
             agent_select_at: 0.0,
             history: Vec::new(),
+            proposals: Vec::new(),
+            proposal_notes,
+            proposals_dirty: true,
+            proposals_pending: None,
             txn_times: HashMap::new(),
             history_dirty: true,
             history_pending: None,
@@ -559,6 +588,7 @@ impl AppCore {
             self.history_dirty = false;
             self.history_pending = Some(self.studio.session.submit(|s, _| s.history().to_vec()));
         }
+        self.update_proposals();
         // Solo is session state with no `Change`, so an agent can solo something without any
         // snapshot telling us. Read the session's real state once per frame instead: one small
         // job on the control thread, never waited on.
@@ -658,7 +688,48 @@ impl AppCore {
         self.send_follow(req, Follow::OpenAutomation);
     }
 
+    /// Proposals, once a frame: announcements from the session, then a refresh of the list
+    /// when anything changed (never waited on).
+    fn update_proposals(&mut self) {
+        while let Ok(n) = self.proposal_notes.try_recv() {
+            self.proposals_dirty = true;
+            match n.state {
+                "pending" => self.toast(
+                    ToastKind::Info,
+                    format!(
+                        "{} proposes: {}. Accept or reject it in the Agents panel.",
+                        n.author, n.title
+                    ),
+                ),
+                "stale" => self.toast(
+                    ToastKind::Warn,
+                    format!(
+                        "{}'s proposal is stale: {}",
+                        n.author,
+                        n.reason.unwrap_or_default()
+                    ),
+                ),
+                _ => {}
+            }
+        }
+        if let Some(p) = &self.proposals_pending {
+            match p.try_wait() {
+                Ok(Some(list)) => {
+                    self.proposals = list;
+                    self.proposals_pending = None;
+                }
+                Ok(None) => {}
+                Err(_) => self.proposals_pending = None,
+            }
+        }
+        if self.proposals_dirty && self.proposals_pending.is_none() {
+            self.proposals_dirty = false;
+            self.proposals_pending = Some(self.studio.session.submit(|s, _| s.proposals()));
+        }
+    }
+
     fn on_change(&mut self, c: Change) {
+        self.proposals_dirty = true;
         self.project = c.project.clone();
         self.history_dirty = true;
         self.dirty = true;
