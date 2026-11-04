@@ -17,7 +17,7 @@ On the owner's machine there's a prebuilt copy with a launcher. It finds the fac
 the checkpoint project folder:
 
 ```powershell
-E:\patternhaus-bin\Patternhaus.bat                       # or: Patternhaus.bat <project_dir> --demo-agent
+E:\patternhaus\local\app\Patternhaus.bat                       # or: Patternhaus.bat <project_dir> --demo-agent
 ```
 
 Options:
