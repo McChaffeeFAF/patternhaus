@@ -24,6 +24,8 @@ ph-cli = { path = "crates/ph-cli", version = "0.1.0" }
 ph-analysis = { path = "crates/ph-analysis", version = "0.1.0" }
 ph-plugin-host = { path = "crates/ph-plugin-host", version = "0.1.0" }
 ph-stretch = { path = "crates/ph-stretch", version = "0.1.0" }
+ph-sampler = { path = "crates/ph-sampler", version = "0.1.0" }
+ph-sampler-formats = { path = "crates/ph-sampler-formats", version = "0.1.0" }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 schemars = "1"

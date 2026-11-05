@@ -3032,6 +3032,7 @@ dependencies = [
  "ph-instruments",
  "ph-node",
  "ph-plugin-host",
+ "ph-sampler",
  "ph-stretch",
  "rtrb",
  "serde",
@@ -3096,6 +3097,15 @@ dependencies = [
  "thiserror 2.0.21",
  "vst3",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ph-sampler"
+version = "0.1.0"
+dependencies = [
+ "assert_no_alloc",
+ "ph-core",
+ "ph-node",
 ]
 
 [[package]]

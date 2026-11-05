@@ -32,6 +32,9 @@ pub fn instrument_descriptor(spec: &InstrumentSpec) -> Result<NodeDescriptor, St
             preset: None,
             params: Default::default(),
         },
+        // the Haus Sampler's parameters do not depend on the instrument it plays (extra
+        // output ports do; see `ph_sampler::descriptor`)
+        InstrumentSpec::MultiSampler { .. } => return Ok(ph_sampler::descriptor(0)),
         other => other.clone(),
     };
     ph_instruments::create(&bare, &NoAssets).map(|p| p.descriptor().clone())
