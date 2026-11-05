@@ -144,12 +144,7 @@ pub fn map_files(folder_name: &str, files: &[(String, PathBuf)]) -> Imported {
         let n = layer.len() as u32;
         for (i, f) in layer.iter().enumerate() {
             let i = i as u32;
-            let mut z = Zone::new(
-                gid,
-                SampleRef::File(f.0.clone()),
-                KeyRange { lo, hi },
-                *r,
-            );
+            let mut z = Zone::new(gid, SampleRef::File(f.0.clone()), KeyRange { lo, hi }, *r);
             z.id = ZoneId(zid);
             zid += 1;
             z.velocity = VelRange {
@@ -258,8 +253,17 @@ mod tests {
             .zones
             .values()
             .map(|z| {
-                let SampleRef::File(n) = &z.sample else { unreachable!() };
-                (n.as_str(), z.root_key, z.keys.lo, z.keys.hi, z.velocity.lo, z.velocity.hi)
+                let SampleRef::File(n) = &z.sample else {
+                    unreachable!()
+                };
+                (
+                    n.as_str(),
+                    z.root_key,
+                    z.keys.lo,
+                    z.keys.hi,
+                    z.velocity.lo,
+                    z.velocity.hi,
+                )
             })
             .collect();
         assert_eq!(

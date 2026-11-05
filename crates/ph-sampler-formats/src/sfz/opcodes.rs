@@ -43,7 +43,9 @@ pub fn canonical(name: &str) -> String {
             return format!("{new}{n}");
         }
     }
-    for stage in ["delay", "start", "attack", "hold", "decay", "sustain", "release"] {
+    for stage in [
+        "delay", "start", "attack", "hold", "decay", "sustain", "release",
+    ] {
         let old = format!("ampeg_{stage}cc");
         if let Some(n) = name.strip_prefix(&old)
             && is_digits(n)
@@ -178,7 +180,10 @@ pub fn leftover(name: &str) -> Leftover {
         ("off_curve", "choke shapes"),
         ("polyphony_stealing", "stealing hints"),
         ("note_selfmask", "note self-masking"),
-        ("rt_dead", "accepted and ignored: a release region plays on its own"),
+        (
+            "rt_dead",
+            "accepted and ignored: a release region plays on its own",
+        ),
         ("decim", "region decimation"),
         ("bitred", "region bit reduction"),
         ("sostenuto_sw", "the sostenuto pedal"),

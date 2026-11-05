@@ -219,7 +219,10 @@ fn include(
         return;
     }
     if chain.len() >= MAX_INCLUDE_DEPTH {
-        notes.skip(what, format!("includes nest deeper than {MAX_INCLUDE_DEPTH}"));
+        notes.skip(
+            what,
+            format!("includes nest deeper than {MAX_INCLUDE_DEPTH}"),
+        );
         return;
     }
     let bytes = match std::fs::read(&path) {
@@ -360,7 +363,12 @@ fn tokenize(seg: &str, out: &mut Vec<Tok>, notes: &mut Notes) {
 
 /// The whole token stream of a main file: comments removed, includes expanded, defines
 /// substituted in stream order, then tokens (§2.3).
-pub fn tokens(text: &str, inc: &Includes<'_>, main: Option<PathBuf>, notes: &mut Notes) -> Vec<Tok> {
+pub fn tokens(
+    text: &str,
+    inc: &Includes<'_>,
+    main: Option<PathBuf>,
+    notes: &mut Notes,
+) -> Vec<Tok> {
     let mut items = Vec::new();
     let mut chain: Vec<PathBuf> = main.into_iter().collect();
     expand(text, inc, &mut chain, &mut items, notes);
@@ -445,7 +453,11 @@ mod tests {
             "#define $K 61\n<region> key=$K\n#include \"sub/b.sfzh\"",
         )
         .unwrap();
-        std::fs::write(dir.path().join("sub/b.sfzh"), "hivel=99 #include \"sub/a.sfzh\"").unwrap();
+        std::fs::write(
+            dir.path().join("sub/b.sfzh"),
+            "hivel=99 #include \"sub/a.sfzh\"",
+        )
+        .unwrap();
         let mut n = Notes::default();
         let main = dir.path().join("main.sfz");
         let t = tokens(

@@ -20,7 +20,12 @@ fn order(k: ImportNoteKind) -> u8 {
 }
 
 impl Notes {
-    pub fn add(&mut self, kind: ImportNoteKind, what: impl Into<String>, detail: impl Into<String>) {
+    pub fn add(
+        &mut self,
+        kind: ImportNoteKind,
+        what: impl Into<String>,
+        detail: impl Into<String>,
+    ) {
         let e = self
             .items
             .entry((order(kind), what.into()))

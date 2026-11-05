@@ -55,7 +55,11 @@ impl<'a> Op<'a> {
                 if x < lo || x > hi {
                     self.notes.approx(
                         format!("opcode:{n}"),
-                        format!("values outside {}..{} were clamped", fmt_num(lo), fmt_num(hi)),
+                        format!(
+                            "values outside {}..{} were clamped",
+                            fmt_num(lo),
+                            fmt_num(hi)
+                        ),
                     );
                 }
                 Some(x.clamp(lo, hi))
@@ -262,7 +266,12 @@ impl Samples<'_> {
 
 /// A route curve for `_curveccN = index` (§3.5): built-in 0, 4, 5 are exact; anything else is
 /// approximated by the nearest of linear, convex and concave.
-fn route_curve(index: Option<i64>, curves: &BTreeMap<u32, Curve>, notes: &mut Notes, op: &str) -> ModCurve {
+fn route_curve(
+    index: Option<i64>,
+    curves: &BTreeMap<u32, Curve>,
+    notes: &mut Notes,
+    op: &str,
+) -> ModCurve {
     let Some(i) = index else {
         return ModCurve::Linear;
     };
@@ -290,11 +299,15 @@ fn route_curve(index: Option<i64>, curves: &BTreeMap<u32, Curve>, notes: &mut No
                 format!("opcode:{op}"),
                 format!("curve {i} played as the nearest of linear, convex (x²) and concave (√x)"),
             );
-            [(ModCurve::Convex, 0.25f32), (ModCurve::Linear, 0.5), (ModCurve::Concave, 0.707)]
-                .into_iter()
-                .min_by(|a, b| (a.1 - mid).abs().total_cmp(&(b.1 - mid).abs()))
-                .map(|x| x.0)
-                .unwrap_or(ModCurve::Linear)
+            [
+                (ModCurve::Convex, 0.25f32),
+                (ModCurve::Linear, 0.5),
+                (ModCurve::Concave, 0.707),
+            ]
+            .into_iter()
+            .min_by(|a, b| (a.1 - mid).abs().total_cmp(&(b.1 - mid).abs()))
+            .map(|x| x.0)
+            .unwrap_or(ModCurve::Linear)
         }
     }
 }
@@ -358,95 +371,101 @@ pub struct MappedEffect {
 }
 
 fn route(
-        routes: &mut Vec<ModRoute>,
-        source: ModSource,
-        target: ModTarget,
-        depth: f64,
-        curve: ModCurve,
-    ) {
-        if depth != 0.0 {
-            routes.push(ModRoute {
-                source,
-                target,
-                depth: depth as f32,
-                curve,
-                group: None,
-            });
-        }
+    routes: &mut Vec<ModRoute>,
+    source: ModSource,
+    target: ModTarget,
+    depth: f64,
+    curve: ModCurve,
+) {
+    if depth != 0.0 {
+        routes.push(ModRoute {
+            source,
+            target,
+            depth: depth as f32,
+            curve,
+            group: None,
+        });
     }
+}
 
-    /// `<prefix>N` CC-modulation opcodes (`gain_oncc`, ...) to routes.
+/// `<prefix>N` CC-modulation opcodes (`gain_oncc`, ...) to routes.
 fn cc_routes(
-        o: &mut Op<'_>,
-        curves: &BTreeMap<u32, Curve>,
-        routes: &mut Vec<ModRoute>,
-        prefix: &str,
-        curve_prefix: &str,
-        target: ModTarget,
-        scale: f64,
-        range: f64,
-    ) {
-        for n in o.numbered(prefix) {
-            let name = format!("{prefix}{n}");
-            let Some(depth) = o.num(&name, -range, range) else {
-                continue;
-            };
-            let curve_op = format!("{curve_prefix}{n}");
-            let ci = if o.has(&curve_op) {
-                o.int(&curve_op, 0.0, 255.0)
-            } else {
-                None
-            };
-            let curve = route_curve(ci, curves, o.notes, &curve_op);
-            match cc_source(n) {
-                Some((src, approx)) => {
-                    if approx {
-                        o.notes.approx(
-                            format!("opcode:{name}"),
-                            "extended controller played through the nearest sampler source",
-                        );
-                    }
-                    route(routes, src, target, depth * scale, curve);
+    o: &mut Op<'_>,
+    curves: &BTreeMap<u32, Curve>,
+    routes: &mut Vec<ModRoute>,
+    prefix: &str,
+    curve_prefix: &str,
+    target: ModTarget,
+    scale: f64,
+    range: f64,
+) {
+    for n in o.numbered(prefix) {
+        let name = format!("{prefix}{n}");
+        let Some(depth) = o.num(&name, -range, range) else {
+            continue;
+        };
+        let curve_op = format!("{curve_prefix}{n}");
+        let ci = if o.has(&curve_op) {
+            o.int(&curve_op, 0.0, 255.0)
+        } else {
+            None
+        };
+        let curve = route_curve(ci, curves, o.notes, &curve_op);
+        match cc_source(n) {
+            Some((src, approx)) => {
+                if approx {
+                    o.notes.approx(
+                        format!("opcode:{name}"),
+                        "extended controller played through the nearest sampler source",
+                    );
                 }
-                None => o.notes.skip(
-                    format!("opcode:{name}"),
-                    "extended controller the sampler does not have",
-                ),
+                route(routes, src, target, depth * scale, curve);
             }
+            None => o.notes.skip(
+                format!("opcode:{name}"),
+                "extended controller the sampler does not have",
+            ),
         }
     }
+}
 
 fn envelope(o: &mut Op<'_>, p: &str) -> Envelope {
-        let mut e = Envelope {
-            delay: o.num_or(&format!("{p}_delay"), 0.0, 60.0, 0.0) as f32,
-            attack: o.num_or(&format!("{p}_attack"), 0.0, 60.0, 0.0) as f32,
-            hold: o.num_or(&format!("{p}_hold"), 0.0, 60.0, 0.0) as f32,
-            decay: o.num_or(&format!("{p}_decay"), 0.0, 60.0, 0.0) as f32,
-            sustain: (o.num_or(&format!("{p}_sustain"), 0.0, 100.0, 100.0) / 100.0) as f32,
-            release: o.num_or(&format!("{p}_release"), 0.0, 60.0, 0.001) as f32,
-        };
-        for stage in ["delay", "attack", "hold", "decay", "sustain", "release", "depth"] {
-            o.gap(&format!("{p}_vel2{stage}"), 0.0, "velocity-scaled envelope stages");
-        }
-        o.gap(&format!("{p}_start"), 0.0, "envelope start levels");
-        e.release = e.release.max(0.0);
-        e
+    let mut e = Envelope {
+        delay: o.num_or(&format!("{p}_delay"), 0.0, 60.0, 0.0) as f32,
+        attack: o.num_or(&format!("{p}_attack"), 0.0, 60.0, 0.0) as f32,
+        hold: o.num_or(&format!("{p}_hold"), 0.0, 60.0, 0.0) as f32,
+        decay: o.num_or(&format!("{p}_decay"), 0.0, 60.0, 0.0) as f32,
+        sustain: (o.num_or(&format!("{p}_sustain"), 0.0, 100.0, 100.0) / 100.0) as f32,
+        release: o.num_or(&format!("{p}_release"), 0.0, 60.0, 0.001) as f32,
+    };
+    for stage in [
+        "delay", "attack", "hold", "decay", "sustain", "release", "depth",
+    ] {
+        o.gap(
+            &format!("{p}_vel2{stage}"),
+            0.0,
+            "velocity-scaled envelope stages",
+        );
     }
+    o.gap(&format!("{p}_start"), 0.0, "envelope start levels");
+    e.release = e.release.max(0.0);
+    e
+}
 
 fn lfo(o: &mut Op<'_>, freq: &str, delay: &str, fade: &str, shape: LfoShape) -> Option<Lfo> {
-        let rate = o.num(freq, 0.0, 100.0)?;
-        let delay = o.num_or(delay, 0.0, 60.0, 0.0) as f32;
-        let fade = o.num_or(fade, 0.0, 60.0, 0.0) as f32;
-        if rate < 0.01 {
-            return None;
-        }
-        Some(Lfo {
-            shape,
-            rate: rate as f32,
-            delay,
-            fade,
-        })
+    let rate = o.num(freq, 0.0, 100.0)?;
+    let delay = o.num_or(delay, 0.0, 60.0, 0.0) as f32;
+    let fade = o.num_or(fade, 0.0, 60.0, 0.0) as f32;
+    if rate < 0.01 {
+        return None;
     }
+    Some(Lfo {
+        shape,
+        rate: rate as f32,
+        delay,
+        fade,
+    })
+}
 
 impl Mapper<'_> {
     fn region(&mut self, r: &Region) -> Option<Draft> {
@@ -463,7 +482,9 @@ impl Mapper<'_> {
             finish_unused(&mut o);
             return None;
         };
-        let res = self.samples.resolve(sample_value, &r.default_path, o.notes)?;
+        let res = self
+            .samples
+            .resolve(sample_value, &r.default_path, o.notes)?;
         let info = match self.samples.info(&res) {
             Ok(i) => i,
             Err(e) => {
@@ -493,8 +514,10 @@ impl Mapper<'_> {
         let vlo = o.int("lovel", 0.0, 127.0).unwrap_or(1);
         let vhi = o.int("hivel", 0.0, 127.0).unwrap_or(127);
         if klo > khi || vlo > vhi {
-            o.notes
-                .skip("region:empty-range", "a region with an empty key or velocity range was skipped");
+            o.notes.skip(
+                "region:empty-range",
+                "a region with an empty key or velocity range was skipped",
+            );
             return None;
         }
         let (clo, chi) = (
@@ -630,8 +653,10 @@ impl Mapper<'_> {
                     "conditions on extended controllers are not supported; the region plays without it",
                 );
             } else if lo > hi {
-                o.notes
-                    .skip("region:empty-cc-range", "a region with an empty controller range was skipped");
+                o.notes.skip(
+                    "region:empty-cc-range",
+                    "a region with an empty controller range was skipped",
+                );
                 return None;
             } else {
                 zone.cc_conditions.push(CcCondition {
@@ -659,15 +684,19 @@ impl Mapper<'_> {
         // ---- sample playback (§5)
         let start = o.int("offset", 0.0, 4_294_967_295.0).unwrap_or(0).max(0) as u64;
         if start >= info.frames {
-            o.notes
-                .skip("opcode:offset", "a region starting past its sample's end was skipped");
+            o.notes.skip(
+                "opcode:offset",
+                "a region starting past its sample's end was skipped",
+            );
             return None;
         }
         zone.start = start;
         if let Some(end) = o.int("end", -1.0, 4_294_967_295.0) {
             if end <= 0 {
-                o.notes
-                    .skip("opcode:end", "regions with end=0 or end=-1 are silent and were skipped");
+                o.notes.skip(
+                    "opcode:end",
+                    "regions with end=0 or end=-1 are silent and were skipped",
+                );
                 return None;
             }
             let e = (end as u64 + 1).min(info.frames);
@@ -682,8 +711,23 @@ impl Mapper<'_> {
         }
         let play_end = zone.end.unwrap_or(info.frames);
         let rand_off = o.num_or("offset_random", 0.0, 4_294_967_295.0, 0.0);
-        route(&mut routes, ModSource::Random, ModTarget::SampleStart, rand_off, ModCurve::Linear);
-        cc_routes(&mut o, curves, &mut routes, "offset_oncc", "offset_curvecc", ModTarget::SampleStart, 1.0, 4_294_967_295.0);
+        route(
+            &mut routes,
+            ModSource::Random,
+            ModTarget::SampleStart,
+            rand_off,
+            ModCurve::Linear,
+        );
+        cc_routes(
+            &mut o,
+            curves,
+            &mut routes,
+            "offset_oncc",
+            "offset_curvecc",
+            ModTarget::SampleStart,
+            1.0,
+            4_294_967_295.0,
+        );
         if let Some(d) = o.num("delay", 0.0, 60.0)
             && d > 0.0
         {
@@ -713,7 +757,9 @@ impl Mapper<'_> {
         // ---- loops (§5.1)
         let mode = o.kw("loop_mode");
         let mode = match mode.as_deref() {
-            Some(m @ ("no_loop" | "one_shot" | "loop_continuous" | "loop_sustain")) => m.to_string(),
+            Some(m @ ("no_loop" | "one_shot" | "loop_continuous" | "loop_sustain")) => {
+                m.to_string()
+            }
             Some(other) => {
                 o.notes.skip(
                     format!("opcode:loop_mode={other}"),
@@ -744,8 +790,10 @@ impl Mapper<'_> {
                     );
                 }
                 if le2 <= ls2 {
-                    o.notes
-                        .skip("opcode:loop_end", "an empty loop was dropped; the region plays unlooped");
+                    o.notes.skip(
+                        "opcode:loop_end",
+                        "an empty loop was dropped; the region plays unlooped",
+                    );
                 } else {
                     let mode = match o.kw("loop_type").as_deref() {
                         None | Some("forward") => LoopMode::Forward,
@@ -772,7 +820,12 @@ impl Mapper<'_> {
             _ => {}
         }
         // (loop_mode resolved above; mark the loop opcodes read even when unused)
-        let _ = (o.raw("loop_start"), o.raw("loop_end"), o.raw("loop_type"), o.raw("loop_crossfade"));
+        let _ = (
+            o.raw("loop_start"),
+            o.raw("loop_end"),
+            o.raw("loop_type"),
+            o.raw("loop_crossfade"),
+        );
         if mode == "loop_sustain"
             && let Some(l) = &mut zone.looping
         {
@@ -784,9 +837,18 @@ impl Mapper<'_> {
         for n in ["volume", "global_volume", "master_volume", "group_volume"] {
             vol += o.num_or(n, -144.0, 48.0, 0.0);
         }
-        for n in ["amplitude", "global_amplitude", "master_amplitude", "group_amplitude"] {
+        for n in [
+            "amplitude",
+            "global_amplitude",
+            "master_amplitude",
+            "group_amplitude",
+        ] {
             let a = o.num_or(n, 0.0, 100.0, 100.0);
-            vol += if a <= 0.0 { -144.0 } else { 20.0 * (a / 100.0).log10() };
+            vol += if a <= 0.0 {
+                -144.0
+            } else {
+                20.0 * (a / 100.0).log10()
+            };
         }
         zone.pan = (o.num_or("pan", -100.0, 100.0, 0.0) / 100.0) as f32;
         o.gap("width", 100.0, "stereo width control");
@@ -798,7 +860,13 @@ impl Mapper<'_> {
         let akt = o.num_or("amp_keytrack", -96.0, 12.0, 0.0);
         if akt != 0.0 {
             vol += akt * (60.0 - akc);
-            route(&mut routes, ModSource::Key, ModTarget::Volume, akt * 64.0, ModCurve::Linear);
+            route(
+                &mut routes,
+                ModSource::Key,
+                ModTarget::Volume,
+                akt * 64.0,
+                ModCurve::Linear,
+            );
         }
         let vt = o.num("amp_veltrack", -100.0, 100.0);
         let has_curve = !o.numbered("amp_velcurve_").is_empty();
@@ -812,9 +880,33 @@ impl Mapper<'_> {
             );
         }
         let ar = o.num_or("amp_random", 0.0, 24.0, 0.0);
-        route(&mut routes, ModSource::Random, ModTarget::Volume, -ar, ModCurve::Linear);
-        cc_routes(&mut o, curves, &mut routes, "gain_oncc", "gain_curvecc", ModTarget::Volume, 1.0, 144.0);
-        cc_routes(&mut o, curves, &mut routes, "pan_oncc", "pan_curvecc", ModTarget::Pan, 0.01, 200.0);
+        route(
+            &mut routes,
+            ModSource::Random,
+            ModTarget::Volume,
+            -ar,
+            ModCurve::Linear,
+        );
+        cc_routes(
+            &mut o,
+            curves,
+            &mut routes,
+            "gain_oncc",
+            "gain_curvecc",
+            ModTarget::Volume,
+            1.0,
+            144.0,
+        );
+        cc_routes(
+            &mut o,
+            curves,
+            &mut routes,
+            "pan_oncc",
+            "pan_curvecc",
+            ModTarget::Pan,
+            0.01,
+            200.0,
+        );
         for n in o.numbered("amplitude_oncc") {
             let _ = o.raw(&format!("amplitude_oncc{n}"));
             let _ = o.raw(&format!("amplitude_curvecc{n}"));
@@ -824,8 +916,10 @@ impl Mapper<'_> {
             );
         }
         if vol < -144.0 || vol > 24.0 {
-            o.notes
-                .approx("opcode:volume", "a total level outside -144..24 dB was clamped");
+            o.notes.approx(
+                "opcode:volume",
+                "a total level outside -144..24 dB was clamped",
+            );
         }
         zone.volume_db = vol.clamp(-144.0, 24.0) as f32;
         if let Some(out) = o.int("output", 0.0, 1024.0) {
@@ -834,7 +928,10 @@ impl Mapper<'_> {
             } else {
                 o.notes.approx(
                     "opcode:output",
-                    format!("outputs above {} play on the main output", MAX_OUTPUT_BUSES - 1),
+                    format!(
+                        "outputs above {} play on the main output",
+                        MAX_OUTPUT_BUSES - 1
+                    ),
                 );
             }
         }
@@ -844,8 +941,14 @@ impl Mapper<'_> {
             Some("gain") => CrossfadeCurve::Gain,
             _ => CrossfadeCurve::Power,
         };
-        let vin = (o.num_or("xfin_lovel", 0.0, 127.0, 0.0), o.num_or("xfin_hivel", 0.0, 127.0, 0.0));
-        let vout = (o.num_or("xfout_lovel", 0.0, 127.0, 127.0), o.num_or("xfout_hivel", 0.0, 127.0, 127.0));
+        let vin = (
+            o.num_or("xfin_lovel", 0.0, 127.0, 0.0),
+            o.num_or("xfin_hivel", 0.0, 127.0, 0.0),
+        );
+        let vout = (
+            o.num_or("xfout_lovel", 0.0, 127.0, 127.0),
+            o.num_or("xfout_hivel", 0.0, 127.0, 127.0),
+        );
         let vc = curve(&mut o, "xf_velcurve");
         if let Some(x) = crossfade(CrossfadeSource::Velocity, vin, vout, vc, o.notes) {
             zone.crossfades.push(x);
@@ -907,21 +1010,50 @@ impl Mapper<'_> {
         let kt = o.num_or("pitch_keytrack", -1200.0, 1200.0, 100.0);
         if kt != 100.0 {
             cents += (kt - 100.0) * (60.0 - root as f64);
-            route(&mut routes, ModSource::Key, ModTarget::Pitch, (kt - 100.0) * 64.0, ModCurve::Linear);
+            route(
+                &mut routes,
+                ModSource::Key,
+                ModTarget::Pitch,
+                (kt - 100.0) * 64.0,
+                ModCurve::Linear,
+            );
         }
         let pv = o.num_or("pitch_veltrack", -9600.0, 9600.0, 0.0);
-        route(&mut routes, ModSource::Velocity, ModTarget::Pitch, pv, ModCurve::Linear);
+        route(
+            &mut routes,
+            ModSource::Velocity,
+            ModTarget::Pitch,
+            pv,
+            ModCurve::Linear,
+        );
         let pr = o.num_or("pitch_random", 0.0, 9600.0, 0.0);
         if pr > 0.0 {
             cents -= pr / 2.0;
-            route(&mut routes, ModSource::Random, ModTarget::Pitch, pr, ModCurve::Linear);
+            route(
+                &mut routes,
+                ModSource::Random,
+                ModTarget::Pitch,
+                pr,
+                ModCurve::Linear,
+            );
         }
-        cc_routes(&mut o, curves, &mut routes, "pitch_oncc", "pitch_curvecc", ModTarget::Pitch, 1.0, 9600.0);
+        cc_routes(
+            &mut o,
+            curves,
+            &mut routes,
+            "pitch_oncc",
+            "pitch_curvecc",
+            ModTarget::Pitch,
+            1.0,
+            9600.0,
+        );
         let semis = (cents / 100.0).round();
         let tune = semis.clamp(-48.0, 48.0);
         if tune != semis {
-            o.notes
-                .approx("opcode:transpose", "a total transpose beyond ±48 semitones was clamped");
+            o.notes.approx(
+                "opcode:transpose",
+                "a total transpose beyond ±48 semitones was clamped",
+            );
         }
         zone.tune = tune as i32;
         zone.fine = (cents - semis * 100.0).clamp(-100.0, 100.0) as f32;
@@ -988,12 +1120,42 @@ impl Mapper<'_> {
                         env_depth: 0.0,
                     };
                     let fv = o.num_or("fil_veltrack", -9600.0, 9600.0, 0.0);
-                    route(&mut routes, ModSource::Velocity, ModTarget::Cutoff, fv, ModCurve::Linear);
+                    route(
+                        &mut routes,
+                        ModSource::Velocity,
+                        ModTarget::Cutoff,
+                        fv,
+                        ModCurve::Linear,
+                    );
                     let fr = o.num_or("fil_random", 0.0, 9600.0, 0.0);
                     // SPEC-GAP: §10 does not say whether fil_random is bipolar; read as 0..value.
-                    route(&mut routes, ModSource::Random, ModTarget::Cutoff, fr, ModCurve::Linear);
-                    cc_routes(&mut o, curves, &mut routes, "cutoff_oncc", "cutoff_curvecc", ModTarget::Cutoff, 1.0, 9600.0);
-                    cc_routes(&mut o, curves, &mut routes, "resonance_oncc", "resonance_curvecc", ModTarget::Resonance, 1.0, 40.0);
+                    route(
+                        &mut routes,
+                        ModSource::Random,
+                        ModTarget::Cutoff,
+                        fr,
+                        ModCurve::Linear,
+                    );
+                    cc_routes(
+                        &mut o,
+                        curves,
+                        &mut routes,
+                        "cutoff_oncc",
+                        "cutoff_curvecc",
+                        ModTarget::Cutoff,
+                        1.0,
+                        9600.0,
+                    );
+                    cc_routes(
+                        &mut o,
+                        curves,
+                        &mut routes,
+                        "resonance_oncc",
+                        "resonance_curvecc",
+                        ModTarget::Resonance,
+                        1.0,
+                        40.0,
+                    );
                     let fdepth = o.num_or("fileg_depth", -12000.0, 12000.0, 0.0);
                     let any_fileg = ops.keys().any(|k| k.starts_with("fileg_"));
                     if any_fileg {
@@ -1005,7 +1167,14 @@ impl Mapper<'_> {
             }
         }
         if o.has("cutoff2") || o.has("fil2_type") || o.has("resonance2") {
-            for n in ["cutoff2", "fil2_type", "resonance2", "fil2_keytrack", "fil2_keycenter", "fil2_veltrack"] {
+            for n in [
+                "cutoff2",
+                "fil2_type",
+                "resonance2",
+                "fil2_keytrack",
+                "fil2_keycenter",
+                "fil2_veltrack",
+            ] {
                 let _ = o.raw(n);
             }
             o.notes.skip(
@@ -1018,7 +1187,13 @@ impl Mapper<'_> {
         if pdepth != 0.0 {
             if group.filter_env.is_none() {
                 group.filter_env = Some(envelope(&mut o, "pitcheg"));
-                route(&mut routes, ModSource::Envelope { index: 1 }, ModTarget::Pitch, pdepth, ModCurve::Linear);
+                route(
+                    &mut routes,
+                    ModSource::Envelope { index: 1 },
+                    ModTarget::Pitch,
+                    pdepth,
+                    ModCurve::Linear,
+                );
                 o.notes.approx(
                     "opcode:pitcheg_depth",
                     "the pitch envelope plays through the group's second envelope",
@@ -1129,7 +1304,13 @@ impl Mapper<'_> {
         for (i, (l, targets)) in lfos.into_iter().enumerate() {
             group.lfos.push(l);
             for (t, d) in targets {
-                route(&mut routes, ModSource::Lfo { index: i as u8 }, t, d, ModCurve::Linear);
+                route(
+                    &mut routes,
+                    ModSource::Lfo { index: i as u8 },
+                    t,
+                    d,
+                    ModCurve::Linear,
+                );
             }
         }
 
@@ -1143,9 +1324,9 @@ impl Mapper<'_> {
         let excl = o.int("group", -1e9, 1e9).unwrap_or(0);
         let off_by = o.int("off_by", -1e9, 1e9);
         let _ = (o.kw("off_mode"), o.num("off_time", 0.0, 60.0));
-        let choke = off_by.map(|b| b.min(excl)).or_else(|| {
-            (excl != 0).then_some(excl)
-        });
+        let choke = off_by
+            .map(|b| b.min(excl))
+            .or_else(|| (excl != 0).then_some(excl));
 
         // ---- effect sends (§12)
         for e in self.effects {
@@ -1384,7 +1565,10 @@ pub fn map(parsed: &Parsed, name: &str, main_dir: Option<&Path>, notes: &mut Not
                 "initial controller values are kept as data; the sampler starts controllers at its defaults",
             );
         } else if k.starts_with("label_") {
-            notes.kept(format!("opcode:{fam}"), "kept as data for the instrument's UI");
+            notes.kept(
+                format!("opcode:{fam}"),
+                "kept as data for the instrument's UI",
+            );
         } else {
             match leftover(k) {
                 Leftover::Unknown => notes.unknown(format!("opcode:{k}")),
@@ -1393,7 +1577,8 @@ pub fn map(parsed: &Parsed, name: &str, main_dir: Option<&Path>, notes: &mut Not
         }
     }
     if !control_text.is_empty() {
-        inst.extra.insert("sfz.control".into(), control_text.join("\n"));
+        inst.extra
+            .insert("sfz.control".into(), control_text.join("\n"));
     }
 
     let mut m = Mapper {
@@ -1459,7 +1644,10 @@ pub fn map(parsed: &Parsed, name: &str, main_dir: Option<&Path>, notes: &mut Not
     if let Some((up, down)) = drafts.iter().find_map(|d| d.bend) {
         inst.settings.bend_up = up;
         inst.settings.bend_down = down;
-        if drafts.iter().any(|d| d.bend.is_some_and(|b| b != (up, down))) {
+        if drafts
+            .iter()
+            .any(|d| d.bend.is_some_and(|b| b != (up, down)))
+        {
             notes.approx(
                 "opcode:bend_up",
                 "regions with different pitch-bend ranges share the first one",
@@ -1470,10 +1658,7 @@ pub fn map(parsed: &Parsed, name: &str, main_dir: Option<&Path>, notes: &mut Not
     // groups: by <group> header and group-level settings
     let mut buckets: Vec<(usize, GroupDraft, Option<String>, Vec<usize>)> = Vec::new();
     for (i, d) in drafts.iter().enumerate() {
-        match buckets
-            .iter_mut()
-            .find(|b| b.0 == d.group_ix && b.1 == d.g)
-        {
+        match buckets.iter_mut().find(|b| b.0 == d.group_ix && b.1 == d.g) {
             Some(b) => b.3.push(i),
             None => buckets.push((d.group_ix, d.g.clone(), d.label.clone(), vec![i])),
         }
@@ -1575,7 +1760,8 @@ pub fn map(parsed: &Parsed, name: &str, main_dir: Option<&Path>, notes: &mut Not
 
 /// `C4`-style name for a key (C4 = 60).
 pub fn note_name(k: u8) -> String {
-    const N: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    const N: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
     format!("{}{}", N[(k % 12) as usize], k as i32 / 12 - 1)
 }
-

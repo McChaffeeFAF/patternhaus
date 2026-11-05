@@ -72,7 +72,10 @@ struct Builder<'n> {
 }
 
 fn parse_int(v: &str) -> Option<i64> {
-    v.parse::<f64>().ok().filter(|x| x.is_finite()).map(|x| x as i64)
+    v.parse::<f64>()
+        .ok()
+        .filter(|x| x.is_finite())
+        .map(|x| x as i64)
 }
 
 impl Builder<'_> {
@@ -98,13 +101,17 @@ impl Builder<'_> {
 
     fn finish_curve(&mut self, c: Ops) {
         let Some(index) = c.get("curve_index").and_then(|v| parse_int(v)) else {
-            self.notes
-                .skip("header:<curve>", "a <curve> without curve_index was ignored");
+            self.notes.skip(
+                "header:<curve>",
+                "a <curve> without curve_index was ignored",
+            );
             return;
         };
         if !(0..=255).contains(&index) {
-            self.notes
-                .skip("header:<curve>", "a curve_index outside 0..=255 was ignored");
+            self.notes.skip(
+                "header:<curve>",
+                "a curve_index outside 0..=255 was ignored",
+            );
             return;
         }
         if index <= 6 {
@@ -235,7 +242,9 @@ impl Builder<'_> {
                 } else if is_key_opcode(&name) {
                     if (name == "lokey" || name == "hikey") && value.trim() == "-1" {
                         ops.push((name, "-1".into()));
-                    } else if name == "pitch_keycenter" && value.trim().eq_ignore_ascii_case("sample") {
+                    } else if name == "pitch_keycenter"
+                        && value.trim().eq_ignore_ascii_case("sample")
+                    {
                         ops.push((name, "sample".into()));
                     } else {
                         match self.key(&name, value) {
@@ -260,7 +269,11 @@ impl Builder<'_> {
     fn is_control_only(&self, name: &str) -> bool {
         matches!(
             name,
-            "default_path" | "note_offset" | "octave_offset" | "sw_note_offset" | "sw_octave_offset"
+            "default_path"
+                | "note_offset"
+                | "octave_offset"
+                | "sw_note_offset"
+                | "sw_octave_offset"
         ) || ["set_cc", "set_hdcc"]
             .iter()
             .any(|p| name.strip_prefix(p).is_some_and(is_digits))
@@ -298,8 +311,10 @@ impl Builder<'_> {
             k += self.offsets.sw_note + 12 * self.offsets.sw_octave;
         }
         if !(0..=127).contains(&k) {
-            self.notes
-                .approx(format!("opcode:{name}"), "a key outside 0..=127 was clamped");
+            self.notes.approx(
+                format!("opcode:{name}"),
+                "a key outside 0..=127 was clamped",
+            );
         }
         Some(k.clamp(0, 127))
     }

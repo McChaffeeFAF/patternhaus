@@ -4,9 +4,9 @@
 //!
 //! Implemented in M3/T0 (model only): `new`, `set`, `group_add`, `group_set`,
 //! `group_remove`, `zone_add`, `zone_move`, `zone_set`, `zone_remove`, `keyswitch_set`,
-//! `modulation_set`, `report`. Stubs with their final ids and schemas, until the track that
-//! needs files, importers or DSP lands: `load`, `save_native`, `collect` (M3/T3) and `import`
-//! (M3/T3 SFZ, T4 SF2/SF3/DecentSampler/EXS, T6 Kontakt).
+//! `modulation_set`, `report`. M3/T3: `load`, `save_native`, `collect` and `import` for SFZ
+//! and sample folders (in `sampler_files.rs`); `import` of the other formats names its track
+//! (T4 SF2/SF3/DecentSampler/EXS, T6 Kontakt) until it lands.
 
 use super::util::*;
 use crate::*;
@@ -739,9 +739,9 @@ fn modulation_set(ctx: &mut CommandCtx<'_>, p: ModulationSet) -> CmdResult<Comma
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-struct InstrumentOnly {
+pub(crate) struct InstrumentOnly {
     /// Instrument id.
-    instrument: InstrumentId,
+    pub instrument: InstrumentId,
 }
 
 fn report(ctx: &mut CommandCtx<'_>, p: InstrumentOnly) -> CmdResult<CommandOutput> {
@@ -776,86 +776,32 @@ fn report(ctx: &mut CommandCtx<'_>, p: InstrumentOnly) -> CmdResult<CommandOutpu
     })))
 }
 
-// ------------------------------------------------------------------------- stubs
+// ------------------------------------------------------------------------- files (M3/T3)
 
-fn unavailable(command: &str, feature: &str, track: &str) -> CmdError {
-    CmdError::Unavailable {
-        command: command.into(),
-        feature: feature.into(),
-        track: track.into(),
-    }
-}
+pub(crate) use super::sampler_files::{collect, import, load, save_native};
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)] // read by the M3/T3 implementation
-struct Load {
-    /// The instrument folder (or its instrument.toml): inside the project or an allowed
-    /// library folder.
-    path: String,
+pub(crate) struct Load {
+    /// The instrument folder (or its instrument.toml) for sampler.load; for sampler.import
+    /// an instrument file (.sfz, ...) or a folder of samples to map by the note names in
+    /// their file names. Inside the project or an allowed library folder.
+    pub path: String,
     /// Put it on this channel instead of adding one.
     #[serde(default)]
-    channel: Option<ChannelId>,
+    pub channel: Option<ChannelId>,
     /// Copy the samples into the project (true) instead of playing them from the library
     /// folder (false, the default).
     #[serde(default)]
-    collect: bool,
-}
-
-fn load(_: &mut CommandCtx<'_>, _: Load) -> CmdResult<CommandOutput> {
-    Err(unavailable(
-        "sampler.load",
-        "native instrument loading",
-        "M3/T3",
-    ))
-}
-
-fn import(_: &mut CommandCtx<'_>, p: Load) -> CmdResult<CommandOutput> {
-    let ext = std::path::Path::new(&p.path)
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    let track = match ext.as_str() {
-        "sfz" => "M3/T3",
-        "sf2" | "sf3" | "dspreset" | "exs" => "M3/T4",
-        "nki" | "nkm" | "nkx" | "nkc" | "ncw" => "M3/T6",
-        _ => {
-            return invalid(format!(
-                "{} is not an instrument format the sampler reads (sfz, sf2, sf3, dspreset, exs, nki, nkm, nkx, nkc, ncw)",
-                p.path
-            ));
-        }
-    };
-    Err(unavailable(
-        "sampler.import",
-        &format!(".{ext} import"),
-        track,
-    ))
+    pub collect: bool,
 }
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
-#[allow(dead_code)] // read by the M3/T3 implementation
-struct SaveNative {
+pub(crate) struct SaveNative {
     /// Instrument id.
-    instrument: InstrumentId,
+    pub instrument: InstrumentId,
     /// The folder to write (instrument.toml plus samples/); inside the project or an
     /// allowed library folder. An existing instrument.toml there is replaced.
-    path: String,
-}
-
-fn save_native(_: &mut CommandCtx<'_>, _: SaveNative) -> CmdResult<CommandOutput> {
-    Err(unavailable(
-        "sampler.save_native",
-        "saving native instruments",
-        "M3/T3",
-    ))
-}
-
-fn collect(_: &mut CommandCtx<'_>, _: InstrumentOnly) -> CmdResult<CommandOutput> {
-    Err(unavailable(
-        "sampler.collect",
-        "collecting samples into the project",
-        "M3/T3",
-    ))
+    pub path: String,
 }
