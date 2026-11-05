@@ -508,7 +508,7 @@ pub(crate) struct CompileOptions {
     pub plugins: Option<PluginEnv>,
 }
 
-fn instrument_identity(spec: &InstrumentSpec) -> Option<String> {
+fn instrument_identity(spec: &InstrumentSpec, project: &Project) -> Option<String> {
     match spec {
         InstrumentSpec::Sampler { sample, slices, .. } => Some(format!(
             "sampler:{}{}",
@@ -539,7 +539,51 @@ fn instrument_identity(spec: &InstrumentSpec) -> Option<String> {
             "plugin:{format:?}:{plugin_id}:{}",
             state.as_deref().unwrap_or("")
         )),
+        // the zone map and the files it plays are baked into the node's plan, so any edit to
+        // the instrument (or to a registry path it plays) rebuilds the node
+        InstrumentSpec::MultiSampler {
+            instrument: Some(id),
+            ..
+        } => {
+            use std::hash::{Hash, Hasher};
+            let inst = project.instruments.get(id)?;
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            serde_json::to_string(inst).ok()?.hash(&mut h);
+            for z in inst.zones.values() {
+                inst.sample_reference(project, &z.sample).hash(&mut h);
+            }
+            Some(format!("haus:{id}:{:016x}", h.finish()))
+        }
         InstrumentSpec::MultiSampler { .. } => None,
+    }
+}
+
+/// Builds a built-in instrument for a channel: the Haus Sampler from the project's
+/// instrument model, everything else through `ph_instruments`. Off the audio thread.
+pub(crate) fn create_instrument(
+    project: &Project,
+    spec: &InstrumentSpec,
+    assets: &dyn AssetResolver,
+) -> Result<(Box<dyn ph_node::Processor>, Vec<String>), String> {
+    match spec {
+        InstrumentSpec::MultiSampler {
+            instrument: Some(id),
+            params,
+            ..
+        } => {
+            let (mut p, warnings) = ph_sampler::create(project, *id, assets)?;
+            for (key, value) in params {
+                let pid = ph_node::Processor::descriptor(&p)
+                    .param_id(key)
+                    .ok_or_else(|| format!("{} has no parameter `{key}`", ph_sampler::ID))?;
+                ph_node::Processor::set_param(&mut p, pid, *value);
+            }
+            Ok((Box::new(p), warnings))
+        }
+        InstrumentSpec::MultiSampler { .. } => {
+            Err("this Haus Sampler channel has no instrument (load or import one)".into())
+        }
+        other => ph_instruments::create(other, assets).map(|p| (p, Vec::new())),
     }
 }
 
@@ -880,7 +924,7 @@ pub(crate) fn compile(
         match key {
             Key::Channel(ci) => {
                 let ch = chans[*ci];
-                let identity = instrument_identity(&ch.instrument);
+                let identity = instrument_identity(&ch.instrument, project);
                 let ps = instrument_params(&ch.instrument);
                 let muted = ch.muted || (!solo.is_empty() && !solo.contains(&ch.id));
                 let gain = channel_gain(ch.volume, ch.pan, muted);
@@ -933,12 +977,12 @@ pub(crate) fn compile(
                                 p
                             })
                         }
-                        None => ph_instruments::create(&ch.instrument, assets)
-                            .ok()
-                            .map(|mut p| {
+                        None => create_instrument(project, &ch.instrument, assets).ok().map(
+                            |(mut p, _)| {
                                 p.activate(&info(seed(1, ch.id.0 as u64, 0)));
                                 p
-                            }),
+                            },
+                        ),
                     };
                     let desc = proc.as_ref().map(|p| Arc::new(p.descriptor().clone()));
                     (Some(Box::new(new_channel_state(proc, n, gain))), desc)

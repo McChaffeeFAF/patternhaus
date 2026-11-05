@@ -971,11 +971,16 @@ pub fn project_warnings_with(
             }
             continue;
         }
-        if let Err(e) = ph_instruments::create(&ch.instrument, assets) {
-            out.push(format!(
+        match plan::create_instrument(project, &ch.instrument, assets) {
+            Err(e) => out.push(format!(
                 "channel {:?} (id {}): {e}; it will play silence",
                 ch.name, ch.id.0
-            ));
+            )),
+            Ok((_, warnings)) => out.extend(
+                warnings
+                    .into_iter()
+                    .map(|w| format!("channel {:?} (id {}): {w}", ch.name, ch.id.0)),
+            ),
         }
     }
     for (i, ins) in project.mixer.iter().enumerate() {

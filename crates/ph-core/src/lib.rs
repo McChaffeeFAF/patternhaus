@@ -13,6 +13,7 @@ mod ids;
 mod model;
 mod patch;
 mod path;
+mod sampler;
 mod time;
 
 pub use audio::*;
@@ -21,6 +22,7 @@ pub use ids::*;
 pub use model::*;
 pub use patch::*;
 pub use path::*;
+pub use sampler::*;
 pub use time::*;
 
 #[derive(Debug, thiserror::Error, PartialEq)]
@@ -41,6 +43,12 @@ pub enum ModelError {
     NoSample(SampleId),
     #[error("no automation point with id {0}")]
     NoPoint(PointId),
+    #[error("no instrument with id {0}")]
+    NoInstrument(InstrumentId),
+    #[error("no group with id {0}")]
+    NoGroup(GroupId),
+    #[error("no zone with id {0}")]
+    NoZone(ZoneId),
     #[error("invalid value: {0}")]
     Invalid(String),
     #[error("invalid patch: {0}")]
@@ -57,3 +65,6 @@ mod tests;
 
 #[cfg(test)]
 mod m2_tests;
+
+#[cfg(test)]
+mod m3_tests;

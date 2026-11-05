@@ -38,6 +38,9 @@ mod record;
 #[cfg(test)]
 mod record_behaviour;
 mod sample;
+mod sampler;
+#[cfg(test)]
+mod sampler_behaviour;
 mod slicer;
 mod step;
 #[cfg(test)]
@@ -70,6 +73,7 @@ pub fn register_builtin(r: &mut Registry) {
     history::register(r);
     query::register(r);
     sample::register(r);
+    sampler::register(r);
     audio::register(r);
     automation::register(r);
     slicer::register(r);

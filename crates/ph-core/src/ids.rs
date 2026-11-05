@@ -47,3 +47,23 @@ id_type!(
     /// whole project (not just its clip) and never reused.
     PointId
 );
+id_type!(
+    /// Stable id of a Haus Sampler instrument ([`crate::HausInstrument`]) in the project
+    /// (M3). Never reused within a project.
+    InstrumentId
+);
+id_type!(
+    /// Stable id of a Haus Sampler group ([`crate::Group`]). Unique across the whole project
+    /// (not just its instrument) and never reused.
+    GroupId
+);
+id_type!(
+    /// Stable id of a Haus Sampler zone ([`crate::Zone`]). Unique across the whole project
+    /// (not just its instrument) and never reused.
+    ZoneId
+);
+id_type!(
+    /// Id of an articulation ([`crate::Articulation`]) inside one instrument. Assigned by the
+    /// instrument (lowest unused), stable while the articulation exists.
+    ArticulationId
+);

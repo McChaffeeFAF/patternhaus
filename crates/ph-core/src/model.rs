@@ -32,6 +32,10 @@ pub struct Project {
     /// Absent in format 1 files; omitted when empty.
     #[serde(default, skip_serializing_if = "is_empty_map")]
     pub samples: Arc<BTreeMap<SampleId, SampleEntry>>,
+    /// Haus Sampler instruments (M3, format 3), with their groups and zones. Absent in
+    /// older files; omitted when empty. See [`crate::HausInstrument`].
+    #[serde(default, skip_serializing_if = "is_empty_map")]
+    pub instruments: Arc<BTreeMap<InstrumentId, HausInstrument>>,
     /// Next free ids. Ids are never reused, so references held by agents stay unambiguous.
     /// Not part of undo: undoing a creation does not free its id.
     pub next_ids: NextIds,
@@ -39,7 +43,9 @@ pub struct Project {
 
 /// Version 2 (M2) adds audio and automation clips, the sample registry and automation
 /// points; every addition has a serde default, so the 1 → 2 migration only bumps the number.
-pub const FORMAT_VERSION: u32 = 2;
+/// Version 3 (M3) adds Haus Sampler instruments (`instruments`, the `instrument`/`group`/
+/// `zone` id counters and `MultiSampler.instrument`), again all defaulted.
+pub const FORMAT_VERSION: u32 = 3;
 pub const MIXER_INSERTS: usize = 32;
 pub const PLAYLIST_TRACKS: usize = 64;
 
@@ -65,6 +71,15 @@ pub struct NextIds {
     /// Added in format 2 (absent = 0, omitted while 0).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub point: u32,
+    /// Added in format 3 (absent = 0, omitted while 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub instrument: u32,
+    /// Added in format 3 (absent = 0, omitted while 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub group: u32,
+    /// Added in format 3 (absent = 0, omitted while 0).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub zone: u32,
 }
 
 fn is_zero(v: &u32) -> bool {
@@ -118,9 +133,18 @@ pub enum InstrumentSpec {
         #[serde(default)]
         params: BTreeMap<String, f64>,
     },
-    /// Haus Sampler (M3). `library` points at an instrument file.
+    /// Haus Sampler (M3, `ph.haus_sampler`). `instrument` is the project's
+    /// [`HausInstrument`] it plays (format 3); the zone map always lives in the project,
+    /// whether its samples are linked from a library folder or collected into the project
+    /// (see `docs/formats/haus-instrument.md`, "How a project refers to an instrument").
     MultiSampler {
+        /// The instrument folder or file it was loaded from, for display ("loaded from").
+        /// Informational: the engine plays `instrument`. A spec with a library and no
+        /// instrument (never written by M1/M2) plays silence with a warning.
         library: Option<String>,
+        /// The instrument it plays. `None` = silence. Added in format 3; omitted when `None`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instrument: Option<InstrumentId>,
         #[serde(default)]
         params: BTreeMap<String, f64>,
     },
@@ -458,6 +482,7 @@ impl Project {
             tracks: Arc::new(tracks),
             clips: Default::default(),
             samples: Default::default(),
+            instruments: Default::default(),
             next_ids: NextIds::default(),
         }
     }

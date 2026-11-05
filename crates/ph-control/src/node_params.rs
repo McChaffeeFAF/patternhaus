@@ -117,6 +117,7 @@ fn node_params(ctx: &mut CommandCtx<'_>, p: NodeParams) -> CmdResult<CommandOutp
                 },
                 "multi_sampler" => InstrumentSpec::MultiSampler {
                     library: None,
+                    instrument: None,
                     params: Default::default(),
                 },
                 other => {

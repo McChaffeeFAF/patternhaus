@@ -27,6 +27,7 @@ mod mcp;
 mod node_params;
 mod views;
 mod views_m2;
+mod views_m3;
 
 pub use agent::{Agent, MAX_LISTEN_BYTES, MAX_LISTEN_SECONDS, ToolOutput, ToolSpec};
 pub use connections::{ConnGuard, ConnectionInfo, Connections, Protocol};

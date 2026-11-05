@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 013a2ccf58347f4dcfda0d03bb546b6e069ad4c4b0593d9501f5d86e17a6459d # shrinks to ops = [Op { agent: false, kind: 17, a: 0, b: 0, c: 0 }, Op { agent: true, kind: 18, a: 0, b: 0, c: 20 }, Op { agent: false, kind: 18, a: 0, b: 0, c: 205 }]
 cc a4727a7804e682783ab1c26f1704ab3c40551f2881cbe72bf8b62294b77e581f # shrinks to ops = [Op { agent: false, kind: 26, a: 2952, b: 3631, c: 0 }, Op { agent: true, kind: 26, a: 33686, b: 1267, c: 0 }]
+cc cfe5155ee1e1351f52ffeff3e221d010006ca1e494f346d5fbad45ac9ad838ba # shrinks to ops = [Op { agent: false, kind: 6, a: 0, b: 0, c: 0 }, Op { agent: true, kind: 30, a: 0, b: 0, c: 0 }, Op { agent: false, kind: 5, a: 0, b: 0, c: 0 }, Op { agent: false, kind: 12, a: 710, b: 1, c: 0 }, Op { agent: false, kind: 7, a: 0, b: 2585, c: 0 }, Op { agent: false, kind: 0, a: 0, b: 0, c: 0 }, Op { agent: false, kind: 0, a: 0, b: 0, c: 0 }]

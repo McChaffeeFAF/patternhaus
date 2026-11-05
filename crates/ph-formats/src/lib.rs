@@ -11,6 +11,7 @@ pub mod decode;
 pub mod encode;
 pub mod flp;
 mod folder;
+pub mod instrument;
 mod midi;
 pub mod wav_stream;
 

@@ -14,6 +14,7 @@ thiserror.workspace = true
 ph-dsp.workspace = true
 ph-stretch.workspace = true
 ph-instruments.workspace = true
+ph-sampler.workspace = true
 ph-effects.workspace = true
 ph-formats.workspace = true
 ph-plugin-host.workspace = true
