@@ -14,7 +14,7 @@ pub type Ops = BTreeMap<String, String>;
 pub struct Region {
     /// Merged opcodes (canonical names; key values already numbers).
     pub ops: Ops,
-    /// Ordinal of the `<group>` header it sits under (0 = before any group header).
+    /// Ordinal of the `<global>`, `<master>` or `<group>` header it sits under (0 = none).
     pub group_ix: usize,
     /// `default_path` in force when the region was read.
     pub default_path: String,
@@ -163,11 +163,13 @@ impl Builder<'_> {
                 self.global.clear();
                 self.master.clear();
                 self.group.clear();
+                self.group_ix += 1;
                 Level::Global
             }
             "master" => {
                 self.master.clear();
                 self.group.clear();
+                self.group_ix += 1;
                 Level::Master
             }
             "group" => {

@@ -159,34 +159,39 @@ fn normalise(p: &Path) -> PathBuf {
     out
 }
 
-/// `p` as it is on disk: exact first, then case-insensitively per component (§3.4).
-fn find_on_disk(p: &Path) -> Option<(PathBuf, bool)> {
-    if p.is_file() {
-        return Some((p.to_path_buf(), false));
-    }
+/// `p` as it is on disk: each component matched exactly first, then ignoring case
+/// (§3.4). The flag is true when a component's case differed. `dirs` caches listings.
+fn find_on_disk(
+    p: &Path,
+    dirs: &mut BTreeMap<PathBuf, Vec<std::ffi::OsString>>,
+) -> Option<(PathBuf, bool)> {
     let mut cur = PathBuf::new();
     let mut fixed = false;
     for c in p.components() {
-        let next = cur.join(c.as_os_str());
-        if next.exists() {
-            cur = next;
-            continue;
-        }
         let Component::Normal(name) = c else {
-            return None;
+            cur.push(c.as_os_str());
+            continue;
         };
-        let want = name.to_string_lossy().to_lowercase();
         let dir = if cur.as_os_str().is_empty() {
             PathBuf::from(".")
         } else {
             cur.clone()
         };
-        let hit = std::fs::read_dir(&dir)
-            .ok()?
-            .flatten()
-            .map(|e| e.file_name())
+        let names = dirs.entry(dir.clone()).or_insert_with(|| {
+            std::fs::read_dir(&dir)
+                .map(|r| r.flatten().map(|e| e.file_name()).collect())
+                .unwrap_or_default()
+        });
+        if names.iter().any(|n| n == name) {
+            cur.push(name);
+            continue;
+        }
+        let want = name.to_string_lossy().to_lowercase();
+        let hit = names
+            .iter()
             .filter(|n| n.to_string_lossy().to_lowercase() == want)
-            .min()?;
+            .min()?
+            .clone();
         cur.push(hit);
         fixed = true;
     }
@@ -196,6 +201,7 @@ fn find_on_disk(p: &Path) -> Option<(PathBuf, bool)> {
 struct Samples<'a> {
     main_dir: Option<&'a Path>,
     probes: BTreeMap<PathBuf, Result<SampleInfo, String>>,
+    dirs: BTreeMap<PathBuf, Vec<std::ffi::OsString>>,
 }
 
 impl Samples<'_> {
@@ -230,7 +236,7 @@ impl Samples<'_> {
             }
         };
         let path = normalise(&path);
-        match find_on_disk(&path) {
+        match find_on_disk(&path, &mut self.dirs) {
             Some((p, fixed)) => {
                 if fixed {
                     notes.approx(
@@ -361,6 +367,8 @@ struct Mapper<'a> {
     curves: &'a BTreeMap<u32, Curve>,
     effects: &'a [MappedEffect],
     samples: Samples<'a>,
+    /// Exclusive-group ids some region's `off_by` names.
+    chokers: BTreeSet<i64>,
 }
 
 /// An `<effect>` block that maps to a built-in effect.
@@ -479,7 +487,7 @@ impl Mapper<'_> {
         let Some(sample_value) = o.raw("sample") else {
             o.notes
                 .skip("region:no-sample", "a region without a sample was skipped");
-            finish_unused(&mut o);
+
             return None;
         };
         let res = self
@@ -609,7 +617,7 @@ impl Mapper<'_> {
         }
 
         // ---- keyswitches (§4.4)
-        let _ = (o.raw("sw_lokey"), o.raw("sw_hikey"));
+        let _ = (o.raw("sw_lokey"), o.raw("sw_hikey"), o.raw("sw_label"));
         let mut art_keys = Vec::new();
         if let Some(k) = o.raw("sw_last").and_then(|v| v.parse::<u8>().ok()) {
             art_keys.push(k);
@@ -1000,9 +1008,9 @@ impl Mapper<'_> {
         };
         let root = root.clamp(0, 127);
         zone.root_key = root as u8;
-        let mut cents = o.num_or("transpose", -127.0, 127.0, 0.0).trunc() * 100.0;
+        let mut cents = o.int("transpose", -127.0, 127.0).unwrap_or(0) as f64 * 100.0;
         for n in ["tune", "global_tune", "master_tune", "group_tune"] {
-            cents += o.num_or(n, -9600.0, 9600.0, 0.0);
+            cents += o.int(n, -9600.0, 9600.0).unwrap_or(0) as f64;
         }
         if let Res::Gen(Generated::Sine) = res {
             cents += Generated::sine_correction_cents();
@@ -1324,9 +1332,10 @@ impl Mapper<'_> {
         let excl = o.int("group", -1e9, 1e9).unwrap_or(0);
         let off_by = o.int("off_by", -1e9, 1e9);
         let _ = (o.kw("off_mode"), o.num("off_time", 0.0, 60.0));
-        let choke = off_by
-            .map(|b| b.min(excl))
-            .or_else(|| (excl != 0).then_some(excl));
+        let choke = match off_by {
+            Some(b) => Some(b.min(excl)),
+            None => self.chokers.contains(&excl).then_some(excl),
+        };
 
         // ---- effect sends (§12)
         for e in self.effects {
@@ -1581,13 +1590,21 @@ pub fn map(parsed: &Parsed, name: &str, main_dir: Option<&Path>, notes: &mut Not
             .insert("sfz.control".into(), control_text.join("\n"));
     }
 
+    let chokers = parsed
+        .regions
+        .iter()
+        .filter_map(|r| r.ops.get("off_by")?.trim().parse::<f64>().ok())
+        .map(|v| v as i64)
+        .collect();
     let mut m = Mapper {
+        chokers,
         notes,
         curves: &parsed.curves,
         effects: &mapped_fx,
         samples: Samples {
             main_dir,
             probes: BTreeMap::new(),
+            dirs: BTreeMap::new(),
         },
     };
     let drafts: Vec<Draft> = parsed.regions.iter().filter_map(|r| m.region(r)).collect();

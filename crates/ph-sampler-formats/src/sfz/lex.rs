@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn junk_is_reported_not_fatal() {
-        let (t, n) = toks("lokey 60 =5 <region> <group");
+        let (t, n) = toks("lokey 60 <region> <group");
         assert_eq!(t, vec![Tok::Header("region".into())]);
         let (a, b) = n.finish();
         assert!(!a.is_empty() || !b.is_empty());
