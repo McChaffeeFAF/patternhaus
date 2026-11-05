@@ -499,6 +499,27 @@ root_key = 60
         assert!(instrument_to_toml(&inst).is_err());
     }
 
+    /// The example in `docs/formats/haus-instrument.md` loads.
+    #[test]
+    fn the_documented_example_loads() {
+        let doc = include_str!("../../../docs/formats/haus-instrument.md");
+        let start = doc.find("```toml\n").expect("example") + 8;
+        let end = start + doc[start..].find("```").expect("end of example");
+        let inst = instrument_from_toml(&doc[start..end]).unwrap();
+        assert_eq!(inst.name, "Felt Piano");
+        assert_eq!(inst.zones.len(), 2);
+        assert_eq!(inst.group(GroupId(0)).unwrap().amp_env.release, 0.6);
+        assert_eq!(
+            inst.zone(ZoneId(1))
+                .unwrap()
+                .looping
+                .as_ref()
+                .unwrap()
+                .crossfade,
+            2048
+        );
+    }
+
     proptest::proptest! {
         #![proptest_config(proptest::prelude::ProptestConfig::with_cases(300))]
 

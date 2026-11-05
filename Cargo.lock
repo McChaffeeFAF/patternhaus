@@ -3109,6 +3109,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ph-sampler-formats"
+version = "0.1.0"
+dependencies = [
+ "ph-core",
+ "proptest",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ph-stretch"
 version = "0.1.0"
 dependencies = [

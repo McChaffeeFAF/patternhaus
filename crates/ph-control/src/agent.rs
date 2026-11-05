@@ -262,7 +262,7 @@ impl Agent {
             ),
             tool(
                 "get_state",
-                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
+                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances), zones (Haus Sampler zone maps: groups, key and velocity ranges, roots, round robins, articulations; args instrument), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
                 json!({ "type": "object", "properties": {
                     "view": { "type": "string" }, "args": { "type": "object" } } }),
                 true,
@@ -672,6 +672,7 @@ impl Agent {
             "audio" => Ok(crate::views_m2::audio_view(&p)),
             "automation" => Ok(crate::views_m2::automation_view(&p)),
             "plugins" => Ok(crate::views_m2::plugins_view(&p)),
+            "zones" => crate::views_m3::zones_view(&p, &a),
             "proposals" => self.proposals_view(),
             "notes" => views::notes_view(&p, &a),
             "pattern" => views::pattern_view(&p, &a),
@@ -732,7 +733,7 @@ impl Agent {
                 }
             }
             other => Err(format!(
-                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, audio, automation, plugins, proposals, transport, session, ui, events, warnings, raw"
+                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, audio, automation, plugins, zones, proposals, transport, session, ui, events, warnings, raw"
             )),
         };
         match r {
