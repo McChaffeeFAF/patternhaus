@@ -36,14 +36,30 @@
 use ph_core::{HausInstrument, ImportNote, ImportNoteKind};
 use std::path::{Path, PathBuf};
 
+mod assemble;
 pub mod automap;
+pub mod build;
 mod notes;
 pub mod probe;
+pub mod sf2;
 pub mod sfz;
 mod stubs;
 
+pub use sf2::{PresetChoice, SoundFont};
 pub use sfz::Sfz;
-pub use stubs::{DecentSampler, Exs, Kontakt, SoundFont};
+pub use stubs::{DecentSampler, Exs, Kontakt};
+
+/// A float WAV file holding `audio` (for [`SampleSource::Audio`]).
+pub fn audio_wav(audio: &ph_node::SampleData) -> Result<Vec<u8>, String> {
+    let rate = audio.sample_rate.round().clamp(1.0, 1_000_000.0) as u32;
+    ph_formats::encode::encode_wav(
+        &audio.channels,
+        rate,
+        ph_formats::encode::WavFormat::Float32,
+        ph_formats::encode::DITHER_SEED,
+    )
+    .map_err(|e| e.to_string())
+}
 
 /// What an importer reads.
 #[derive(Copy, Clone, Debug)]
@@ -92,6 +108,11 @@ pub enum SampleSource {
     /// Audio the importer synthesises (SFZ `*sine`, `*silence`); the caller writes it as a
     /// WAV file ([`Generated::render`]) when it saves or collects the instrument.
     Generated(Generated),
+    /// Audio the importer decoded from inside the instrument file (SF2/SF3 sample data,
+    /// stereo pairs joined into one sample). The caller writes it as a float WAV
+    /// ([`audio_wav`]) into the instrument's `samples/` folder: such instruments are always
+    /// collected. Loop and root fields are unused (zones carry them).
+    Audio(std::sync::Arc<ph_node::SampleData>),
     /// A byte range of a container file, in a raw encoding.
     Chunk {
         container: PathBuf,
@@ -192,6 +213,20 @@ pub struct ImportReport {
     pub notes: Vec<ImportNote>,
     /// Opcodes, chunks or fields not understood at all, with counts.
     pub unknown: Vec<(String, u32)>,
+    /// Multi-preset files (SF2/SF3): every preset in the file, in file order. Empty for
+    /// formats with one instrument per file.
+    pub presets: Vec<PresetListing>,
+}
+
+/// One preset of a multi-preset file (SF2 `phdr`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PresetListing {
+    /// MIDI bank (128 = the percussion bank).
+    pub bank: u16,
+    pub program: u16,
+    pub name: String,
+    /// The preset this import read.
+    pub imported: bool,
 }
 
 impl ImportReport {
@@ -334,7 +369,6 @@ mod tests {
     #[test]
     fn stubs_name_their_track_and_unknown_files_are_refused() {
         for (file, track) in [
-            ("a.sf2", "M3/T4"),
             ("a.dspreset", "M3/T4"),
             ("a.exs", "M3/T4"),
             ("a.nki", "M3/T6"),
@@ -378,6 +412,7 @@ mod tests {
                 },
             ],
             unknown: vec![("opcode:foo".into(), 3)],
+            presets: vec![],
         };
         let md = r.to_markdown();
         assert!(md.contains("## Approximated\n\n- opcode:fil_type=lpf_6p (2×): played as 4-pole"));

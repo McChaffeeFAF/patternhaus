@@ -173,6 +173,7 @@ pub fn map_files(folder_name: &str, files: &[(String, PathBuf)]) -> Imported {
             zones: inst.zones.len(),
             notes,
             unknown,
+            presets: Vec::new(),
         },
         instrument: inst,
         samples,

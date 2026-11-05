@@ -31,11 +31,6 @@ macro_rules! stub {
 }
 
 stub!(
-    /// SoundFont 2.04 and SF3 (Ogg Vorbis sample data): presets, instruments, generators,
-    /// modulators, sample links.
-    SoundFont, "sf2", ["sf2", "sf3"], "SoundFont", "M3/T4"
-);
-stub!(
     /// DecentSampler `.dspreset` (XML): groups, samples, effects; UI controls kept as data.
     DecentSampler, "dspreset", ["dspreset"], "DecentSampler", "M3/T4"
 );
