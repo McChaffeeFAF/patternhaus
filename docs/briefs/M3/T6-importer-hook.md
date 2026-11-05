@@ -2,7 +2,7 @@
 
 **Owner decision (2026-11-05):** some formats stay out of the public repository. The public repo gets a generic, documented **importer hook** so separately built importers can add formats. Work in the worktree `local/wt/m3-t6`, branch `m3/t6-hook`.
 
-_TARGET_DIR=E:\patternhaus\target\wt\m3-t6` for both.
+Use `CARGO_TARGET_DIR=E:patternhaus	argetwtm3-t6`, your own target dir. Never use the shared `target/`.
 
 **Read first:**
 - `AGENTS.md`;
