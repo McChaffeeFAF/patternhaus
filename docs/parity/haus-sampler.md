@@ -187,31 +187,7 @@ opcode onto; the importer reports it, and a model change is needed to support it
 | Parameters: filter 2, LFOs, glide, velocity curve, random pitch, crossfade | §6 | approx | | | | |
 | Modulation matrix | §6 | data | | | | |
 
-## Kontakt ([spec](../formats/nki.md)) — unencrypted only; layout unconfirmed on real files
+## Kontakt
 
-| Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
-|---|---|---|---|---|---|---|
-| First-bytes dispatch for every family | §2 | must | | | | F-NKI-01 |
-| Kontakt 1 / 1.5 (zlib XML) | §3, §5 | must | | | | F-NKI-02, F-NKI-03 |
-| Kontakt 2–4.1 header + zlib XML, both byte orders | §4.2, §5 | must | | | | F-NKI-04, F-NKI-05 |
-| Kontakt 4.2 FastLZ preset chunks | §4.3, §6.5 | must | | | | F-NKI-07 |
-| Kontakt 5–7 `hsin` container and preset chunks | §6 | must | | | | F-NKI-08, F-NKI-09 |
-| Zones: key/velocity ranges, root, tune, volume, pan, start/end | §5.2, §6.8 | must | | | | F-NKI-04, F-NKI-08 |
-| Zone key/velocity crossfades | §5.2, §6.8 | must | | | | |
-| Loops (up to 8; modes, alternating, crossfade, tuning) | §5.3, §6.8 | must | | | | F-NKI-08 |
-| Group membership | §5.1, §6.8 | must | | | | F-NKI-04, F-NKI-08 |
-| Group volume/pan/tune, reverse, release trigger, voice groups | §5.4, §6.7 | must | | | | F-NKI-04 |
-| Round robin (K2 `cycle` start criteria; K5 STAR_CRIT_LIST) | §5.4, §6.7 | approx (K2) / skip until confirmed (K5) | | | | |
-| Envelopes, filters, modulators | §5.5, §6.7 | skip in M3 (DESIGN §8 order) / data | | | | |
-| KSP scripts | §6.5 | data (M3b) | | | | |
-| Sample paths: XML `file_ex2`, FILENAME_LIST(_EX) segments | §5.2, §6.9 | must | | | | F-NKI-04, F-NKI-08 |
-| Multis (`.nkm`) | §6.5 | must | | | | F-NKI-11 |
-| Banks (`.nkb`) | §1 | skip | | | | |
-| K2–4 monoliths | §7.1 | must | | | | F-NKI-06 |
-| K5+ monoliths (FC MTD), streamed by byte range | §7.2 | must | | | | F-NKI-10 |
-| `.nkx` library monoliths | §7.3 | skip unless FC MTD | | | | |
-| NCW decode (all modes, mid/side, float, 16/24/32) | §8 | must | | | | F-NCW-01 |
-| Refuse: `.nicnt` Player library | §9.1 | must | | | | F-NKI-12 |
-| Refuse: Authorization PIDs, Encryption Item, undecodable subtree | §9.2 | must | | | | F-NKI-12 |
-| Refuse: K4.2 CRC/FastLZ failure; zlib/XML failure | §9.3–9.4 | must | | | | F-NKI-12 |
-| Corpus report wording (opened / refused / failed) | §9.5 | must | | | | criterion 3 |
+Not part of this repository. By the owner's decision (2026-11-05), Kontakt import is an optional component kept outside the public project.
+

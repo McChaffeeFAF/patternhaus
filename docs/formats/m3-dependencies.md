@@ -16,7 +16,6 @@ GPL/LGPL/AGPL denied.
 | `instrument.toml` read/write | `toml` (+ `toml_parser`, `toml_writer`, `toml_datetime`, `serde_spanned`, `winnow`) | 1.1.8 | MIT OR Apache-2.0 (winnow: MIT) | allowed | `ph-formats` (M3/T0), `ph-ui` | Now a direct dependency of `ph-formats`. Pure Rust. |
 | SF3 sample data (Ogg Vorbis) | `symphonia-format-ogg`, `symphonia-codec-vorbis` | 0.5.5 | MPL-2.0 | named exceptions (unmodified) | `ph-formats::decode` | Already decodes `.ogg` files; T4 feeds it each SF3 sample's byte range. |
 | SFZ/SF2/EXS sample files (WAV, AIFF, FLAC, MP3) | `symphonia` bundle, `hound` | 0.5 / 3.5 | MPL-2.0 (named) / Apache-2.0 | allowed | `ph-formats` | No change. |
-| Kontakt zlib-compressed sections | `miniz_oxide` | 0.8.9 (0.9.1 also present) | MIT OR Zlib OR Apache-2.0 | allowed | `png` (via `ph-ui`) | Pure Rust inflate. If T6 needs it, depend on `miniz_oxide` directly (no C, no `flate2` front end). |
 | (alternative to the above) | `flate2` | 1.1.10 | MIT OR Apache-2.0 | allowed | `png` | Only if a streaming `Read` adapter is wanted; it pulls `miniz_oxide` anyway. |
 
 ## Write ourselves (no crate)
@@ -26,7 +25,6 @@ GPL/LGPL/AGPL denied.
 | **SFZ** text (headers, opcodes, `#define`, `#include`) | A line-oriented text format; the spec is small and our parser must list unknown opcodes, which a generic crate would not. | T3 |
 | **SF2/SF3** RIFF chunks (`INFO`, `sdta`, `pdta`: `phdr`/`pbag`/`pgen`/`pmod`/`inst`/`ibag`/`igen`/`imod`/`shdr`) | Fixed-size little-endian records; a few hundred lines. Existing crates (`soundfont`, `rustysynth`, MIT) were **not** read (clean room) and are not needed. | T4 |
 | **EXS24** binary chunks | Undocumented by Apple; T1 writes the spec from generated/redistributable files; small fixed records. | T4 |
-| **Kontakt** NKI/NKM/NKX/NKC containers, monolith index, **NCW** decoding | No suitable crate exists; NCW is bit-packed delta blocks. Encryption detection is part of our parser (refuse, never decrypt). | T6 |
 | **DecentSampler** `.dspreset` XML | See below: our own minimal XML reader is preferred. | T4 |
 
 ## Open choice for T4: XML for DecentSampler

@@ -46,7 +46,7 @@ A feature counts as done only when both columns are ticked.
   - channel rack, sampler and synth, step sequencer, piano roll, basic mixer, playlist with pattern clips, WAV export, and the full agent interface;
   - the engine's routing is a general graph from day one, because modular routing depends on it.
 - **M2, Make a song:** automation clips, audio clips and recording, the audio editor, slicing and time-stretch, the effects suite, CLAP/VST3 hosting, MIDI controllers, and **FLP import** (moved from M4 in section 10).
-- **M3, Haus Sampler:** the multi-sample engine, SFZ/SF2/DecentSampler/EXS, then Kontakt import.
+- **M3, Haus Sampler:** the multi-sample engine, SFZ/SF2/DecentSampler/EXS, and an importer hook for formats built outside the project.
 - **M4, Pro:** the modular-routing UI, live performance mode, plugin delay compensation (PDC), sandboxed plugins, stems, DAWproject, Linux and macOS.
 
 ## 2. Architecture and crate layering
@@ -66,7 +66,7 @@ ph-engine (graph, scheduler, render) ┤
 ph-formats (project, WAV/FLAC/MP3/OGG, MIDI, DAWproject, FLP import)
 ph-analysis (LUFS, spectrum, onsets, key/chords, mix health, snapshot images: agent perception, section 5)
 ph-node (Processor trait: the internal plugin interface every built-in implements; mirrors CLAP)
-ph-sampler + ph-sampler-formats (SFZ, SF2, DS, EXS, NKI)  → also shipped as a CLAP/VST3 plugin
+ph-sampler + ph-sampler-formats (SFZ, SF2, DS, EXS, importer hook)  → also shipped as a CLAP/VST3 plugin
 ph-script (Luau host + KSP compatibility interpreter, section 8)
 ph-plugin-server (out-of-process plugin host binary + protocol: isolation, 32-bit bridge, VST2 add-on, section 6)
 ```
@@ -264,10 +264,10 @@ How it works:
 - Every control has an id that agents can read and drive.
 
 **Test corpus**
-- The owner has unencrypted .nki libraries for local testing, plus free unlocked libraries such as Pianobook's.
+- The owner has free unlocked libraries such as Pianobook's for local testing. (Kontakt libraries are tested only with the owner's private component, outside the repo.)
 - Third-party libraries never enter the repo.
 - CI uses only generated fixtures and freely redistributable files.
-- Local compatibility runs write a report to `docs/parity/kontakt-corpus.md`. The report lists only library names and results, never content.
+- Local compatibility runs write their reports outside the repo (`local/reports/`).
 
 **Draft details carried over**
 - **Engine:** zones (key and velocity ranges), round robins, groups, articulations and keyswitches.
@@ -278,7 +278,7 @@ How it works:
   2. SF2/SF3.
   3. DecentSampler (.dspreset).
   4. EXS24.
-  5. **Kontakt .nki/.nkm/.ncw:** unencrypted instruments from Kontakt 1.5 through 7. This builds on the publicly documented format knowledge, as the open-source ConvertWithMoss does. The initial scope covers zones, loops, NCW samples and monoliths. Envelopes, filters and groups come later.
+  5. **Kontakt:** *revised 2026-11-05 by the owner:* not part of this repository. Patternhaus provides a generic importer hook (M3/T6); a Kontakt importer, if any, is a separate component outside the public project.
   6. **KSP scripts:** run by the KSP compatibility layer described above.
 - **Hard boundary:** no circumvention of encrypted or licence-locked libraries, such as NI "Player" libraries and Native Access–activated content. That would break anti-circumvention law and the libraries' licences. When the sampler meets one, it says so plainly.
 
@@ -396,7 +396,7 @@ The aim is a professional first impression, at FL-level density and polish, in o
 - **Golden renders:** each test project in `tests/projects/` renders to a reference WAV. Tests compare the result within a small error tolerance (an epsilon), or hash it for bit-exact paths.
 - **Real-time vs offline oracle:** the real-time engine, driven by a simulated device, must match the offline render.
 - **Real-time safety:** `assert_no_alloc` in debug and CI, plus a stress test that floods the engine with plan swaps during playback.
-- **Fuzzing:** every importer (FLP, NKI, SFZ, MIDI, DAWproject).
+- **Fuzzing:** every importer (FLP, SFZ, SF2, DecentSampler, EXS, MIDI, DAWproject).
 - **Command coverage:** every registered command has a schema test and at least one golden test. CI fails on unregistered or untested commands.
 - **Benchmarks:** DSP and graph performance, tracked over time.
 
