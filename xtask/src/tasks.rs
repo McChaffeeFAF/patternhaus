@@ -94,7 +94,8 @@ pub fn sampler_stress(root: &Path) -> Result<(), Vec<String>> {
         "test",
         "-p",
         "ph-engine",
-        "--release",
+        // the engine's lib tests need debug assertions (assert_no_alloc), so the dev
+        // profile (optimised dependencies) rather than --release
         "--lib",
         "sampler_stress",
         "--",

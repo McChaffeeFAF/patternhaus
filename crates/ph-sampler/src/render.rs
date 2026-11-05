@@ -612,12 +612,11 @@ pub fn render_voice(
 pub fn finish(v: &mut Voice, slot: usize, streams: Option<&dyn StreamSource>) {
     v.active = false;
     v.fade = 0;
-    if v.win_start != i64::MIN {
-        if let Some(s) = streams {
-            s.release(slot);
-        }
-        v.win_start = i64::MIN;
+    // a voice may have asked for blocks at note-on without reading any yet
+    if let Some(s) = streams {
+        s.release(slot);
     }
+    v.win_start = i64::MIN;
 }
 
 #[cfg(test)]

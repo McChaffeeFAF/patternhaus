@@ -3,28 +3,38 @@
 //!
 //! - [`Plan`] is the immutable real-time plan an instrument compiles to (zone lookup by key,
 //!   then velocity, articulation, controller conditions and round robin at note-on).
-//! - [`samples`] is how the engine hands it audio: preloads now, the M2 disk streamer later
-//!   (the decision and its reasons are in that module's docs).
-//! - [`voice`] is the voice model: trigger, release, steal, round robin, and the seeding rule
-//!   that keeps live output bit-identical to offline renders.
-//! - [`t2`] marks where the real DSP goes (envelopes, loops, filter, modulation, crossfades,
-//!   legato, streaming, group effects).
+//! - [`samples`] is how the engine hands it audio: a preload per file, the rest streamed
+//!   through the host's [`StreamSource`] (the decision and its reasons are in that module).
+//! - [`voice`] is the voice model: trigger, release, steal (with short fades), round robin,
+//!   and the seeding rule that keeps live output bit-identical to offline renders.
+//! - [`render`] is the per-voice DSP, [`env`] the envelopes, [`effects`] the per-group insert
+//!   chains (which the host builds).
 //!
-//! # What plays in M3/T0
+//! # What plays (M3/T2)
 //!
-//! The minimal path: each zone the note selects plays its sample once from `start` to `end`
-//! (backwards if `reverse`), resampled to the note's pitch with linear interpolation, at
-//! instrument × group × zone level times velocity, balanced by pan. Note-off stops a voice at
-//! once unless the zone is one-shot. Release-trigger zones fire on note-off, quieter by
-//! `release_decay_db` per second held. Keyswitches and controller switches select
-//! articulations; mono and legato groups cut their previous voice. No envelopes, loops,
-//! filters or modulation yet (M3/T2).
+//! Each zone the note selects plays from `start` to `end` (backwards if `reverse`; a
+//! sample-start modulation moves the start), resampled to the note's pitch: 4-point Hermite
+//! in `Quality::Live`, a Kaiser-windowed sinc in `Quality::High` (as `ph.sampler`). Loops play
+//! forward (with a linear crossfade over `crossfade` frames before their end, into the
+//! material before their start) or ping-pong; a sustain loop (`on_release = exit`) is left at
+//! note-off. Per group: a DAHDSR amp envelope (note-off releases it; one-shot zones ignore
+//! note-off), a filter (TPT state-variable, 12 or 24 dB) with key tracking and its own
+//! envelope, up to four LFOs. The modulation matrix adds `depth × curve(source)` to pitch,
+//! volume, pan, cutoff, resonance or sample start; sources fixed for the note (velocity, key,
+//! random) are summed at note-on, the others every [`CONTROL_FRAMES`] frames of the voice.
+//! Velocity crossfades are fixed at note-on, controller crossfades follow the controller.
+//! Release triggers fire on note-off, quieter by `release_decay_db` per second held. Round
+//! robins are sequential or seeded random. Mono groups retrigger (gliding from the last pitch
+//! when `portamento` is set); legato groups glide a held voice to the new key instead.
+//! Voice limits steal by the group's mode, and a stolen or choked voice fades out over
+//! [`FADE_SECONDS`]. Pitch bend uses the instrument's bend range; channel pressure arrives as
+//! note expressions. Keyswitches and controller switches select articulations.
 //!
 //! # Multi-out
 //!
 //! Output port 0 is the main stereo output. A group with `output: n` (n ≥ 1) plays into port
 //! `n` (named `out <n + 1>`); the descriptor lists ports up to the highest bus a group uses.
-//! A host that passes fewer ports than that (the M3/T0 engine passes only port 0, until the
+//! A host that passes fewer ports than that (the engine passes only port 0, until the
 //! mixer routes extra outputs, M3/T8) gets those buses mixed into port 0, so nothing is lost.
 
 pub mod effects;

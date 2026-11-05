@@ -14,7 +14,8 @@
 //!   `Live`/`Wait`/`Sync` policies that keep offline renders and the simulated device
 //!   bit-identical). `ph-sampler` may not depend on `ph-engine`, so it sees that cache through
 //!   the [`StreamSource`] trait, which mirrors the cache's real-time calls exactly
-//!   (`want`/`release`/`read`). `ph-engine` implements it over its `Cache` (M3/T2).
+//!   (`want`/`release`/`read`). `ph-engine` implements it over its `Cache` (M3/T2): one
+//!   cache per sampler node, with smaller blocks than an audio track's (many more voices).
 //! - A voice calls [`StreamSource::want`] at note-on (from the frame where its preload ends),
 //!   reads the preload while it lasts, then reads blocks with [`StreamSource::read`]. A block
 //!   that is not there under the `Live` policy is silence and an underrun, as for audio clips.
