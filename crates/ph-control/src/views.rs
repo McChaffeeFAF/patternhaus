@@ -66,7 +66,7 @@ pub fn find_pattern(p: &Project, v: &Value) -> Result<PatternId, String> {
         .ok_or_else(|| format!("no pattern named {s:?}"))
 }
 
-/// Channels that play pitches (as opposed to one-shot drum hits).
+/// Channels that play pitches (as opposed to one-shot drum hits and Haus Sampler kits).
 pub fn pitched_channels(p: &Project, notes: &[SongNote]) -> BTreeSet<ChannelId> {
     let mut keys: BTreeMap<ChannelId, BTreeSet<u8>> = BTreeMap::new();
     for n in notes {
@@ -75,6 +75,14 @@ pub fn pitched_channels(p: &Project, notes: &[SongNote]) -> BTreeSet<ChannelId> 
     p.channels
         .values()
         .filter(|c| match c.instrument {
+            // a Haus Sampler kit plays hits, not pitches (M3/T7)
+            InstrumentSpec::MultiSampler {
+                instrument: Some(i),
+                ..
+            } => p
+                .instruments
+                .get(&i)
+                .is_none_or(|i| !crate::views_m3::is_kit(i)),
             InstrumentSpec::Synth { .. }
             | InstrumentSpec::MultiSampler { .. }
             | InstrumentSpec::Plugin { .. } => true,
@@ -84,11 +92,23 @@ pub fn pitched_channels(p: &Project, notes: &[SongNote]) -> BTreeSet<ChannelId> 
         .collect()
 }
 
+/// The notes of pitched channels, without the keyswitches of Haus Sampler instruments (they
+/// select an articulation and make no sound).
 pub fn pitched_only(p: &Project, notes: Vec<SongNote>) -> Vec<SongNote> {
     let set = pitched_channels(p, &notes);
+    let switches: BTreeMap<ChannelId, BTreeSet<u8>> = set
+        .iter()
+        .filter_map(|c| {
+            let k = crate::views_m3::keyswitch_keys(crate::views_m3::haus_of(p, *c)?);
+            (!k.is_empty()).then_some((*c, k))
+        })
+        .collect();
     notes
         .into_iter()
-        .filter(|n| set.contains(&n.channel))
+        .filter(|n| {
+            set.contains(&n.channel)
+                && !switches.get(&n.channel).is_some_and(|k| k.contains(&n.key))
+        })
         .collect()
 }
 

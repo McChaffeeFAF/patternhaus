@@ -262,7 +262,7 @@ impl Agent {
             ),
             tool(
                 "get_state",
-                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances; channels added from the plugin catalogue show their playing guide: range, keyswitches, CCs), catalogue (the plugin instrument catalogue: saved instruments with plugin status), zones (Haus Sampler zone maps: groups, key and velocity ranges, roots, round robins, articulations; args instrument), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
+                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances; channels added from the plugin catalogue show their playing guide: range, keyswitches, CCs), catalogue (the plugin instrument catalogue: saved instruments with plugin status), zones (Haus Sampler instruments: a playing guide like the catalogue's (range, keyswitches, CCs, velocity layers) and the zone map: groups, key and velocity ranges with note names, roots, round robins, release zones, gaps; args instrument, offset, limit (default 256 zones), zones: false for summaries only), report (one Haus instrument's import report and summary; args instrument), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
                 json!({ "type": "object", "properties": {
                     "view": { "type": "string" }, "args": { "type": "object" } } }),
                 true,
@@ -291,9 +291,10 @@ impl Agent {
             ),
             tool(
                 "snapshot",
-                "See the result: returns a PNG image. kind: waveform (the rendered mix; with clip or sample, the audio of that audio clip as it is set up in the playlist, or of that registered sample), spectrogram, piano_roll (args pattern, channels[], range; all channels coloured), playlist (arrangement overview; audio clips show their waveform). Optional save: true also writes the PNG under renders/.",
+                "See the result: returns a PNG image. kind: waveform (the rendered mix; with clip or sample, the audio of that audio clip as it is set up in the playlist, or of that registered sample), spectrogram, piano_roll (args pattern, channels[], range; all channels coloured), playlist (arrangement overview; audio clips show their waveform), zone_map (a Haus Sampler instrument's zones, keys across and velocity up, coloured by group as in the sampler window; arg instrument, default the first). Optional save: true also writes the PNG under renders/.",
                 json!({ "type": "object", "properties": {
-                    "kind": { "type": "string", "enum": ["waveform", "spectrogram", "piano_roll", "playlist"] },
+                    "kind": { "type": "string", "enum": ["waveform", "spectrogram", "piano_roll", "playlist", "zone_map"] },
+                    "instrument": { "type": "integer", "description": "Haus Sampler instrument id (zone_map); get_state view zones lists them" },
                     "pattern": { "description": "pattern id or name (piano_roll)" },
                     "clip": { "type": "integer", "description": "audio clip id (waveform): its played range with gain, fades and direction applied" },
                     "sample": { "type": "integer", "description": "registry sample id (waveform): the whole file" },
@@ -469,6 +470,15 @@ impl Agent {
     }
 
     // ---- running ----------------------------------------------------------------------
+
+    /// Ids and names of the project's Haus Sampler instruments (the MCP resource list).
+    pub fn instrument_names(&self) -> Vec<(u32, String)> {
+        self.current()
+            .instruments
+            .values()
+            .map(|i| (i.id.0, i.name.clone()))
+            .collect()
+    }
 
     /// The session's project right now. `Studio::project` is the engine's snapshot, which a
     /// bridge thread updates a moment after each command, so a read straight after an edit
@@ -686,6 +696,7 @@ impl Agent {
                 .map(|d| d.result)
                 .map_err(|e| err_text(&e)),
             "zones" => crate::views_m3::zones_view(&p, &a),
+            "report" => self.instrument_report(caller, &p, &a),
             "proposals" => self.proposals_view(),
             "notes" => views::notes_view(&p, &a),
             "pattern" => views::pattern_view(&p, &a),
@@ -746,7 +757,7 @@ impl Agent {
                 }
             }
             other => Err(format!(
-                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, audio, automation, plugins, catalogue, zones, proposals, transport, session, ui, events, warnings, raw"
+                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, audio, automation, plugins, catalogue, zones, report, proposals, transport, session, ui, events, warnings, raw"
             )),
         };
         match r {
@@ -1263,7 +1274,7 @@ impl Agent {
     fn snapshot_tool(&self, args: &Value) -> ToolOutput {
         let Some(kind) = args["kind"].as_str() else {
             return ToolOutput::error(
-                "kind is required: waveform, spectrogram, piano_roll, playlist",
+                "kind is required: waveform, spectrogram, piano_roll, playlist, zone_map",
             );
         };
         let p = self.current();
@@ -1317,6 +1328,29 @@ impl Agent {
                             r.first_bar
                         ),
                     )
+                }
+            }
+            "zone_map" => {
+                let inst = match args.get("instrument").filter(|v| !v.is_null()) {
+                    Some(v) => match v.as_u64() {
+                        Some(n) => p.instruments.get(&ph_core::InstrumentId(n as u32)),
+                        None => return ToolOutput::error("instrument is an instrument id"),
+                    },
+                    None => p.instruments.values().next(),
+                };
+                match inst {
+                    Some(i) => crate::views_m3::zone_map_png(&p, i, width),
+                    None if args.get("instrument").is_some_and(|v| !v.is_null()) => {
+                        return ToolOutput::error(format!(
+                            "no instrument {}: get_state view zones lists them",
+                            args["instrument"]
+                        ));
+                    }
+                    None => {
+                        return ToolOutput::error(
+                            "the project has no Haus Sampler instrument yet (sampler.import, sampler.load or sampler.new)",
+                        );
+                    }
                 }
             }
             "piano_roll" => match self.piano_roll(&p, args, range, width) {
@@ -1384,7 +1418,7 @@ impl Agent {
             }
             other => {
                 return ToolOutput::error(format!(
-                    "unknown kind {other:?}: waveform, spectrogram, piano_roll, playlist"
+                    "unknown kind {other:?}: waveform, spectrogram, piano_roll, playlist, zone_map"
                 ));
             }
         };
@@ -1403,6 +1437,47 @@ impl Agent {
             blocks,
             is_error: false,
         }
+    }
+
+    /// `get_state { view: report }` and `patternhaus://instrument/<id>/report`: what
+    /// `sampler.report` says, the playing guide, and the import report the import wrote
+    /// beside a collected instrument (`import-report.md`).
+    fn instrument_report(&self, caller: &Caller, p: &Project, a: &Value) -> Result<Value, String> {
+        let Some(id) = a["instrument"].as_u64() else {
+            return Err("report needs args.instrument (an instrument id)".into());
+        };
+        let mut v = self
+            .studio
+            .execute(
+                caller,
+                Request::new("sampler.report", json!({ "instrument": id })),
+            )
+            .map(|d| d.result)
+            .map_err(|e| err_text(&e))?;
+        let inst = p
+            .instrument(ph_core::InstrumentId(id as u32))
+            .map_err(|e| e.to_string())?;
+        let g = crate::views_m3::guide(p, inst);
+        v["guide_text"] = json!(ph_commands::catalogue::guide_text(&g));
+        if let Some(folder) = &inst.folder {
+            let dir = std::path::Path::new(folder);
+            let dir = if dir.is_absolute() {
+                dir.to_path_buf()
+            } else {
+                self.studio
+                    .engine
+                    .plugin_env()
+                    .map_or_else(
+                        || self.studio.config.project_dir.clone(),
+                        |e| e.project_dir(),
+                    )
+                    .join(dir)
+            };
+            if let Ok(md) = std::fs::read_to_string(dir.join("import-report.md")) {
+                v["import_report"] = json!(md);
+            }
+        }
+        Ok(v)
     }
 
     fn piano_roll(

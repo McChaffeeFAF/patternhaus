@@ -15,6 +15,7 @@ mod agent;
 mod connections;
 mod diff;
 mod diff_m2;
+mod diff_m3;
 mod endpoint;
 mod events;
 mod grants;
@@ -466,5 +467,7 @@ mod coverage;
 mod plugin_tests;
 #[cfg(test)]
 mod record_tests;
+#[cfg(test)]
+mod sampler_agent_tests;
 #[cfg(test)]
 mod tests;
