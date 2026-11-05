@@ -4,6 +4,7 @@
 //! against a temp folder.
 
 use ph_core::InstrumentSpec;
+use ph_sampler_formats::Importers;
 use std::path::{Path, PathBuf};
 
 const AUDIO_EXT: &[&str] = &["wav", "flac", "aif", "aiff", "mp3", "ogg"];
@@ -22,6 +23,11 @@ pub enum Kind {
     /// A plugin instrument saved in the catalogue (M3/T9), by entry id.
     Catalogue {
         entry: String,
+    },
+    /// An instrument file the Haus Sampler imports (`.sfz`, `.sf2`, `.sf3`, `.dspreset`,
+    /// `.dsbundle`, `.exs`, ...), by its absolute path (M3/T5).
+    Instrument {
+        path: String,
     },
 }
 
@@ -65,6 +71,12 @@ pub enum RefStyle {
     Absolute,
 }
 
+/// An instrument file (or `.dsbundle` folder) by its extension, among the session's
+/// importers (built-ins plus any registered through the importer hook, M3/T6).
+fn is_instrument(p: &Path, importers: &Importers) -> bool {
+    importers.importer_for(p).is_some()
+}
+
 fn is_audio(p: &Path) -> bool {
     p.extension()
         .and_then(|e| e.to_str())
@@ -91,12 +103,19 @@ fn reference(path: &Path, root: &Path, style: &RefStyle) -> String {
     }
 }
 
-/// Scans `root` for audio files, folders first, names sorted. Empty folders are dropped.
-pub fn scan(root: &Path, style: &RefStyle, max_depth: usize) -> Vec<Node> {
-    scan_dir(root, root, style, max_depth)
+/// Scans `root` for audio files and the instrument files `importers` read, folders first,
+/// names sorted. Empty folders are dropped.
+pub fn scan(root: &Path, style: &RefStyle, max_depth: usize, importers: &Importers) -> Vec<Node> {
+    scan_dir(root, root, style, max_depth, importers)
 }
 
-fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node> {
+fn scan_dir(
+    dir: &Path,
+    root: &Path,
+    style: &RefStyle,
+    depth: usize,
+    importers: &Importers,
+) -> Vec<Node> {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -108,14 +127,25 @@ fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if p.is_dir() {
+        if is_instrument(&p, importers) {
+            out.push(Node {
+                name: p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                kind: Kind::Instrument {
+                    path: p.to_string_lossy().into_owned(),
+                },
+                children: Vec::new(),
+            });
+        } else if p.is_dir() {
             if depth == 0
                 || p.file_name()
                     .is_some_and(|n| n.to_string_lossy().starts_with('.'))
             {
                 continue;
             }
-            let children = scan_dir(&p, root, style, depth - 1);
+            let children = scan_dir(&p, root, style, depth - 1, importers);
             if !children.is_empty() {
                 out.push(Node {
                     name: p.file_name().unwrap().to_string_lossy().into_owned(),
@@ -137,8 +167,13 @@ fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node
 }
 
 /// Factory samples under `<assets>/samples`.
-pub fn factory_samples(assets_dir: &Path) -> Vec<Node> {
-    scan(&assets_dir.join("samples"), &RefStyle::Factory, 6)
+pub fn factory_samples(assets_dir: &Path, importers: &Importers) -> Vec<Node> {
+    scan(
+        &assets_dir.join("samples"),
+        &RefStyle::Factory,
+        6,
+        importers,
+    )
 }
 
 /// Presets grouped by category (`bass/sub` -> folder `bass`, preset `sub`).
@@ -182,7 +217,7 @@ pub fn instrument_for(kind: &Kind) -> Option<InstrumentSpec> {
             preset: Some(name.clone()),
             params: Default::default(),
         }),
-        Kind::Folder | Kind::Catalogue { .. } => None,
+        Kind::Folder | Kind::Catalogue { .. } | Kind::Instrument { .. } => None,
     }
 }
 
@@ -216,7 +251,7 @@ mod tests {
         std::fs::write(root.join("drums/kit/notes.txt"), b"x").unwrap();
         std::fs::write(root.join("drums/snare.flac"), b"x").unwrap();
         std::fs::create_dir_all(root.join("empty")).unwrap();
-        let tree = scan(&root, &RefStyle::Factory, 6);
+        let tree = scan(&root, &RefStyle::Factory, 6, &Importers::builtin());
         assert_eq!(tree.len(), 1, "empty folders are dropped");
         let drums = &tree[0];
         assert_eq!(drums.name, "drums");
@@ -235,11 +270,45 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("samples")).unwrap();
         std::fs::write(dir.path().join("samples/a.wav"), b"x").unwrap();
-        let rel = scan(dir.path(), &RefStyle::RelativeTo(dir.path().into()), 4);
+        let rel = scan(
+            dir.path(),
+            &RefStyle::RelativeTo(dir.path().into()),
+            4,
+            &Importers::builtin(),
+        );
         assert_eq!(rel[0].children[0].samples()[0].1, "samples/a.wav");
-        let abs = scan(dir.path(), &RefStyle::Absolute, 4);
+        let abs = scan(dir.path(), &RefStyle::Absolute, 4, &Importers::builtin());
         assert!(abs[0].children[0].samples()[0].1.ends_with("samples/a.wav"));
         assert!(!abs[0].children[0].samples()[0].1.contains('\\'));
+    }
+
+    #[test]
+    fn instrument_files_are_listed_by_their_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("lib/Piano.dsbundle")).unwrap();
+        std::fs::write(dir.path().join("lib/piano.sfz"), b"<region>").unwrap();
+        std::fs::write(dir.path().join("lib/kit.SF2"), b"x").unwrap();
+        std::fs::write(dir.path().join("lib/readme.txt"), b"x").unwrap();
+        let tree = scan(dir.path(), &RefStyle::Absolute, 4, &Importers::builtin());
+        let lib = &tree[0];
+        let kinds: Vec<(&str, bool)> = lib
+            .children
+            .iter()
+            .map(|n| (n.name.as_str(), matches!(n.kind, Kind::Instrument { .. })))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("Piano.dsbundle", true),
+                ("kit.SF2", true),
+                ("piano.sfz", true)
+            ]
+        );
+        let Kind::Instrument { path } = &lib.children[2].kind else {
+            unreachable!()
+        };
+        assert!(Path::new(path).is_absolute());
+        assert_eq!(instrument_for(&lib.children[2].kind), None);
     }
 
     #[test]
@@ -268,7 +337,7 @@ mod tests {
     #[test]
     fn the_real_factory_folder_scans() {
         let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
-        let tree = factory_samples(&assets);
+        let tree = factory_samples(&assets, &Importers::builtin());
         let all: Vec<_> = tree.iter().flat_map(|n| n.samples()).collect();
         assert!(all.iter().any(|(_, r)| *r == "factory:drums/haus808/kick"));
     }

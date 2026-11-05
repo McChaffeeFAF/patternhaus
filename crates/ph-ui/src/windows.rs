@@ -119,7 +119,14 @@ pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
     }
     // (scroll sideways too, scroll area id) - instrument and effect windows wrap their knob
     // rows instead of scrolling sideways
+    let sampler = matches!(id, WindowId::Instrument(c) if matches!(
+        core.project.channels.get(&c).map(|ch| &ch.instrument),
+        Some(InstrumentSpec::MultiSampler { .. })
+    ));
     let scroll_x = match id {
+        // the sampler window lays itself out to the window: its map zooms and scrolls on its
+        // own, and its tabs scroll
+        WindowId::Instrument(_) if sampler => None,
         WindowId::Instrument(_) | WindowId::Effect(..) => Some(false),
         // the editor lays itself out to the window and pans and zooms on its own
         WindowId::AudioEditor(_) => None,

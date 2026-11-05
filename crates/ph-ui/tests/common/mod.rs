@@ -21,7 +21,16 @@ pub struct Fixture {
 }
 
 pub fn studio(dir: &std::path::Path, project: Project) -> Studio {
-    Studio::start(
+    studio_with(dir, project, ph_sampler_formats::Importers::builtin())
+}
+
+/// [`studio`] with the session's instrument importers (the importer hook, M3/T6).
+pub fn studio_with(
+    dir: &std::path::Path,
+    project: Project,
+    importers: ph_sampler_formats::Importers,
+) -> Studio {
+    Studio::start_with(
         StudioConfig {
             project_dir: dir.to_path_buf(),
             assets_dir: assets_dir(),
@@ -33,6 +42,7 @@ pub fn studio(dir: &std::path::Path, project: Project) -> Studio {
             plugins: Default::default(),
         },
         project,
+        importers,
     )
     .expect("silent studio starts")
 }

@@ -180,9 +180,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
         InstrumentSpec::Plugin { .. } => {
             crate::plugin_ui::plugin_panel(ui, core, ph_commands::PluginTarget::Channel(ch.id));
         }
-        _ => {
-            ui.label("No panel for this instrument type yet.");
-        }
+        InstrumentSpec::MultiSampler { .. } => crate::sampler_ui::show(ui, core, ch.id),
     }
 
     // dropping a sample on the panel replaces the sampler's sample

@@ -9,8 +9,9 @@ you write an importer in your own crate, build your own copy of the app or CLI t
 it, and every part of Patternhaus that deals with instrument files picks it up:
 
 - `sampler.import` (the UI, scripts and agents over MCP or JSON-RPC);
-- the list of instrument extensions (`Importers::extensions`), which the browser's file filter
-  and drop-to-create use;
+- the UI: the browser lists the files your importer reads as instruments, plays their
+  preview, and a drop on the channel rack imports them (all of it takes the session's set,
+  `Studio::importers()`);
 - the import report (`sampler.report`, `import-report.md`, `get_state { view: zones }`).
 
 After the import nothing depends on your importer: the instrument lives in the project (and
@@ -161,4 +162,6 @@ Return an `ImportError`; never a half-built instrument.
   (`HeadlessOptions { importers, .. }`), import through `sampler.import`, render, save as
   native (`sampler.save_native`), reopen and render again; the two renders must be
   identical. `crates/ph-cli/tests/importer_hook.rs` does exactly this over MCP with a made-up
-  text format, and is a template.
+  text format (`ph_sampler_formats::build::phtxt`), and is a template;
+  `crates/ph-ui/tests/sampler.rs` (`a_registered_importer_lists_in_the_browser_and_imports_on_drop`)
+  does the same through the UI.

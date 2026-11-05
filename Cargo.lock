@@ -3166,6 +3166,7 @@ dependencies = [
  "ph-engine",
  "ph-formats",
  "ph-node",
+ "ph-sampler-formats",
  "raw-window-handle",
  "ron",
  "serde",

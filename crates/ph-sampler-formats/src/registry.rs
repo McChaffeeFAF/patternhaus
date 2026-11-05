@@ -65,6 +65,19 @@ impl Default for Importers {
     }
 }
 
+/// Two sets are equal when they read the same formats (format id and version), in the same
+/// order. Format ids are unique within a set.
+impl PartialEq for Importers {
+    fn eq(&self, other: &Self) -> bool {
+        self.list.len() == other.list.len()
+            && self
+                .list
+                .iter()
+                .zip(&other.list)
+                .all(|(a, b)| a.format() == b.format() && a.version() == b.version())
+    }
+}
+
 impl std::fmt::Debug for Importers {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list()

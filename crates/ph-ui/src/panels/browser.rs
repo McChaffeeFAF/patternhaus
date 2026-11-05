@@ -25,10 +25,13 @@ pub struct BrowserState {
     /// Folders that are open, by their path in the tree.
     pub open: HashSet<String>,
     paths: AppPaths,
+    /// The session's instrument importers (`Studio::importers`): which files list as
+    /// instruments.
+    importers: ph_sampler_formats::Importers,
 }
 
 impl BrowserState {
-    pub fn new(paths: &AppPaths) -> Self {
+    pub fn new(paths: &AppPaths, importers: ph_sampler_formats::Importers) -> Self {
         let mut s = Self {
             factory: Vec::new(),
             presets: Vec::new(),
@@ -40,6 +43,7 @@ impl BrowserState {
             tab: 0,
             open: ["samples/drums".to_string()].into_iter().collect(),
             paths: paths.clone(),
+            importers,
         };
         s.rescan();
         s
@@ -47,17 +51,19 @@ impl BrowserState {
 
     pub fn rescan(&mut self) {
         let p = &self.paths;
-        self.factory = bm::factory_samples(&p.assets_dir);
+        let imp = &self.importers;
+        self.factory = bm::factory_samples(&p.assets_dir, imp);
         self.presets = bm::synth_presets(&ph_engine::catalog::synth_presets());
         self.project = bm::scan(
             &p.project_dir,
             &RefStyle::RelativeTo(p.project_dir.clone()),
             5,
+            imp,
         );
         self.library = p
             .library_roots
             .iter()
-            .map(|r| (r.clone(), bm::scan(r, &RefStyle::Absolute, 6)))
+            .map(|r| (r.clone(), bm::scan(r, &RefStyle::Absolute, 6, imp)))
             .collect();
     }
 
@@ -353,6 +359,7 @@ fn tree_row(
         Kind::Sample { .. } => Icon::Sample,
         Kind::Preset { .. } => Icon::Preset,
         Kind::Catalogue { .. } => Icon::Plugin,
+        Kind::Instrument { .. } => Icon::Keys,
     };
     icon.paint(
         p,
@@ -362,6 +369,7 @@ fn tree_row(
             Kind::Sample { .. } => c.accent,
             Kind::Preset { .. } => c.agent,
             Kind::Catalogue { .. } => c.accent,
+            Kind::Instrument { .. } => c.ok,
         },
     );
     x += 22.0;
@@ -383,12 +391,16 @@ fn tree_row(
         Kind::Catalogue { .. } => {
             "click to read its playing guide, double-click or drag to the rack to add; right-click edits the guide"
         }
+        Kind::Instrument { .. } => {
+            "click to hear a few notes, double-click or drag to the rack to import it as a Haus Sampler"
+        }
     };
     let kind_name = match &n.kind {
         Kind::Folder => "Folder",
         Kind::Sample { .. } => "Sample",
         Kind::Preset { .. } => "Preset",
         Kind::Catalogue { .. } => "Catalogue instrument",
+        Kind::Instrument { .. } => "Sampler instrument",
     };
     let resp = resp.hint(&n.name, kind_name, gestures);
     if n.is_folder() {
