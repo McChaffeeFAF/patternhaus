@@ -135,6 +135,7 @@ impl Env {
 
     /// The level for this frame, then advances one frame.
     #[inline]
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> f32 {
         let s = &self.shape;
         let k = self.t as f32;

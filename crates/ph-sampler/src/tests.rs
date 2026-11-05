@@ -1154,14 +1154,14 @@ fn all_features_identical_at_any_block_size() {
     let mut events = Vec::new();
     for i in 0..60u32 {
         let f = i * 811 % 40_000;
-        let key = if i % 4 == 0 {
+        let key = if i.is_multiple_of(4) {
             81 + (i % 12) as u8
         } else {
             40 + (i * 7 % 40) as u8
         };
         events.push(on(f, i, key, 0.3 + (i % 7) as f32 * 0.1));
         events.push(off(f + 3000 + i * 13 % 900, i, key));
-        if i % 9 == 0 {
+        if i.is_multiple_of(9) {
             events.push(cc(f + 7, 1, (i % 5) as f32 / 4.0));
             events.push(Event {
                 frame: f + 11,

@@ -307,8 +307,8 @@ pub fn control(v: &mut Voice, plan: &Plan, ctl: &Controls) {
         v.g_now = target;
         v.g_inc = [0.0; 2];
     } else {
-        for c in 0..2 {
-            v.g_inc[c] = (target[c] - v.g_now[c]) / CTRL as f32;
+        for (inc, (t, now)) in v.g_inc.iter_mut().zip(target.iter().zip(v.g_now)) {
+            *inc = (t - now) / CTRL as f32;
         }
     }
     v.gain = target;

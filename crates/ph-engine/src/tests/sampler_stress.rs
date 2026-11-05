@@ -9,7 +9,10 @@
 //! - **underruns** (must be 0);
 //! - **resident memory**: the sample data the sampler holds (every file's head) plus its
 //!   stream windows and block cache, against the preload budget (files × `preload_frames` ×
-//!   channels × 4 bytes) plus a fixed margin (the cache and windows, set by the voice count);
+//!   channels × 4 bytes) plus a fixed margin (the cache and windows, set by the voice count
+//!   alone). This is the sampler's own accounting of what it allocates, not the process's
+//!   resident set: nothing else loads the files (streamed files never go through
+//!   `AssetResolver::sample`);
 //! - **load time**: building the instrument, which reads only the heads.
 //!
 //! `streaming_stress_ci` (about 50 MB) runs with the other tests. The full library (about
@@ -138,7 +141,7 @@ fn stress(files: usize, file_seconds: f64, play_seconds: f64) -> Report {
         // (each from its head again), so every voice streams for about 5 s at a time
         let k = if b < VOICES {
             Some(b)
-        } else if b % 8 == 0 {
+        } else if b.is_multiple_of(8) {
             Some((b / 8) % VOICES)
         } else {
             None
@@ -249,4 +252,8 @@ fn streaming_stress_ci() {
 fn streaming_stress_2gb() {
     let r = stress(128, 87.0, 20.0);
     check(&r, Duration::from_secs(2));
+    assert!(
+        (r.resident as u64) < r.library_bytes / 20,
+        "the sampler holds a small fraction of the library"
+    );
 }

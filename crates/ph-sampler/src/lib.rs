@@ -129,6 +129,11 @@ pub fn create(
     Ok((HausSampler::new(inst, samples), warnings))
 }
 
+/// What [`create_streamed`] calls to turn opened streams (and a voice-slot count) into the
+/// host's [`StreamSource`].
+pub type AttachStreams<'a> =
+    dyn FnMut(Vec<Box<dyn SampleStream>>, usize) -> Option<Arc<dyn StreamSource>> + 'a;
+
 /// [`create`] with disk streaming: long files keep only their head in memory
 /// ([`load_samples_streamed`]). `attach` gets the opened streams (indexed by
 /// [`ZoneSample::stream`]) and the number of voice slots that will read them, and returns the
@@ -138,7 +143,7 @@ pub fn create_streamed(
     project: &Project,
     id: InstrumentId,
     assets: &dyn AssetResolver,
-    attach: &mut dyn FnMut(Vec<Box<dyn SampleStream>>, usize) -> Option<Arc<dyn StreamSource>>,
+    attach: &mut AttachStreams<'_>,
 ) -> Result<(HausSampler, Vec<String>), String> {
     let inst = project
         .instrument(id)

@@ -172,7 +172,7 @@ impl Processor for Half {
 }
 
 fn key_of(block: u32) -> u8 {
-    if block % 3 == 0 {
+    if block.is_multiple_of(3) {
         64 + (block % 30) as u8
     } else {
         30 + (block % 30) as u8
