@@ -160,6 +160,10 @@ pub enum Dialog {
     },
     /// Help > About: version, licence (GPLv3 notice in the ASIO build), notices.
     About,
+    /// "Save to catalogue…" on a plugin instrument channel (M3/T9).
+    CatalogueSave(crate::catalogue_ui::SaveForm),
+    /// The playing-guide editor of a catalogue entry (M3/T9).
+    CatalogueGuide(crate::catalogue_ui::GuideForm),
     /// View > Customise toolbar: show, hide and reorder the toolbar's items.
     Toolbar,
 }
@@ -277,6 +281,8 @@ pub struct AppCore {
     pub toasts: Vec<Toast>,
     pub conflict: Option<ConflictDialog>,
     pub dialog: Option<Dialog>,
+    /// The plugin instrument catalogue as the browser shows it (M3/T9).
+    pub catalogue: crate::catalogue_ui::CatalogueState,
     pub hooks: Hooks,
     pub panel_requests: Vec<(PanelId, PanelAction)>,
     /// Requests for one specific window (an instrument or effect window).
@@ -447,6 +453,7 @@ impl AppCore {
             toasts: Vec::new(),
             conflict: None,
             dialog: None,
+            catalogue: Default::default(),
             hooks,
             panel_requests: Vec::new(),
             window_requests: Vec::new(),
@@ -990,6 +997,10 @@ impl AppCore {
     /// Drop a sample or preset: a new channel with that instrument (a Sampler for samples, a
     /// Synth for presets). `name` is tidied for the rack.
     pub fn add_channel_from(&mut self, name: &str, kind: &Kind) {
+        if let Kind::Catalogue { entry } = kind {
+            self.send(crate::catalogue_ui::add_request(entry));
+            return;
+        }
         if let Some(inst) = crate::browser_model::instrument_for(kind) {
             self.add_channel(&crate::browser_model::channel_name(name), &inst);
         }
@@ -1020,7 +1031,7 @@ impl AppCore {
                     });
                 }
             }
-            Kind::Folder => {}
+            Kind::Folder | Kind::Catalogue { .. } => {}
         }
     }
 

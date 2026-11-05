@@ -5,6 +5,11 @@
 //!   note events or MIDI, MIDI pitch bend (±2 semitones) and mod wheel (CC 1 halves the
 //!   level), note expressions (volume, tuning). Deterministic and block-size independent, so
 //!   the engine's live output must match the offline render bit for bit.
+//!
+//!   The synth's state can also limit its playable range and declare keyswitches (M3/T9, for
+//!   the catalogue probe tests; additive: a state without them plays every key as before):
+//!   `range=<lo>,<hi>` plays only keys `lo..=hi`, and `ks=<key>:<wave>` makes `key` a silent
+//!   keyswitch that sets the Wave parameter (0 sine, 1 saw). Both are saved back when set.
 //! - [`GAIN_ID`] `dev.patternhaus.test.gain`: a stereo gain with [`GAIN_LATENCY`] samples of
 //!   latency (a delay line), to test latency reporting.
 //! - [`CRASH_ID`] `dev.patternhaus.test.crash`: a pass-through whose `crash` parameter makes
@@ -200,7 +205,16 @@ struct Plugin {
     delay: [[f32; GAIN_LATENCY as usize]; 2],
     delay_pos: usize,
     processing: bool,
+    /// Playable keys (state `range=`); every key by default.
+    range: (i16, i16),
+    /// Keyswitches (state `ks=`): key and the wave it selects; `ks_len` are in use.
+    ks: [(i16, f64); MAX_KS],
+    ks_len: usize,
 }
+
+/// Keyswitches the test synth's state can hold.
+const MAX_KS: usize = 8;
+const FULL_RANGE: (i16, i16) = (0, 127);
 
 unsafe fn this<'a>(p: *const clap_plugin) -> &'a mut Plugin {
     unsafe { &mut *((*p).plugin_data as *mut Plugin) }
@@ -257,6 +271,9 @@ impl Plugin {
             delay: [[0.0; GAIN_LATENCY as usize]; 2],
             delay_pos: 0,
             processing: false,
+            range: FULL_RANGE,
+            ks: [(0, 0.0); MAX_KS],
+            ks_len: 0,
         });
         let data: *mut Plugin = &mut *b;
         b.clap.plugin_data = data as *mut c_void;
@@ -282,6 +299,13 @@ impl Plugin {
     }
 
     fn note_on(&mut self, note_id: i32, channel: i16, key: i16, velocity: f64) {
+        if let Some(&(_, wave)) = self.ks[..self.ks_len].iter().find(|(k, _)| *k == key) {
+            self.params[1] = wave;
+            return;
+        }
+        if key < self.range.0 || key > self.range.1 {
+            return;
+        }
         // a free voice, else the quietest
         let slot = self.voices.iter().position(|v| !v.on).unwrap_or_else(|| {
             let mut best = 0;
@@ -832,6 +856,12 @@ unsafe extern "C-unwind" fn state_save(p: *const clap_plugin, stream: *const cla
     for (i, _) in params_of(me.kind).iter().enumerate() {
         text.push_str(&format!("{i}={}\n", me.params[i]));
     }
+    if me.range != FULL_RANGE {
+        text.push_str(&format!("range={},{}\n", me.range.0, me.range.1));
+    }
+    for (k, w) in &me.ks[..me.ks_len] {
+        text.push_str(&format!("ks={k}:{w}\n"));
+    }
     let stream = unsafe { &*stream };
     let Some(write) = stream.write else {
         return false;
@@ -879,10 +909,33 @@ unsafe extern "C" fn state_load(p: *const clap_plugin, stream: *const clap_istre
     if lines.next() != Some("PHTP1") {
         return false;
     }
+    me.range = FULL_RANGE;
+    me.ks_len = 0;
     for line in lines {
         let Some((k, v)) = line.split_once('=') else {
             return false;
         };
+        if k == "range" {
+            let Some((Ok(lo), Ok(hi))) = v.split_once(',').map(|(a, b)| (a.parse(), b.parse()))
+            else {
+                return false;
+            };
+            me.range = (lo, hi);
+            continue;
+        }
+        if k == "ks" {
+            let Some((Ok(key), Ok(wave))) = v
+                .split_once(':')
+                .map(|(a, b)| (a.parse::<i16>(), b.parse::<f64>()))
+            else {
+                return false;
+            };
+            if me.ks_len < MAX_KS {
+                me.ks[me.ks_len] = (key, wave.clamp(0.0, 1.0).round());
+                me.ks_len += 1;
+            }
+            continue;
+        }
         match (k.parse::<u32>(), v.parse::<f64>()) {
             (Ok(k), Ok(v)) => me.set_param(k, v),
             _ => return false,

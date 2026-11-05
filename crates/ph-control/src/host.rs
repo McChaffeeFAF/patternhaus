@@ -6,9 +6,9 @@ use ph_engine::{Engine, PlayMode, RenderSettings, TransportCommand, TransportSta
 use ph_formats::encode::{FlacDepth, WavFormat, write_flac, write_wav};
 use ph_node::{AssetResolver, Quality};
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, RwLock};
 
 /// `ph_commands::Host` over the engine and the filesystem.
 pub struct EngineHost {
@@ -29,6 +29,8 @@ pub struct EngineHost {
     /// MIDI notes are being collected for this pattern and channel (between `record.start`
     /// and `record.stop`).
     note_target: Option<NoteCapture>,
+    /// The plugin catalogue folder (M3/T9), shared with [`crate::Studio::set_catalogue_dir`].
+    catalogue: Arc<RwLock<Option<PathBuf>>>,
 }
 
 impl EngineHost {
@@ -51,7 +53,29 @@ impl EngineHost {
             ui_attached: Arc::new(AtomicBool::new(false)),
             midi: None,
             note_target: None,
+            catalogue: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Shares the catalogue folder setting (see `Studio::set_catalogue_dir`).
+    pub fn with_catalogue(mut self, dir: Arc<RwLock<Option<PathBuf>>>) -> Self {
+        self.catalogue = dir;
+        self
+    }
+
+    /// `reference` as a path in the project folder, when it is a relative path inside
+    /// `plugins/`.
+    fn plugins_file(&self, reference: &str) -> CmdResult<PathBuf> {
+        let rel = Path::new(reference);
+        let ok = !rel.is_absolute()
+            && rel.components().all(|c| matches!(c, Component::Normal(_)))
+            && rel.starts_with("plugins");
+        if !ok {
+            return Err(CmdError::Host(format!(
+                "{reference}: only files inside plugins/ of the project may be written here"
+            )));
+        }
+        Ok(self.project_dir.join(rel))
     }
 
     /// Connects the `midi.*` commands and MIDI note recording to the MIDI service.
@@ -774,6 +798,15 @@ impl Host for EngineHost {
             }
             std::fs::write(&target, bytes)
                 .map_err(|e| CmdError::Host(format!("{}: {e}", target.display())))?;
+            // the playing guide copied from the catalogue travels with its state (M3/T9)
+            let guide = ph_commands::catalogue::project_guide_ref(&r);
+            let (from, to) = (self.project_dir.join(&guide), dir.join(&guide));
+            if from != to
+                && let Ok(b) = std::fs::read(&from)
+            {
+                std::fs::write(&to, b)
+                    .map_err(|e| CmdError::Host(format!("{}: {e}", to.display())))?;
+            }
             written.push(r);
         }
         Ok(written)
@@ -782,6 +815,57 @@ impl Host for EngineHost {
     fn plugin_editor(&mut self, target: PluginTarget, open: bool) -> CmdResult<bool> {
         let _ = self.ui.send(UiRequest::PluginEditor { target, open });
         Ok(self.ui_attached.load(Ordering::Relaxed))
+    }
+
+    fn catalogue_dir(&self) -> Option<PathBuf> {
+        self.catalogue
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn plugin_state(&self, project: &Project, target: PluginTarget) -> CmdResult<CapturedState> {
+        let (format, id, _) = plugin_spec(project, target)?;
+        let lp = self
+            .engine
+            .plugin(slot_of(target))
+            .filter(|lp| lp.info.id == id && lp.info.format == format)
+            .ok_or_else(|| {
+                CmdError::Host(format!(
+                    "the plugin at {target} is not running (not installed, not scanned, or still loading); its state cannot be read"
+                ))
+            })?;
+        if lp.fault.is_dead() {
+            return Err(CmdError::Host(format!(
+                "the plugin at {target} crashed; its state cannot be read"
+            )));
+        }
+        let file = lp.state_file().map_err(CmdError::Host)?;
+        Ok(CapturedState {
+            format,
+            plugin_id: id,
+            name: lp.info.name.clone(),
+            vendor: lp.info.vendor.clone(),
+            version: lp.info.version.clone(),
+            file,
+        })
+    }
+
+    fn write_project_file(&mut self, reference: &str, bytes: &[u8]) -> CmdResult<()> {
+        let path = self.plugins_file(reference)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CmdError::Host(format!("{}: {e}", parent.display())))?;
+        }
+        std::fs::write(&path, bytes).map_err(|e| CmdError::Host(format!("{}: {e}", path.display())))
+    }
+
+    fn read_project_file(&self, reference: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.plugins_file(reference).ok()?).ok()
+    }
+
+    fn plugin_probe(&mut self, request: &ProbeRequest) -> CmdResult<ProbeReport> {
+        crate::probe::run(&self.plugin_env()?, self.assets.as_ref(), request)
     }
 }
 

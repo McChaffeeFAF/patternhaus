@@ -80,8 +80,10 @@ fn matches(n: &Node, f: &str) -> bool {
     f.is_empty() || n.name.to_lowercase().contains(f) || n.children.iter().any(|c| matches(c, f))
 }
 
-/// The browser's tabs, in order.
+/// The browser's tabs, in order. A fifth, [`CATALOGUE_TAB`], shows when the session has a
+/// plugin catalogue (M3/T9).
 pub const TABS: [&str; 4] = ["Samples", "Presets", "Project", "Library"];
+pub const CATALOGUE_TAB: usize = 4;
 
 /// One visible line of the tree.
 struct Row<'a> {
@@ -123,7 +125,9 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     // tabs
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        for (i, name) in TABS.iter().enumerate() {
+        let catalogue = crate::catalogue_ui::available(core);
+        let names = TABS.iter().copied().chain(catalogue.then_some("Catalogue"));
+        for (i, name) in names.enumerate() {
             if widgets::tab(ui, &theme, name, core.browser.tab == i).clicked() {
                 core.browser.tab = i;
             }
@@ -160,9 +164,18 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     ui.add_space(2.0);
 
     let filter = core.browser.filter.to_lowercase();
-    let tab = core.browser.tab.min(TABS.len() - 1);
+    let catalogue = crate::catalogue_ui::available(core);
+    let tab = core.browser.tab.min(if catalogue {
+        CATALOGUE_TAB
+    } else {
+        TABS.len() - 1
+    });
+    if tab == CATALOGUE_TAB {
+        crate::catalogue_ui::refresh(core);
+    }
     let owned: Vec<Node>;
     let (nodes, root): (&[Node], &str) = match tab {
+        CATALOGUE_TAB => (&core.catalogue.nodes, "catalogue"),
         0 => (&core.browser.factory, "samples"),
         1 => (&core.browser.presets, "presets"),
         2 => (&core.browser.project, "project"),
@@ -228,9 +241,13 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         }
     }
 
-    // the preview waveform of the selected sample
+    // the preview waveform of the selected sample, or the catalogue entry's playing guide
     ui.add_space(4.0);
-    preview(ui, core, &theme);
+    if tab == CATALOGUE_TAB {
+        crate::catalogue_ui::guide_panel(ui, core);
+    } else {
+        preview(ui, core, &theme);
+    }
     ui.label(
         RichText::new("Click to preview, double-click or drag to the rack to add.")
             .size(11.0)
@@ -240,6 +257,9 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
     for a in actions {
         match a {
             Action::Preview(key, kind) => {
+                if let Kind::Catalogue { entry } = &kind {
+                    crate::catalogue_ui::select(core, entry);
+                }
                 core.browser.selected = Some(key);
                 core.browser.preview_ref = match &kind {
                     Kind::Sample { reference } => Some(reference.clone()),
@@ -248,6 +268,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 core.audition(&kind);
             }
             Action::Add(name, kind) => core.add_channel_from(&name, &kind),
+            Action::EditGuide(entry) => crate::catalogue_ui::open_guide(core, &entry),
             Action::AddKit(samples) => {
                 let first = core.project.channels.len();
                 let theme = core.theme.clone();
@@ -280,6 +301,8 @@ const ROW_H: f32 = 22.0;
 
 enum Action {
     Preview(String, Kind),
+    /// Open the playing-guide editor of a catalogue entry.
+    EditGuide(String),
     Add(String, Kind),
     AddKit(Vec<(String, String)>),
 }
@@ -329,6 +352,7 @@ fn tree_row(
         Kind::Folder => Icon::Folder,
         Kind::Sample { .. } => Icon::Sample,
         Kind::Preset { .. } => Icon::Preset,
+        Kind::Catalogue { .. } => Icon::Plugin,
     };
     icon.paint(
         p,
@@ -337,6 +361,7 @@ fn tree_row(
             Kind::Folder => c.warn,
             Kind::Sample { .. } => c.accent,
             Kind::Preset { .. } => c.agent,
+            Kind::Catalogue { .. } => c.accent,
         },
     );
     x += 22.0;
@@ -355,11 +380,15 @@ fn tree_row(
         Kind::Folder => "click to open or close; right-click to add its samples",
         Kind::Sample { .. } => "click to preview, double-click or drag to the rack to add",
         Kind::Preset { .. } => "click to hear it, double-click or drag to the rack to add",
+        Kind::Catalogue { .. } => {
+            "click to read its playing guide, double-click or drag to the rack to add; right-click edits the guide"
+        }
     };
     let kind_name = match &n.kind {
         Kind::Folder => "Folder",
         Kind::Sample { .. } => "Sample",
         Kind::Preset { .. } => "Preset",
+        Kind::Catalogue { .. } => "Catalogue instrument",
     };
     let resp = resp.hint(&n.name, kind_name, gestures);
     if n.is_folder() {
@@ -405,6 +434,12 @@ fn tree_row(
     resp.context_menu(|ui| {
         if menu_item(ui, "Add as channel", "").clicked() {
             actions.push(Action::Add(n.name.clone(), n.kind.clone()));
+            ui.close();
+        }
+        if let Kind::Catalogue { entry } = &n.kind
+            && menu_item(ui, "Edit playing guide…", "").clicked()
+        {
+            actions.push(Action::EditGuide(entry.clone()));
             ui.close();
         }
         crate::hint::standard_entries(

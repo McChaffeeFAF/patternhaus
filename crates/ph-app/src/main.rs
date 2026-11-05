@@ -183,6 +183,8 @@ fn main() -> eframe::Result {
             // MIDI keyboards and controllers (hot-plug included); learned mappings are kept
             // per user in the config folder
             studio.use_midi_devices(config_dir.as_deref());
+            // the plugin instrument catalogue (M3/T9): per user, outside any project
+            studio.set_catalogue_dir(ph_control::default_catalogue_dir());
             let hooks = start_local_agent_endpoint(&studio);
             if args.demo_agent {
                 let session = studio.session.clone();

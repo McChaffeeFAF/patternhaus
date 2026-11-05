@@ -8,6 +8,7 @@
 
 mod audio_edit;
 mod builtin;
+pub mod catalogue;
 mod host;
 mod proposal;
 mod queue;

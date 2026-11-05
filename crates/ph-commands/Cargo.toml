@@ -15,6 +15,8 @@ schemars.workspace = true
 thiserror.workspace = true
 ph-formats.workspace = true
 ph-sampler-formats.workspace = true
+# the plugin catalogue store (M3/T9): hand-editable entry.toml files
+toml.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

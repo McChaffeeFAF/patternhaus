@@ -25,6 +25,7 @@ mod jsonrpc;
 mod m2_agent_tests;
 mod mcp;
 mod node_params;
+mod probe;
 mod views;
 mod views_m2;
 mod views_m3;
@@ -119,6 +120,29 @@ pub fn default_plugin_config() -> ph_engine::plugins::HostConfig {
     }
 }
 
+/// The per-user plugin catalogue folder (M3/T9, `docs/formats/catalogue.md`):
+/// `$PATTERNHAUS_CATALOGUE` when set, else `Patternhaus/catalogue` in the user's data folder
+/// (`%APPDATA%` on Windows, `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` or
+/// `~/.local/share` elsewhere). `None` when none is known. Nothing is created here.
+pub fn default_catalogue_dir() -> Option<PathBuf> {
+    let env = |k: &str| {
+        std::env::var_os(k)
+            .map(PathBuf::from)
+            .filter(|p| !p.as_os_str().is_empty())
+    };
+    if let Some(d) = env("PATTERNHAUS_CATALOGUE") {
+        return Some(d);
+    }
+    let data = if cfg!(windows) {
+        env("APPDATA")
+    } else if cfg!(target_os = "macos") {
+        env("HOME").map(|h| h.join("Library/Application Support"))
+    } else {
+        env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share")))
+    };
+    data.map(|d| d.join("Patternhaus").join("catalogue"))
+}
+
 /// The running application core.
 pub struct Studio {
     pub session: SessionHandle,
@@ -138,6 +162,8 @@ pub struct Studio {
     hub: Arc<OnceLock<Arc<EventHub>>>,
     ui_hint: Arc<Mutex<Option<UiHint>>>,
     ui_attached: Arc<AtomicBool>,
+    /// The plugin catalogue folder; `None` (the default) = no catalogue.
+    catalogue: Arc<std::sync::RwLock<Option<PathBuf>>>,
 }
 
 impl Drop for Studio {
@@ -218,10 +244,12 @@ impl Studio {
             Box::new(ph_engine::midi::NoMidi),
             ph_engine::midi::MappingStore::memory(),
         ));
+        let catalogue = Arc::new(std::sync::RwLock::new(None));
         let host = EngineHost::new(engine.clone(), assets.clone(), &config, ui_tx)
             .with_resolver(resolver)
             .with_midi(midi.clone())
-            .with_ui_flag(ui_attached.clone());
+            .with_ui_flag(ui_attached.clone())
+            .with_catalogue(catalogue.clone());
         let registry = Arc::new(studio_registry());
         let session = Session::new(registry.clone(), (*project).clone());
         let session = SessionHandle::spawn(session, host);
@@ -262,7 +290,22 @@ impl Studio {
             hub: Arc::new(OnceLock::new()),
             ui_hint: Arc::new(Mutex::new(None)),
             ui_attached,
+            catalogue,
         })
+    }
+
+    /// Where the plugin catalogue lives (M3/T9); `None` turns the `catalogue.*` commands off.
+    /// Studios start without one: front ends pass [`default_catalogue_dir`], tests a temp
+    /// folder, so no test ever touches the user's catalogue.
+    pub fn set_catalogue_dir(&self, dir: Option<PathBuf>) {
+        *self.catalogue.write().unwrap_or_else(|e| e.into_inner()) = dir;
+    }
+
+    pub fn catalogue_dir(&self) -> Option<PathBuf> {
+        self.catalogue
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Points MIDI at the system's devices (hot-plug included) and keeps the user's controller
@@ -415,6 +458,8 @@ pub fn studio_registry() -> Registry {
     registry
 }
 
+#[cfg(test)]
+mod catalogue_tests;
 #[cfg(test)]
 mod coverage;
 #[cfg(test)]

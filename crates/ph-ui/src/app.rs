@@ -1081,6 +1081,20 @@ impl PhApp {
                     close = true;
                 }
             }
+            Dialog::CatalogueSave(mut form) => {
+                if crate::catalogue_ui::save_dialog(ctx, &mut self.core, &mut form) {
+                    new_state = Some(Dialog::CatalogueSave(form));
+                } else {
+                    close = true;
+                }
+            }
+            Dialog::CatalogueGuide(mut form) => {
+                if crate::catalogue_ui::guide_dialog(ctx, &mut self.core, &mut form) {
+                    new_state = Some(Dialog::CatalogueGuide(form));
+                } else {
+                    close = true;
+                }
+            }
             Dialog::Toolbar => {
                 if toolbar::dialog(ctx, &mut self.core) {
                     new_state = Some(Dialog::Toolbar);
@@ -1242,7 +1256,7 @@ fn effect_kind(e: &ph_core::EffectSpec) -> String {
     }
 }
 
-fn modal(ctx: &egui::Context, title: &str, add: impl FnOnce(&mut Ui)) {
+pub(crate) fn modal(ctx: &egui::Context, title: &str, add: impl FnOnce(&mut Ui)) {
     egui::Window::new(title)
         .collapsible(false)
         .resizable(false)

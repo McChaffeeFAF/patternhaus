@@ -20,6 +20,7 @@ pub mod loudness;
 pub mod masking;
 pub mod music;
 pub mod onsets;
+pub mod probe;
 pub mod reference;
 pub mod spectrum;
 pub mod tempo;

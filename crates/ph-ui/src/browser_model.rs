@@ -19,6 +19,10 @@ pub enum Kind {
     Preset {
         name: String,
     },
+    /// A plugin instrument saved in the catalogue (M3/T9), by entry id.
+    Catalogue {
+        entry: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -178,7 +182,7 @@ pub fn instrument_for(kind: &Kind) -> Option<InstrumentSpec> {
             preset: Some(name.clone()),
             params: Default::default(),
         }),
-        Kind::Folder => None,
+        Kind::Folder | Kind::Catalogue { .. } => None,
     }
 }
 
