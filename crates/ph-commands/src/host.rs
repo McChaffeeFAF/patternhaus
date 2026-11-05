@@ -137,6 +137,44 @@ pub trait Host {
         Err(no_plugins())
     }
 
+    // ---- plugin catalogue (M3/T9). Additive defaults: hosts without one refuse.
+
+    /// The per-user plugin catalogue folder (`docs/formats/catalogue.md`); `None` when this
+    /// session has none.
+    fn catalogue_dir(&self) -> Option<PathBuf> {
+        None
+    }
+
+    /// The state of the plugin running at `target`, as a plugin-state file (opaque bytes,
+    /// never parsed), with the plugin's name, vendor and version.
+    fn plugin_state(&self, project: &Project, target: PluginTarget) -> CmdResult<CapturedState> {
+        let _ = (project, target);
+        Err(no_plugins())
+    }
+
+    /// Writes a file into the project folder: `reference` is project-relative and inside
+    /// `plugins/` (a state restored from the catalogue, and its guide copy). The engine reads
+    /// it when the channel naming it is built, off the audio thread.
+    fn write_project_file(&mut self, reference: &str, bytes: &[u8]) -> CmdResult<()> {
+        let _ = (reference, bytes);
+        Err(CmdError::Host(
+            "this host cannot write project files".into(),
+        ))
+    }
+
+    /// Reads a project-relative file (`plugins/<file>`); `None` when there is none.
+    fn read_project_file(&self, reference: &str) -> Option<Vec<u8>> {
+        let _ = reference;
+        None
+    }
+
+    /// Renders probe notes through a plugin instrument restored from `request.state`,
+    /// offline and headless (no editor), and measures them (`catalogue.probe`).
+    fn plugin_probe(&mut self, request: &ProbeRequest) -> CmdResult<ProbeReport> {
+        let _ = request;
+        Err(no_plugins())
+    }
+
     // ---- recording and MIDI (M2/T8). Additive defaults: hosts without devices refuse.
 
     /// The audio inputs with their armed state, and the latency readout.
@@ -430,6 +468,84 @@ pub struct PluginParams {
     pub latency: u32,
     pub has_editor: bool,
     pub params: Vec<PluginParam>,
+}
+
+/// A running plugin's state, from [`Host::plugin_state`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct CapturedState {
+    pub format: ph_core::PluginFormat,
+    pub plugin_id: String,
+    pub name: String,
+    pub vendor: String,
+    /// The plugin version that wrote the state.
+    pub version: String,
+    /// A plugin-state file: what `plugins/<file>.state` holds (opaque).
+    pub file: Vec<u8>,
+}
+
+/// What [`Host::plugin_probe`] plays: every key of `keys` at every velocity (a chromatic
+/// sweep), then, when `keyswitches` is not empty, `test_key` once on its own and once after
+/// each candidate keyswitch.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProbeRequest {
+    pub format: ph_core::PluginFormat,
+    pub plugin_id: String,
+    /// A plugin-state file to restore first (opaque); empty = the plugin's defaults.
+    pub state: Vec<u8>,
+    pub keys: Vec<u8>,
+    /// 0..=1
+    pub velocities: Vec<f32>,
+    pub note_seconds: f64,
+    /// Silence after each note, for its release to ring out.
+    pub gap_seconds: f64,
+    pub keyswitches: Vec<u8>,
+    pub test_key: u8,
+}
+
+/// One probe note as measured.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ProbeLevel {
+    pub key: u8,
+    pub velocity: f32,
+    /// RMS level while the note is held, dBFS (`None` = digital silence).
+    pub rms_db: Option<f64>,
+    pub peak_db: Option<f64>,
+    /// Spectral centroid, Hz, when it sounds.
+    pub centroid_hz: Option<f64>,
+    /// Louder than the silence floor and than the previous note's tail.
+    pub sounds: bool,
+}
+
+/// A candidate keyswitch as probed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct KeyswitchProbe {
+    pub key: u8,
+    /// The candidate key made a sound itself (a keyswitch usually does not).
+    pub sounds: bool,
+    /// The test note played after it.
+    pub after: ProbeLevel,
+    /// The test note sounds different from the one before this candidate (or from the
+    /// baseline, for the first): it selected another articulation.
+    pub changes_sound: bool,
+}
+
+/// What [`Host::plugin_probe`] measured.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ProbeReport {
+    /// The chromatic sweep, key by key at each velocity.
+    pub sweep: Vec<ProbeLevel>,
+    /// Keys that sounded at any velocity.
+    pub sounding: Vec<u8>,
+    /// Lowest and highest sounding key.
+    pub range: Option<[u8; 2]>,
+    /// The test note before any candidate keyswitch.
+    pub baseline: Option<ProbeLevel>,
+    pub keyswitches: Vec<KeyswitchProbe>,
+    /// Length of the probe render.
+    pub seconds: f64,
+    /// Problems restoring the state (e.g. a different plugin version), from the host.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// An audio file's format, from [`Host::sample_info`].

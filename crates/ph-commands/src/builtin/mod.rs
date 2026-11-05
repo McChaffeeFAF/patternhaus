@@ -14,6 +14,9 @@ mod audio;
 mod automation;
 #[cfg(test)]
 mod behaviour;
+mod catalogue;
+#[cfg(test)]
+mod catalogue_behaviour;
 mod channel;
 mod editor;
 #[cfg(test)]
@@ -62,6 +65,7 @@ use crate::*;
 
 pub fn register_builtin(r: &mut Registry) {
     project::register(r);
+    catalogue::register(r);
     channel::register(r);
     pattern::register(r);
     note::register(r);
