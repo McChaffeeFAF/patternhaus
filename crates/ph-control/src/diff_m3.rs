@@ -308,7 +308,8 @@ fn zone_lines(
         .values()
         .filter(|z| !n.zones.contains_key(&z.id))
         .collect();
-    let (mut moved, mut changed): (Vec<(&Zone, &Zone)>, Vec<(&Zone, &Zone)>) = (vec![], vec![]);
+    let mut moved: Vec<(&Zone, &Zone)> = Vec::new();
+    let mut changed: Vec<(&Zone, &Zone)> = Vec::new();
     for z in n.zones.values() {
         let Some(old) = o.zones.get(&z.id) else {
             continue;
