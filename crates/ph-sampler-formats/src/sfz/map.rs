@@ -161,6 +161,10 @@ fn normalise(p: &Path) -> PathBuf {
 
 /// `p` as it is on disk: each component matched exactly first, then ignoring case
 /// (§3.4). The flag is true when a component's case differed. `dirs` caches listings.
+///
+/// A component no listing shows but the file system still resolves is kept as written:
+/// Windows 8.3 short names (`C:\Users\RUNNER~1`, GitHub's runner temp folder) are never
+/// listed under that name, so matching them against listings alone loses every sample.
 fn find_on_disk(
     p: &Path,
     dirs: &mut BTreeMap<PathBuf, Vec<std::ffi::OsString>>,
@@ -187,13 +191,21 @@ fn find_on_disk(
             continue;
         }
         let want = name.to_string_lossy().to_lowercase();
-        let hit = names
+        match names
             .iter()
             .filter(|n| n.to_string_lossy().to_lowercase() == want)
-            .min()?
-            .clone();
-        cur.push(hit);
-        fixed = true;
+            .min()
+        {
+            Some(hit) => {
+                cur.push(hit);
+                fixed = true;
+            }
+            None => {
+                let alias = cur.join(name);
+                std::fs::metadata(&alias).ok()?;
+                cur = alias;
+            }
+        }
     }
     cur.is_file().then_some((cur, fixed))
 }
@@ -225,7 +237,8 @@ impl Samples<'_> {
             PathBuf::from(&joined)
         } else {
             match self.main_dir {
-                Some(d) => d.join(&joined),
+                // one component at a time: `/` is no separator under a `\?\` folder
+                Some(d) => joined.split('/').fold(d.to_path_buf(), |p, c| p.join(c)),
                 None => {
                     notes.skip(
                         format!("sample:{joined}"),

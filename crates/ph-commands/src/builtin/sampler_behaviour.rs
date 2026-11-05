@@ -432,7 +432,33 @@ struct FsRig {
     s: Session,
     h: FsHost,
     who: Caller,
-    dir: tempfile::TempDir,
+    /// Kept for its lifetime; paths go through `root`.
+    _dir: tempfile::TempDir,
+    /// The temp folder as the tests name it: its 8.3 short alias where the volume makes
+    /// them, like GitHub's Windows runner (`C:\Users\RUNNER~1\...`).
+    root: std::path::PathBuf,
+}
+
+/// `p` by its 8.3 short name when Windows has one that differs (the folder name below is
+/// long enough to get one wherever 8.3 names are on); `p` itself otherwise.
+fn short_alias(p: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        let script = format!(
+            "(New-Object -ComObject Scripting.FileSystemObject).GetFolder('{}').ShortPath",
+            p.display().to_string().replace('\'', "''")
+        );
+        if let Ok(o) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+        {
+            let short = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if o.status.success() && !short.is_empty() && std::path::Path::new(&short).is_dir() {
+                return short.into();
+            }
+        }
+    }
+    p.to_path_buf()
 }
 
 fn tone(path: &std::path::Path, frames: usize) {
@@ -444,8 +470,12 @@ fn tone(path: &std::path::Path, frames: usize) {
 
 impl FsRig {
     fn new() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let (project, lib) = (dir.path().join("project"), dir.path().join("lib"));
+        let dir = tempfile::Builder::new()
+            .prefix("ph sampler files ")
+            .tempdir()
+            .unwrap();
+        let root = short_alias(dir.path());
+        let (project, lib) = (root.join("project"), root.join("lib"));
         std::fs::create_dir_all(&project).unwrap();
         std::fs::create_dir_all(&lib).unwrap();
         Self {
@@ -456,7 +486,8 @@ impl FsRig {
                 lib,
             },
             who: Caller::human(),
-            dir,
+            _dir: dir,
+            root,
         }
     }
 
@@ -550,6 +581,48 @@ fn sampler_import_links_an_sfz_library_and_reports_what_it_skipped() {
     // one undo removes the instrument and its channel
     r.s.undo(&Author::Human).unwrap().unwrap();
     assert!(r.s.project().instruments.is_empty() && r.s.project().channels.is_empty());
+}
+
+/// Windows CI (GitHub's runner): the temp folder is an 8.3 short name and paths arrive with
+/// `/`; the SFZ importer must still find every sample (it used to match each component of the
+/// absolute path against folder listings, which never show `RUNNER~1`, so all three samples
+/// went missing, nothing was copied and the report had no folder to land in).
+#[test]
+fn sampler_import_finds_samples_under_short_and_forward_slash_paths() {
+    let mut r = FsRig::new();
+    let sfz = r.sfz_library();
+    let slashed = sfz.to_string_lossy().replace('\\', "/");
+    let out = r.run("sampler.import", json!({ "path": slashed }));
+    assert_eq!(
+        (out["zones"].as_u64(), out["collected"].as_bool()),
+        (Some(3), Some(false))
+    );
+    assert_eq!(
+        out["report"]["notes"].as_array().map(|n| n
+            .iter()
+            .any(|n| n["what"].as_str().is_some_and(|w| w.starts_with("sample:")))),
+        Some(false),
+        "no sample reported missing"
+    );
+    let out = r.run(
+        "sampler.import",
+        json!({ "path": slashed, "collect": true }),
+    );
+    assert_eq!(
+        (out["zones"].as_u64(), out["copied"].as_u64()),
+        (Some(3), Some(3))
+    );
+    let folder = r.h.project.join(out["folder"].as_str().unwrap());
+    assert!(folder.join("import-report.md").is_file());
+    for z in r.inst(1).zones.values() {
+        let SampleRef::File(f) = &z.sample else {
+            panic!()
+        };
+        assert!(
+            folder.join(f).is_file(),
+            "{f} lands in the instrument folder"
+        );
+    }
 }
 
 #[test]
@@ -822,7 +895,7 @@ fn sampler_import_keeps_agents_inside_their_folders() {
     let mut r = FsRig::new();
     let sfz = r.sfz_library();
     // an instrument file outside the allowed folders is refused for an agent
-    let outside = r.dir.path().join("elsewhere");
+    let outside = r.root.join("elsewhere");
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("piano.sfz"), "<region> sample=x.wav").unwrap();
     r.who = Caller::agent("claude", Grant::full());
@@ -832,7 +905,7 @@ fn sampler_import_keeps_agents_inside_their_folders() {
             .is_err()
     );
     // samples outside the allowed folders are refused too
-    let secret = r.dir.path().join("secret.wav");
+    let secret = r.root.join("secret.wav");
     tone(&secret, 100);
     std::fs::write(
         r.h.lib.join("sneaky.sfz"),

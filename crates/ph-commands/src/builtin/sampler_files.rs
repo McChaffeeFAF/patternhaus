@@ -153,7 +153,7 @@ impl Copier {
             if self.taken.contains_key(&cand) {
                 continue;
             }
-            let target = self.dir.join(&cand);
+            let target = join_rel(&self.dir, &cand);
             if target.exists() {
                 let same = std::fs::read(&target).map(|b| b == data).unwrap_or(false);
                 if !same {
@@ -178,6 +178,14 @@ impl Copier {
             std::fs::read(source).map_err(|e| host_err(source, e))
         })
     }
+}
+
+/// `dir` joined with a `/`-separated relative name one component at a time, so the result
+/// has one kind of separator (under a `\?\` folder, `/` is no separator at all).
+fn join_rel(dir: &Path, rel: &str) -> PathBuf {
+    rel.split('/')
+        .filter(|c| !c.is_empty())
+        .fold(dir.to_path_buf(), |p, c| p.join(c))
 }
 
 fn file_name(p: &str) -> String {
@@ -371,7 +379,7 @@ pub(crate) fn save_native(ctx: &mut CommandCtx<'_>, p: SaveNative) -> CmdResult<
                 )
             }
         };
-        let same_file = target.join(&rel) == src;
+        let same_file = join_rel(&target, &rel) == src;
         let name = if same_file { rel } else { c.copy(&src, &rel)? };
         z.sample = SampleRef::File(name);
     }
@@ -527,8 +535,8 @@ pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOu
                 }
             }
             let md = abs.join("import-report.md");
-            // the copies above create their own parent folders, but nothing guarantees the
-            // instrument folder itself exists yet (seen on Windows CI)
+            // an import whose samples were all missing (reported) copies nothing, so the
+            // instrument folder may not exist yet
             std::fs::create_dir_all(&abs).map_err(|e| host_err(&abs, e))?;
             std::fs::write(&md, imported.report.to_markdown()).map_err(|e| host_err(&md, e))?;
             copied = c.copied;
