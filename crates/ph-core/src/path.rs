@@ -9,7 +9,8 @@ use std::str::FromStr;
 ///
 /// String form (what agents see): `settings`, `channel/3`, `channel_order`, `pattern/2`,
 /// `pattern_order`, `note/<pattern>/<channel>/<note>`, `insert/4`, `track/0`, `clip/7`,
-/// `sample/2` and `point/<clip>/<point>` (format 2).
+/// `sample/2` and `point/<clip>/<point>` (format 2), `instrument/<i>`,
+/// `instrument/<i>/group/<g>` and `instrument/<i>/zone/<z>` (format 3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ObjectPath {
     /// Value: [`ProjectSettings`]. Always present.
@@ -34,6 +35,12 @@ pub enum ObjectPath {
     Sample(SampleId),
     /// Value: [`AutomationPoint`] of an automation clip.
     Point(ClipId, PointId),
+    /// Value: [`HausInstrument`] without its groups and zones.
+    Instrument(InstrumentId),
+    /// Value: [`Group`] of a Haus Sampler instrument.
+    Group(InstrumentId, GroupId),
+    /// Value: [`Zone`] of a Haus Sampler instrument.
+    Zone(InstrumentId, ZoneId),
 }
 
 impl ObjectPath {
@@ -69,6 +76,9 @@ impl fmt::Display for ObjectPath {
             ObjectPath::Clip(c) => write!(f, "clip/{c}"),
             ObjectPath::Sample(s) => write!(f, "sample/{s}"),
             ObjectPath::Point(c, p) => write!(f, "point/{c}/{p}"),
+            ObjectPath::Instrument(i) => write!(f, "instrument/{i}"),
+            ObjectPath::Group(i, g) => write!(f, "instrument/{i}/group/{g}"),
+            ObjectPath::Zone(i, z) => write!(f, "instrument/{i}/zone/{z}"),
         }
     }
 }
@@ -96,6 +106,13 @@ impl FromStr for ObjectPath {
             ("clip", 2) => ObjectPath::Clip(ClipId(num(1)?)),
             ("sample", 2) => ObjectPath::Sample(SampleId(num(1)?)),
             ("point", 3) => ObjectPath::Point(ClipId(num(1)?), PointId(num(2)?)),
+            ("instrument", 2) => ObjectPath::Instrument(InstrumentId(num(1)?)),
+            ("instrument", 4) if parts[2] == "group" => {
+                ObjectPath::Group(InstrumentId(num(1)?), GroupId(num(3)?))
+            }
+            ("instrument", 4) if parts[2] == "zone" => {
+                ObjectPath::Zone(InstrumentId(num(1)?), ZoneId(num(3)?))
+            }
             _ => return Err(bad()),
         };
         Ok(path)
@@ -123,8 +140,8 @@ impl JsonSchema for ObjectPath {
     fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
         schemars::json_schema!({
             "type": "string",
-            "description": "Object path: settings | channel/<id> | channel_order | pattern/<id> | pattern_order | note/<pattern>/<channel>/<note> | insert/<n> | track/<n> | clip/<id> | sample/<id> | point/<clip>/<point>",
-            "pattern": "^(settings|channel_order|pattern_order|(channel|pattern|insert|track|clip|sample)/\\d+|point/\\d+/\\d+|note/\\d+/\\d+/\\d+)$"
+            "description": "Object path: settings | channel/<id> | channel_order | pattern/<id> | pattern_order | note/<pattern>/<channel>/<note> | insert/<n> | track/<n> | clip/<id> | sample/<id> | point/<clip>/<point> | instrument/<id> | instrument/<id>/group/<id> | instrument/<id>/zone/<id>",
+            "pattern": "^(settings|channel_order|pattern_order|(channel|pattern|insert|track|clip|sample|instrument)/\\d+|point/\\d+/\\d+|instrument/\\d+/(group|zone)/\\d+|note/\\d+/\\d+/\\d+)$"
         })
     }
 }

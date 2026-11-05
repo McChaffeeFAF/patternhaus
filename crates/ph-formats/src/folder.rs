@@ -94,7 +94,7 @@ type Migration = fn(&mut Value) -> FormatResult<()>;
 /// `MIGRATIONS[n - 1]` upgrades version `n` to `n + 1`. Add a step here and bump
 /// `FORMAT_VERSION` together, and add a fixture of the old version to the tests
 /// (`tests/fixtures/`).
-const MIGRATIONS: &[Migration] = &[v1_to_v2];
+const MIGRATIONS: &[Migration] = &[v1_to_v2, v2_to_v3];
 
 /// 1 → 2 (M2): audio and automation clips, the sample registry (`samples`), automation
 /// points and the `sample`/`point` id counters were added, all with serde defaults, and a
@@ -116,6 +116,27 @@ fn v1_to_v2(value: &mut Value) -> FormatResult<()> {
         return Err(FormatError::Invalid(
             "a version 1 project cannot have a sample registry".into(),
         ));
+    }
+    Ok(())
+}
+
+/// 2 → 3 (M3): Haus Sampler instruments (`instruments`), the `instrument`/`group`/`zone` id
+/// counters and `MultiSampler.instrument` were added, all with serde defaults, so a version 2
+/// file is already a valid version 3 file. Checked: a version 2 file cannot hold instruments.
+fn v2_to_v3(value: &mut Value) -> FormatResult<()> {
+    if value.get("instruments").is_some() {
+        return Err(FormatError::Invalid(
+            "a version 2 project cannot hold Haus Sampler instruments".into(),
+        ));
+    }
+    let ids = value.get("next_ids").and_then(Value::as_object);
+    if let Some(k) = ["instrument", "group", "zone"]
+        .into_iter()
+        .find(|k| ids.is_some_and(|m| m.contains_key(*k)))
+    {
+        return Err(FormatError::Invalid(format!(
+            "a version 2 project cannot count {k} ids"
+        )));
     }
     Ok(())
 }
@@ -199,6 +220,65 @@ pub fn validate(p: &Project) -> FormatResult<()> {
         };
         if c.id != *id || !source_ok || c.track as usize >= p.tracks.len() || c.length == 0 {
             return bad(format!("clip {} points outside the project", c.id));
+        }
+    }
+    validate_instruments(p)
+}
+
+/// The Haus Sampler invariants of `ph_core::set`, for a loaded file.
+fn validate_instruments(p: &Project) -> FormatResult<()> {
+    let bad = |m: String| Err(FormatError::Invalid(m));
+    let mut groups = std::collections::BTreeSet::new();
+    let mut zones = std::collections::BTreeSet::new();
+    for (id, inst) in p.instruments.iter() {
+        if inst.id != *id {
+            return bad(format!("instrument {id} is malformed"));
+        }
+        ph_core::validate_instrument_header(inst)?;
+        for (gid, g) in &inst.groups {
+            if g.id != *gid || !groups.insert(*gid) {
+                return bad(format!("group {gid} is malformed or used twice"));
+            }
+            ph_core::validate_group(g)?;
+            if g.articulations
+                .iter()
+                .any(|a| inst.articulation(*a).is_none())
+            {
+                return bad(format!("group {gid} plays a missing articulation"));
+            }
+        }
+        for (zid, z) in &inst.zones {
+            if z.id != *zid || !zones.insert(*zid) {
+                return bad(format!("zone {zid} is malformed or used twice"));
+            }
+            ph_core::validate_zone(z)?;
+            if !inst.groups.contains_key(&z.group) {
+                return bad(format!("zone {zid} is in missing group {}", z.group));
+            }
+            if let ph_core::SampleRef::Registry(s) = z.sample
+                && !p.samples.contains_key(&s)
+            {
+                return bad(format!("zone {zid} plays missing sample {s}"));
+            }
+        }
+        if inst
+            .modulation
+            .iter()
+            .any(|r| r.group.is_some_and(|g| !inst.groups.contains_key(&g)))
+        {
+            return bad(format!(
+                "instrument {id} routes modulation to a missing group"
+            ));
+        }
+    }
+    for ch in p.channels.values() {
+        if let ph_core::InstrumentSpec::MultiSampler {
+            instrument: Some(i),
+            ..
+        } = &ch.instrument
+            && !p.instruments.contains_key(i)
+        {
+            return bad(format!("channel {} plays missing instrument {i}", ch.id));
         }
     }
     Ok(())

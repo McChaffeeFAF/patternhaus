@@ -328,6 +328,7 @@ fn factory() {
     );
     let multi = InstrumentSpec::MultiSampler {
         library: None,
+        instrument: None,
         params: BTreeMap::new(),
     };
     assert!(

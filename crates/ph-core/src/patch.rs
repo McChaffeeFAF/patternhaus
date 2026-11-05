@@ -13,6 +13,7 @@ use schemars::JsonSchema;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -115,6 +116,18 @@ pub fn get(project: &Project, path: ObjectPath) -> Option<Value> {
             .and_then(|c| c.automation())
             .and_then(|a| a.points.get(&p))
             .map(to_value),
+        // groups and zones are their own objects; an instrument's value never carries them
+        ObjectPath::Instrument(id) => project.instruments.get(&id).map(|i| to_value(&i.header())),
+        ObjectPath::Group(i, g) => project
+            .instruments
+            .get(&i)
+            .and_then(|i| i.groups.get(&g))
+            .map(to_value),
+        ObjectPath::Zone(i, z) => project
+            .instruments
+            .get(&i)
+            .and_then(|i| i.zones.get(&z))
+            .map(to_value),
     }
 }
 
@@ -144,6 +157,14 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                 }
                 if ch.insert.0 as usize > MIXER_INSERTS {
                     return invalid(format!("no insert {}", ch.insert));
+                }
+                if let InstrumentSpec::MultiSampler {
+                    instrument: Some(i),
+                    ..
+                } = &ch.instrument
+                    && !project.instruments.contains_key(i)
+                {
+                    return Err(ModelError::NoInstrument(*i));
                 }
                 Arc::make_mut(&mut project.channels).insert(id, ch);
                 project.next_ids.channel = project.next_ids.channel.max(id.0 + 1);
@@ -368,6 +389,16 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                 {
                     return invalid(format!("sample is still used by clip {}", c.id));
                 }
+                if let Some((i, z)) = project.instruments.values().find_map(|i| {
+                    i.zones
+                        .values()
+                        .find(|z| z.sample == SampleRef::Registry(id))
+                        .map(|z| (i.id, z.id))
+                }) {
+                    return invalid(format!(
+                        "sample is still played by zone {z} of instrument {i}"
+                    ));
+                }
                 Arc::make_mut(&mut project.samples).remove(&id);
             }
         },
@@ -390,6 +421,152 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                 None => {
                     a.points.remove(&pid);
                 }
+            }
+        }
+        ObjectPath::Instrument(id) => set_instrument(project, id, value).or_else(invalid)?,
+        ObjectPath::Group(iid, gid) => set_group(project, iid, gid, value).or_else(invalid)?,
+        ObjectPath::Zone(iid, zid) => set_zone(project, iid, zid, value).or_else(invalid)?,
+    }
+    Ok(())
+}
+
+/// Sets or deletes an instrument header. `Err` is the reason the patch is invalid.
+fn set_instrument(
+    project: &mut Project,
+    id: InstrumentId,
+    value: Option<&Value>,
+) -> Result<(), String> {
+    let path = ObjectPath::Instrument(id);
+    match value {
+        Some(v) => {
+            let mut h: HausInstrument = from_value(path, v).map_err(|e| e.to_string())?;
+            if h.id != id {
+                return Err(format!("value has id {}", h.id));
+            }
+            if !h.groups.is_empty() || !h.zones.is_empty() {
+                return Err(
+                    "groups and zones are separate objects (instrument/<i>/group|zone/<id>)".into(),
+                );
+            }
+            validate_instrument_header(&h).map_err(|e| e.to_string())?;
+            if let Some(old) = project.instruments.get(&id) {
+                h.groups = old.groups.clone();
+                h.zones = old.zones.clone();
+            }
+            instrument_refs_ok(&h)?;
+            Arc::make_mut(&mut project.instruments).insert(id, h);
+            project.next_ids.instrument = project.next_ids.instrument.max(id.0 + 1);
+        }
+        None => {
+            let Some(old) = project.instruments.get(&id) else {
+                return Ok(());
+            };
+            if !old.groups.is_empty() || !old.zones.is_empty() {
+                return Err("the instrument still has groups or zones".into());
+            }
+            if let Some(c) = project.channels_playing(id).next() {
+                return Err(format!("channel {} still plays it", c.id));
+            }
+            Arc::make_mut(&mut project.instruments).remove(&id);
+        }
+    }
+    Ok(())
+}
+
+fn set_group(
+    project: &mut Project,
+    iid: InstrumentId,
+    gid: GroupId,
+    value: Option<&Value>,
+) -> Result<(), String> {
+    let path = ObjectPath::Group(iid, gid);
+    let inst = project
+        .instruments
+        .get(&iid)
+        .ok_or_else(|| format!("no instrument {iid}"))?;
+    match value {
+        Some(v) => {
+            let g: Group = from_value(path, v).map_err(|e| e.to_string())?;
+            if g.id != gid {
+                return Err(format!("value has id {}", g.id));
+            }
+            if let Some((other, _)) = project
+                .instruments
+                .iter()
+                .find(|(i, x)| **i != iid && x.groups.contains_key(&gid))
+            {
+                return Err(format!("group {gid} belongs to instrument {other}"));
+            }
+            validate_group(&g).map_err(|e| e.to_string())?;
+            if let Some(a) = g
+                .articulations
+                .iter()
+                .find(|a| inst.articulation(**a).is_none())
+            {
+                return Err(format!("no articulation {a} in instrument {iid}"));
+            }
+            let insts = Arc::make_mut(&mut project.instruments);
+            insts.get_mut(&iid).expect("checked").groups.insert(gid, g);
+            project.next_ids.group = project.next_ids.group.max(gid.0 + 1);
+        }
+        None => {
+            if !inst.groups.contains_key(&gid) {
+                return Ok(());
+            }
+            if let Some(z) = inst.zones.values().find(|z| z.group == gid) {
+                return Err(format!("zone {} is still in the group", z.id));
+            }
+            if inst.modulation.iter().any(|r| r.group == Some(gid)) {
+                return Err("a modulation route is still scoped to the group".into());
+            }
+            let insts = Arc::make_mut(&mut project.instruments);
+            insts.get_mut(&iid).expect("checked").groups.remove(&gid);
+        }
+    }
+    Ok(())
+}
+
+fn set_zone(
+    project: &mut Project,
+    iid: InstrumentId,
+    zid: ZoneId,
+    value: Option<&Value>,
+) -> Result<(), String> {
+    let path = ObjectPath::Zone(iid, zid);
+    let inst = project
+        .instruments
+        .get(&iid)
+        .ok_or_else(|| format!("no instrument {iid}"))?;
+    match value {
+        Some(v) => {
+            let z: Zone = from_value(path, v).map_err(|e| e.to_string())?;
+            if z.id != zid {
+                return Err(format!("value has id {}", z.id));
+            }
+            if let Some((other, _)) = project
+                .instruments
+                .iter()
+                .find(|(i, x)| **i != iid && x.zones.contains_key(&zid))
+            {
+                return Err(format!("zone {zid} belongs to instrument {other}"));
+            }
+            validate_zone(&z).map_err(|e| e.to_string())?;
+            if !inst.groups.contains_key(&z.group) {
+                return Err(format!("no group {} in instrument {iid}", z.group));
+            }
+            if let SampleRef::Registry(s) = z.sample
+                && !project.samples.contains_key(&s)
+            {
+                return Err(format!("no sample {s}"));
+            }
+            let insts = Arc::make_mut(&mut project.instruments);
+            insts.get_mut(&iid).expect("checked").zones.insert(zid, z);
+            project.next_ids.zone = project.next_ids.zone.max(zid.0 + 1);
+        }
+        None => {
+            if inst.zones.contains_key(&zid) {
+                let insts = Arc::make_mut(&mut project.instruments);
+                insts.get_mut(&iid).expect("checked").zones.remove(&zid);
             }
         }
     }
@@ -945,4 +1122,198 @@ impl Edit {
         self.work.sample(id)?;
         self.put(ObjectPath::Sample(id), None)
     }
+
+    // ---------------------------------------------------------------- Haus Sampler (M3)
+
+    /// Adds an instrument. `inst.id` is replaced by a fresh id (returned); its groups and
+    /// zones, if any, are added too, each under a fresh id (zones and group-scoped
+    /// modulation routes follow their group's new id).
+    pub fn add_instrument(&mut self, inst: HausInstrument) -> ModelResult<InstrumentId> {
+        let id = InstrumentId(self.work.next_ids.instrument);
+        let mut header = inst.header();
+        header.id = id;
+        // routes scoped to a group wait until the group exists
+        header.modulation.retain(|r| r.group.is_none());
+        self.put_typed(ObjectPath::Instrument(id), Some(&header))?;
+        let mut group_ids = BTreeMap::new();
+        for g in inst.groups.values() {
+            group_ids.insert(g.id, self.add_group(id, g.clone())?);
+        }
+        for z in inst.zones.values() {
+            let mut z = z.clone();
+            z.group = *group_ids
+                .get(&z.group)
+                .ok_or(ModelError::NoGroup(z.group))?;
+            self.add_zone(id, z)?;
+        }
+        if inst.modulation.iter().any(|r| r.group.is_some()) {
+            let routes = inst
+                .modulation
+                .iter()
+                .map(|r| {
+                    let mut r = r.clone();
+                    if let Some(g) = r.group {
+                        r.group = Some(*group_ids.get(&g).ok_or(ModelError::NoGroup(g))?);
+                    }
+                    Ok(r)
+                })
+                .collect::<ModelResult<Vec<_>>>()?;
+            self.update_instrument(id, |i| i.modulation = routes)?;
+        }
+        Ok(id)
+    }
+
+    /// Changes an instrument's own settings. Changes `f` makes to its groups or zones are
+    /// ignored (use the group and zone helpers).
+    pub fn update_instrument(
+        &mut self,
+        id: InstrumentId,
+        f: impl FnOnce(&mut HausInstrument),
+    ) -> ModelResult<()> {
+        let mut h = self.work.instrument(id)?.header();
+        f(&mut h);
+        h.id = id;
+        h.groups.clear();
+        h.zones.clear();
+        self.put_typed(ObjectPath::Instrument(id), Some(&h))
+    }
+
+    /// Removes an instrument with its zones and groups (fails while a channel plays it).
+    pub fn remove_instrument(&mut self, id: InstrumentId) -> ModelResult<()> {
+        let inst = self.work.instrument(id)?.clone();
+        if let Some(c) = self.work.channels_playing(id).next() {
+            return Err(ModelError::Invalid(format!(
+                "channel {} still plays instrument {id}",
+                c.id
+            )));
+        }
+        for z in inst.zones.keys() {
+            self.put(ObjectPath::Zone(id, *z), None)?;
+        }
+        if inst.modulation.iter().any(|r| r.group.is_some()) {
+            self.update_instrument(id, |i| i.modulation.retain(|r| r.group.is_none()))?;
+        }
+        for g in inst.groups.keys() {
+            self.put(ObjectPath::Group(id, *g), None)?;
+        }
+        self.put(ObjectPath::Instrument(id), None)
+    }
+
+    /// Adds a group; `group.id` is replaced by a fresh id, which is returned.
+    pub fn add_group(
+        &mut self,
+        instrument: InstrumentId,
+        mut group: Group,
+    ) -> ModelResult<GroupId> {
+        self.work.instrument(instrument)?;
+        let id = GroupId(self.work.next_ids.group);
+        group.id = id;
+        self.put_typed(ObjectPath::Group(instrument, id), Some(&group))?;
+        Ok(id)
+    }
+
+    pub fn update_group(
+        &mut self,
+        instrument: InstrumentId,
+        id: GroupId,
+        f: impl FnOnce(&mut Group),
+    ) -> ModelResult<()> {
+        let mut g = self.work.instrument(instrument)?.group(id)?.clone();
+        f(&mut g);
+        g.id = id;
+        self.put_typed(ObjectPath::Group(instrument, id), Some(&g))
+    }
+
+    /// Removes a group with its zones and the modulation routes scoped to it.
+    pub fn remove_group(&mut self, instrument: InstrumentId, id: GroupId) -> ModelResult<()> {
+        let inst = self.work.instrument(instrument)?;
+        inst.group(id)?;
+        let zones: Vec<ZoneId> = inst.zones_of(id).map(|z| z.id).collect();
+        let scoped = inst.modulation.iter().any(|r| r.group == Some(id));
+        for z in zones {
+            self.put(ObjectPath::Zone(instrument, z), None)?;
+        }
+        if scoped {
+            self.update_instrument(instrument, |i| i.modulation.retain(|r| r.group != Some(id)))?;
+        }
+        self.put(ObjectPath::Group(instrument, id), None)
+    }
+
+    /// Adds a zone; `zone.id` is replaced by a fresh id, which is returned.
+    pub fn add_zone(&mut self, instrument: InstrumentId, mut zone: Zone) -> ModelResult<ZoneId> {
+        self.work.instrument(instrument)?;
+        let id = ZoneId(self.work.next_ids.zone);
+        zone.id = id;
+        self.put_typed(ObjectPath::Zone(instrument, id), Some(&zone))?;
+        Ok(id)
+    }
+
+    pub fn update_zone(
+        &mut self,
+        instrument: InstrumentId,
+        id: ZoneId,
+        f: impl FnOnce(&mut Zone),
+    ) -> ModelResult<()> {
+        let mut z = self.work.instrument(instrument)?.zone(id)?.clone();
+        f(&mut z);
+        z.id = id;
+        self.put_typed(ObjectPath::Zone(instrument, id), Some(&z))
+    }
+
+    /// Moves a zone on the key × velocity map and/or into another group of the same
+    /// instrument. With `root_follows`, a key move shifts the root key by as many keys as
+    /// the range's low end moved (the zone keeps its pitch mapping, like dragging it in the
+    /// map); otherwise the root key stays.
+    pub fn move_zone(
+        &mut self,
+        instrument: InstrumentId,
+        id: ZoneId,
+        to: ZonePlace,
+        root_follows: bool,
+    ) -> ModelResult<()> {
+        let z = self.work.instrument(instrument)?.zone(id)?.clone();
+        let mut root = z.root_key;
+        if let Some(k) = to.keys
+            && root_follows
+        {
+            let shifted = root as i32 + k.lo as i32 - z.keys.lo as i32;
+            if !(0..=127).contains(&shifted) {
+                return Err(ModelError::Invalid(format!(
+                    "the root key would move to {shifted}, outside 0..127"
+                )));
+            }
+            root = shifted as u8;
+        }
+        self.update_zone(instrument, id, |z| {
+            if let Some(k) = to.keys {
+                z.keys = k;
+            }
+            if let Some(v) = to.velocity {
+                z.velocity = v;
+            }
+            if let Some(g) = to.group {
+                z.group = g;
+            }
+            z.root_key = root;
+        })
+    }
+
+    pub fn remove_zone(&mut self, instrument: InstrumentId, id: ZoneId) -> ModelResult<()> {
+        self.work.instrument(instrument)?.zone(id)?;
+        self.put(ObjectPath::Zone(instrument, id), None)
+    }
+}
+
+/// Where [`Edit::move_zone`] puts a zone; `None` fields stay as they are.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ZonePlace {
+    /// New key range.
+    #[serde(default)]
+    pub keys: Option<KeyRange>,
+    /// New velocity range.
+    #[serde(default)]
+    pub velocity: Option<VelRange>,
+    /// Another group of the same instrument.
+    #[serde(default)]
+    pub group: Option<GroupId>,
 }
