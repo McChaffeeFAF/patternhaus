@@ -4,8 +4,9 @@
 //! compares the render with its reference `tests/golden/<format>/<id>.json`, saves the
 //! instrument as a native folder, reopens it and renders again (bit-identical).
 //!
-//! `PH_GOLDEN_UPDATE=1` rewrites the references (say why in the PR). Fixtures whose sound
-//! needs M3/T2's DSP are marked *pending T2* in `docs/parity/haus-sampler.md`.
+//! `PH_GOLDEN_UPDATE=1` rewrites the references (say why in the PR). The references only pin
+//! what the engine does now; what a fixture must sound like is checked on the returned render
+//! (`formats_sound`).
 
 #![allow(dead_code)]
 
@@ -258,13 +259,13 @@ pub fn golden_dir(format: &str) -> PathBuf {
 }
 
 /// Validates, collects, renders (twice), compares with the reference, round-trips through
-/// the native format and renders again.
+/// the native format and renders again. Returns the render, for the sound checks.
 pub fn render_and_round_trip(
     format: &str,
     id: &str,
     imported: &Imported,
     phrase: &[(u8, u64, u64, f32)],
-) -> Result<(), String> {
+) -> Result<AudioBuffer, String> {
     validate(imported).map_err(|e| format!("{id}: {e}"))?;
     let tmp = tempfile::tempdir().unwrap();
     let folder = tmp.path().join("inst");
@@ -291,5 +292,5 @@ pub fn render_and_round_trip(
     if a.channels != c.channels {
         return Err(format!("{id}: the native round trip renders differently"));
     }
-    Ok(())
+    Ok(a)
 }

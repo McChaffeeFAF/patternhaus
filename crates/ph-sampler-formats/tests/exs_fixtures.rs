@@ -5,6 +5,7 @@
 
 mod common;
 mod exs_seeds;
+mod formats_sound;
 
 use common::*;
 use ph_core::*;
@@ -297,7 +298,8 @@ fn f05() -> Fixture {
     Fixture {
         id: "F-EXS-05",
         exs: b.build(),
-        samples: vec![("lib/loop.wav", 24_000)],
+        // shorter than every held note, so the loops are heard past the sample's end
+        samples: vec![("lib/loop.wav", 12_000)],
         phrase: vec![
             (60, 0, 6, 0.8),
             (62, 6, 4, 0.8),
@@ -706,7 +708,9 @@ fn exs_fixtures_import_render_and_round_trip() {
             failures.push(format!("{}: check failed: {msg}", f.id));
             continue;
         }
-        if let Err(e) = render_and_round_trip("exs", f.id, &imported, &f.phrase) {
+        if let Err(e) = render_and_round_trip("exs", f.id, &imported, &f.phrase)
+            .and_then(|a| formats_sound::check(f.id, &a, &imported))
+        {
             failures.push(e);
         }
     }

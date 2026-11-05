@@ -6,6 +6,7 @@
 //! format (`common::render_and_round_trip`).
 
 mod common;
+mod formats_sound;
 mod sf2_seeds;
 
 use common::*;
@@ -454,7 +455,8 @@ fn f06() -> Fixture {
 
 fn f07() -> Fixture {
     let mut b = Sf2Builder::new();
-    let s = b.add_sample(tone(1, 20_000));
+    // long enough to sound past the 0.5 s delay and through the release
+    let s = b.add_sample(tone(1, 120_000));
     let i = b.add_instrument(
         "Envelopes",
         vec![
@@ -978,7 +980,9 @@ fn sf2_fixtures_import_render_and_round_trip() {
             failures.push(format!("{}: check failed: {msg}", f.id));
             continue;
         }
-        if let Err(e) = render_and_round_trip("sf2", f.id, &imported, &f.phrase) {
+        if let Err(e) = render_and_round_trip("sf2", f.id, &imported, &f.phrase)
+            .and_then(|a| formats_sound::check(f.id, &a, &imported))
+        {
             failures.push(e);
         }
     }

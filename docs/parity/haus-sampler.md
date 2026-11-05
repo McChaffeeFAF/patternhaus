@@ -105,8 +105,13 @@ Filled by M3/T4 (2026-11-05). Fixtures: `crates/ph-sampler-formats/tests/sf2_fix
 `tests/golden/sf2/`, native round trip renders bit-identically; files built with
 `build::Sf2Builder`, SF3 streams with the fixture Vorbis writer `build::vorbis`), unit tests in
 `src/sf2/gens.rs`, fuzzing `fuzz_sf2` and `fuzz_sf2_mutated` (seeds: `tests/sf2_seeds`,
-F-SF2-12). **Pending T2** as for SFZ: the model is checked now; the reference holds the T0
-engine's sound until T2's DSP lands and regenerates it.
+F-SF2-12). F-SF2-05, 07 and 08 were *pending T2*. Since the M3/T2 + T4 merge (2026-11-05) every
+reference holds the real engine's sound, and those three also have a **sound check** on the render
+(`tests/formats_sound/mod.rs`, run by the same test): sampleModes 0 and 2 stop at the sample's
+end while modes 1 and 3 (and a loop ending on the last frame) sound past it while held (05); the
+volume envelope's silent delay, rising attack, decay after the hold and falling release, the
+modulation envelope's pitch bend and a zero attack (07); the mod LFO's level swing against an
+unmodulated key (08).
 
 | Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
 |---|---|---|---|---|---|---|
@@ -118,15 +123,15 @@ engine's sound until T2's DSP lands and regenerates it.
 | Global zones, generator ordering rules | §4.4 | must | 2026-11-05 (keyRange/velRange position, terminal generator, zones without one, instrument-only generators in presets; each reported) | | | F-SF2-03, F-SF2-12 |
 | Generator summing (instrument absolute, preset relative, range intersection) | §7 | must | 2026-11-05 | | | F-SF2-03; `gens::tests::instrument_absolute_preset_relative` |
 | Sample addresses and coarse offsets | §5.1 | must | 2026-11-05 (clamped to the sample; loops cut to the played range) | | | F-SF2-05 |
-| `sampleModes` 0/1/3 | §10 | must | 2026-11-05 (1 = loop through release, 3 = loop exits at note-off) | | | F-SF2-05 (pending T2) |
+| `sampleModes` 0/1/3 | §10 | must | 2026-11-05 (1 = loop through release, 3 = loop exits at note-off) | | | F-SF2-05 (sound checked) |
 | Pitch: root key, override, correction, coarse/fine, scaleTuning, keynum/velocity substitution | §5.2 | must | root, overridingRootKey, correction, coarse/fine, scaleTuning (Key → pitch route), keynum (fixed pitch) | velocity substitution: the played velocity still sets the level (model gap: no fixed velocity; reported) | | F-SF2-06 |
 | initialAttenuation with the 0.4 convention | §8.4 | approx | | generators at 0.4 ×, modulators at full value (spec [PH]) | | F-SF2-04 |
 | Pan | §5 | must | 2026-11-05 | | | F-SF2-03 |
-| Volume envelope (dB decay/release) | §10 | must | DAHDSR times and sustain level | decay/release curve: the sampler's envelope shape (T2); times over 60 s cut (reported) | | F-SF2-07 (pending T2) |
-| Modulation envelope → pitch, cutoff | §10 | must | 2026-11-05 (group filter envelope + `env_depth`; envelope 1 → pitch route) | | | F-SF2-07, F-SF2-08 (pending T2) |
+| Volume envelope (dB decay/release) | §10 | must | DAHDSR times and sustain level | decay/release curve: the sampler's envelope shape (T2); times over 60 s cut (reported) | | F-SF2-07 (sound checked) |
+| Modulation envelope → pitch, cutoff | §10 | must | 2026-11-05 (group filter envelope + `env_depth`; envelope 1 → pitch route) | | | F-SF2-07 (sound checked: pitch), F-SF2-08 (cutoff: the model only) |
 | keynumTo… hold/decay | §10 | must | | taken at the middle key of each zone (groups split by value; reported) | | F-SF2-07 |
-| Mod LFO, vib LFO | §10 | must | 2026-11-05 (triangle LFOs, rate and delay; routes to pitch, cutoff, volume) | | | F-SF2-08 (pending T2) |
-| Low-pass filter Fc, Q | §10 | must | 2026-11-05 (12 dB/oct low-pass; off when open, unresonant and unmodulated) | | | F-SF2-08 (pending T2) |
+| Mod LFO, vib LFO | §10 | must | 2026-11-05 (triangle LFOs, rate and delay; routes to pitch, cutoff, volume) | | | F-SF2-08 (sound checked) |
+| Low-pass filter Fc, Q | §10 | must | 2026-11-05 (12 dB/oct low-pass; off when open, unresonant and unmodulated) | | | F-SF2-08 (the model only: the fixture tone sits where the filter barely acts) |
 | Default modulators (10) | §8.4 | must | #2 velocity → cutoff (when the filter is on), #10 pitch wheel (bend range) | #1 velocity → volume: the sampler's own velocity response (reported) | #3/#4 vibrato depth by pressure / mod wheel (model gap: no controller-scaled LFO depth), #5–#7 CC7/CC10/CC11 (left to the channel), #8/#9 sends (all reported) | F-SF2-01, F-SF2-04, F-SF2-09 |
 | File modulators: sources, curves, polarity, direction, transforms | §8 | must | sources velocity, key, CC, channel and poly pressure, pitch wheel; linear and switch curves; direction and polarity (exact offsets + routes); absolute value on unipolar sources; destinations pitch, coarse/fine tune, attenuation, pan, cutoff, resonance | concave/convex curves as the sampler's √x / x²; non-linear curves on key or pitch wheel as linear (reported) | amount sources, absolute value on bipolar sources, LFO/envelope-depth and envelope-time destinations (model gap), pitch-wheel sensitivity as a source (reported) | F-SF2-09 |
 | Modulator override/add hierarchy | §8.3 | must | 2026-11-05 | | | F-SF2-04, F-SF2-09; `gens::tests::modulator_hierarchy` |
@@ -145,7 +150,12 @@ engine's sound until T2's DSP lands and regenerates it.
 Filled by M3/T4 (2026-11-05). Fixtures: `crates/ph-sampler-formats/tests/ds_fixtures.rs`
 (presets as strings beside tagged-tone samples; references in `tests/golden/dspreset/`;
 native round trip), the XML reader's tests in `src/dspreset/xml.rs`, fuzzing `fuzz_dspreset`
-and `fuzz_dspreset_mutated` (seeds: `tests/ds_seeds`). **Pending T2** as above. "Model gap" =
+and `fuzz_dspreset_mutated` (seeds: `tests/ds_seeds`). F-DS-06, 07, 08, 10 and 12 were *pending
+T2*; since the merge they have sound checks (`tests/formats_sound/mod.rs`): the marker, explicit
+and linear loops sound past the sample while held, loop-off and plain samples stop, the one-shot
+outlives its note-off (06); the inherited 0.5 s attack and decay, the Long group's silent delay and
+fast attack (07); the closed hat silences the open one (08); delay and reverb tails after each dry
+sample (10); the pitch LFO, velocity → pitch and the envelope's pan (12). "Model gap" =
 the Haus Sampler model has nothing to map onto; the importer reports it.
 
 | Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
@@ -161,24 +171,24 @@ the Haus Sampler model has nothing to map onto; the importer reports it.
 | `previousNotes`, `legatoInterval` | §3.5 | must | | | model gap, reported (the sample plays without the condition) | F-DS-04 |
 | CC conditions and CC triggers | §3.5 | must | `loCCN`/`hiCCN` (both ends set) | | `onLoCCN`/`onHiCCN` CC-triggered samples (model gap, reported) | F-DS-05 |
 | Round robin (`seqMode` all four) | §3.5 | must | `always`, `round_robin`, `random` (positions from `seqPosition`; length kept) | `true_random` as random (never twice in a row; reported) | | F-DS-03 |
-| Loops, crossfade modes, `loopDuringRelease` | §3.5 | must | file markers, explicit points (inclusive end), crossfade, `loopDuringRelease=false` (loop exits) | linear crossfade mode with the sampler's curve (reported) | | F-DS-06 (pending T2) |
+| Loops, crossfade modes, `loopDuringRelease` | §3.5 | must | file markers, explicit points (inclusive end), crossfade, `loopDuringRelease=false` (loop exits) | linear crossfade mode with the sampler's curve (reported) | | F-DS-06 (sound checked) |
 | `ampEnvEnabled=false` (one-shot) | §3.4 | must | 2026-11-05 | | | F-DS-06 |
-| AHDSR envelope and aliases | §3.5 | must | 2026-11-05 (the `ampEnv…` spelling wins) | | | F-DS-07 (pending T2) |
+| AHDSR envelope and aliases | §3.5 | must | 2026-11-05 (the `ampEnv…` spelling wins) | | | F-DS-07 (sound checked) |
 | Envelope curves | §3.5 | approx | | the sampler's own envelope shape (reported) | | F-DS-07 |
-| Silencing (`tags`, `silencedByTags`, modes, decay) | §3.5 | must | | a silenced sample and the samples carrying the silencing tags share one one-voice group (they silence each other); modes and decay use the stealing fade (reported) | | F-DS-08 (pending T2) |
+| Silencing (`tags`, `silencedByTags`, modes, decay) | §3.5 | must | | a silenced sample and the samples carrying the silencing tags share one one-voice group (they silence each other); modes and decay use the stealing fade (reported) | | F-DS-08 (sound checked) |
 | Output targets, aux outputs | §3.5 | must | `MAIN_OUTPUT`, `NO_OUTPUT`, `AUX_STEREO_OUTPUT_n` (group output), `BUS_n`, `output1Volume` | | outputs 2–8 (reported) | F-DS-10, F-DS-13 |
 | Glide | §3.3 | must | | `glideTime` makes the group mono (`always`) or legato (`legato`): the sampler glides only there (reported) | | `dspreset::import_bytes` |
 | Retrigger, slice stretch | §3.5 | skip | | | reported; the sample plays normally | `dspreset::import_bytes` |
 | Oscillators | §3.6 | data | kept in `extra["dspreset.group<n>.oscillators"]`, reported | | | F-DS-13 |
-| Effects: filters, gain, convolution | §4 | must | low/high/band-pass and notch → `filter`; `gain` → group or instrument level | `lowpass_1pl`/`_4pl` at 12 dB/oct; convolution with the built-in generated hall (the IR file kept as data; reported) | | F-DS-10 (pending T2) |
-| Effects: reverb, delay, chorus, phaser, compressor, stereo, bit crusher | §4 | approx | | built-in `reverb`, `delay` (musical time at 120 BPM), `chorus`, `phaser`, `compressor`, `stereo`, `bitcrush`; peak and shelves → `eq` band 2 | | F-DS-10 (pending T2) |
+| Effects: filters, gain, convolution | §4 | must | low/high/band-pass and notch → `filter`; `gain` → group or instrument level; a high- or band-pass without `frequency` keeps the guide's 22000 Hz (passes almost nothing; reported) | `lowpass_1pl`/`_4pl` at 12 dB/oct; convolution with the built-in generated hall (the IR file kept as data; reported) | | F-DS-10 (sound checked: the chain sounds, with its tails) |
+| Effects: reverb, delay, chorus, phaser, compressor, stereo, bit crusher | §4 | approx | | built-in `reverb`, `delay` (free times, musical time at 120 BPM), `chorus`, `phaser`, `compressor`, `stereo`, `bitcrush`; peak and shelves → `eq` band 2; reverb and delay `wetLevel` as a send level over the full dry signal (slot mix `w/(1+w)` + an `eq` make-up slot) | | F-DS-10 (sound checked) |
 | Effects: pitch shift, wave folder/shaper, stutter | §4 | skip | | | reported, kept as data | F-DS-10 |
 | Group effect chains | §4 | approx | group chains | the instrument chain runs in every group's insert chain (reported) | | F-DS-10 |
 | UI knobs/menus/buttons → native controls via bindings | §5.1–5.2 | approx | | | model gap: no instrument controls yet; the `<ui>` is kept for M3b and reported | F-DS-11 |
 | `<ui>` kept as data | §5.2 | data | `extra["dspreset.ui"]` (keyboard colours included) | | | F-DS-09, F-DS-11 |
 | MIDI CC bindings | §5.3 | must | | `<cc>` bindings to `AMP_VOLUME`, `PAN`, tunings and `FX_FILTER_FREQUENCY` become CC routes added to the stored value (depth from the binding's range; reported) | other parameters kept as data (reported) | F-DS-11 |
 | Keyswitches from `<midi><note>` group-enable bindings | §5.3 | must | 2026-11-05 (articulations; default = the file's enabled set; groups no keyswitch names play always) | keys without `swallowNotes` are silent keyswitches (reported) | other `<note>` bindings kept as data (reported) | F-DS-09 |
-| Modulators: LFO, envelope, midiCC, velocity, random | §5.4 | must | | group LFOs, the envelope as the group's second envelope, CC, velocity and random sources routed to pitch, pan, volume and cutoff; depth from the binding's range × `modAmount`; global LFOs run per voice (reported) | other targets kept as data | F-DS-12 (pending T2) |
+| Modulators: LFO, envelope, midiCC, velocity, random | §5.4 | must | | group LFOs, the envelope as the group's second envelope, CC, velocity and random sources routed to pitch, pan, volume and cutoff; depth from the binding's range × `modAmount`; global LFOs run per voice (reported) | other targets kept as data | F-DS-12 (sound checked) |
 | MPE modulators | §5.4 | skip | | | reported | F-DS-12 |
 | Tags (enable, volume, polyphony) | §5.5 | must | enable (disabled tags' samples skipped), polyphony (group voice limit) | volume applied to the samples' levels (not a control yet; reported) | | F-DS-13 |
 | Buses with effects | §5.5 | approx | | a bus's effects and volume run in each feeding group's chain (reported) | | F-DS-10 |
@@ -193,7 +203,10 @@ Filled by M3/T4 (2026-11-05). Fixtures: `crates/ph-sampler-formats/tests/exs_fix
 (files built with `build::ExsBuilder` in both byte orders, samples beside them; references in
 `tests/golden/exs/`; native round trip), fuzzing `fuzz_exs` and `fuzz_exs_mutated` (seeds:
 `tests/exs_seeds`, F-EXS-10). These prove agreement with our spec only; real Logic files (the
-controlled files of exs.md §9) are still needed. **Pending T2** as above.
+controlled files of exs.md §9) are still needed. F-EXS-05 and 08 were *pending T2*; since the
+merge they have sound checks (`tests/formats_sound/mod.rs`): every loop kind sounds past the
+sample while held and a zone with its loop off stops (05); transpose and fine tune set the pitch,
+and the attack rises (08).
 
 | Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
 |---|---|---|---|---|---|---|
@@ -201,7 +214,7 @@ controlled files of exs.md §9) are still needed. **Pending T2** as above.
 | 0x40 variant and plist blocks 0x0A/0x0B | §1.3 | data | 0x0A/0x0B kept as hex in `extra["exs.block.*"]`; the 0x40 flag read as standard (reported) | | types 5, 7, 8 skipped, others listed as unknown | F-EXS-10 |
 | Instrument block counts cross-check | §2 | must | 2026-11-05 (mismatches reported) | | | F-EXS-01 |
 | Zone mapping, tunes, volume, pan, pitch off, reverse, one-shot | §3 | must | 2026-11-05 (option bits per the two-source reading; pitch off as a fixed-pitch route; object-id sample fallback) | pan: ±50 scale unless a value beyond ±50 shows the −64…63 one (disputed; reported) | | F-EXS-04, F-EXS-10 |
-| Zone loops (direction, crossfade, play-to-end) | §3 | must | forward, ping-pong, crossfade ms → frames, play-to-end (loop exits), loop off with points | backward loops play forward; linear crossfades use the sampler's curve (reported) | loop tune (reported) | F-EXS-05 (pending T2) |
+| Zone loops (direction, crossfade, play-to-end) | §3 | must | forward, ping-pong, crossfade ms → frames, play-to-end (loop exits), loop off with points | backward loops play forward; linear crossfades use the sampler's curve (reported) | loop tune (reported) | F-EXS-05 (sound checked) |
 | Zone output assignment | §3 | must | 2026-11-05 (option bit 6 → group output) | | | F-EXS-04 |
 | Groups: volume, pan, polyphony, exclusive, limits, mute | §4 | must | volume, pan, polyphony, velocity/key limits (zones clipped, zones outside dropped) | exclusive groups share one one-voice group; mute as −144 dB (reported) | fixed sample select, release-trigger time (reported) | F-EXS-06 |
 | Release-trigger groups | §4 | must | 2026-11-05 | release-trigger decay at 3 dB/s (reported) | | F-EXS-06 |
@@ -212,8 +225,8 @@ controlled files of exs.md §9) are still needed. **Pending T2** as above.
 | Sample lookup rules | §5 | must | stored path (folder or full path), the file's folder, then a name search (case-insensitive) under it and up to two parent folders; missing samples reported | | | F-EXS-09 |
 | Consolidated single-file samples | §5 | must (WAV/AIFF) / skip (CAF/AAC) | zones sharing one file with their own ranges | | compressed (CAF/AAC) samples reported, zones skipped | F-EXS-05 |
 | Parameters: master volume/pan, tune, transpose, bend, polyphony, legato | §6 | must | transpose, coarse, fine, bend up/down (−1 = same as up), polyphony, legato (groups legato) | master volume read as dB, master pan on the zone pan scale (units unconfirmed; reported) | | F-EXS-08 |
-| Parameters: amp and filter envelopes | §6 | must | | amp envelope by type with times `10 × (p/127)⁴` s and the high-velocity attack; filter envelope stored with depth 0 (modulation-matrix enumerations undocumented; reported) | | F-EXS-08 (pending T2) |
-| Parameters: filter 1 | §6 | approx | | type, cutoff 20 Hz–20 kHz exponential, resonance 0–24 dB, key tracking (scales unconfirmed; SPEC-GAP; reported) | | F-EXS-08 (pending T2) |
+| Parameters: amp and filter envelopes | §6 | must | | amp envelope by type with times `10 × (p/127)⁴` s and the high-velocity attack; filter envelope stored with depth 0 (modulation-matrix enumerations undocumented; reported) | | F-EXS-08 (sound checked) |
+| Parameters: filter 1 | §6 | approx | | type, cutoff 20 Hz–20 kHz exponential, resonance 0–24 dB, key tracking (scales unconfirmed; SPEC-GAP; reported) | | F-EXS-08 (the model only: the fixture has no unfiltered note to compare) |
 | Parameters: filter 2, LFOs, glide, velocity curve, random pitch, crossfade | §6 | approx | | | kept as data in `extra["exs.params"]` (reported when set) | F-EXS-08 |
 | Modulation matrix | §6 | data | kept in `extra["exs.params"]` | | not mapped (enumerations undocumented) | F-EXS-08 |
 | Malformed input never panics | §1 | must | 2026-11-05 | | | `malformed_files_are_refused_never_panic`, `fuzz_exs`, `fuzz_exs_mutated` |

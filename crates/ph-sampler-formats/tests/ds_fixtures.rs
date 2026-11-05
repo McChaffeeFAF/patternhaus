@@ -5,6 +5,7 @@
 
 mod common;
 mod ds_seeds;
+mod formats_sound;
 
 use common::*;
 use ph_core::*;
@@ -530,7 +531,10 @@ fn fixtures() -> Vec<Fixture> {
                 assert_eq!(delay.params["sync"], 0.0, "free delay times");
                 assert_eq!(delay.params["time_l"], 250.0, "an eighth at 120 BPM");
                 assert_eq!(dry.effects[2].params["cutoff"], 400.0);
-                assert_eq!(dry.effects[3].params["cutoff"], 20_000.0, "22000 at the top");
+                assert_eq!(
+                    dry.effects[3].params["cutoff"], 20_000.0,
+                    "22000 at the top"
+                );
                 let wet = group(i, zone_of(i, "b.wav"));
                 assert_eq!(wet.effects[0].name, "reverb", "the bus's effects first");
                 assert!(close(wet.effects[0].mix, 1.0 / 3.0));
@@ -694,7 +698,8 @@ fn run(f: &Fixture) -> Result<(), String> {
             .unwrap_or_default();
         format!("{}: check failed: {msg}", f.id)
     })?;
-    render_and_round_trip("dspreset", f.id, &imported, &f.phrase)
+    let a = render_and_round_trip("dspreset", f.id, &imported, &f.phrase)?;
+    formats_sound::check(f.id, &a, &imported)
 }
 
 /// A high-pass or band-pass without a frequency takes the guide's 22000 Hz, which passes
