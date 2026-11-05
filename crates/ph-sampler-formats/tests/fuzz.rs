@@ -1,13 +1,11 @@
 //! Fuzz targets, one per importer, in the style of the FLP fuzzers (`ph-formats`
 //! `flp::tests`): bounded proptests over random bytes that run in CI with the normal test
 //! suite. Every outcome must be an error or an instrument that passes the model's checks;
-//! none may panic. While an importer is a stub the targets only prove the wiring; each track
-//! adds its generated fixtures as seeds (`fuzz_<format>_mutated`) when it lands. SFZ (M3/T3)
+//! none may panic. Each importer's generated fixtures are its seeds (`fuzz_<format>_mutated`). SFZ (M3/T3)
 //! seeds `fuzz_sfz_mutated` with `sfz_seeds`; SF2/SF3 (M3/T4) seeds `fuzz_sf2_mutated` with
 //! `sf2_seeds` (F-SF2-12), EXS (M3/T4) `fuzz_exs_mutated` with `exs_seeds` (F-EXS-10), and
 //! DecentSampler (M3/T4) `fuzz_dspreset_mutated` with `ds_seeds`.
 
-use ph_core::{HausInstrument, validate_group, validate_instrument_header, validate_zone};
 use ph_sampler_formats::*;
 use proptest::prelude::*;
 
@@ -18,23 +16,7 @@ mod sfz_seeds;
 
 /// An accepted import must be a valid instrument whose zones play only listed samples.
 fn check(out: &Imported) -> Result<(), String> {
-    let i: &HausInstrument = &out.instrument;
-    validate_instrument_header(i).map_err(|e| e.to_string())?;
-    for g in i.groups.values() {
-        validate_group(g).map_err(|e| e.to_string())?;
-    }
-    for z in i.zones.values() {
-        validate_zone(z).map_err(|e| e.to_string())?;
-        if !i.groups.contains_key(&z.group) {
-            return Err(format!("zone {} in missing group", z.id));
-        }
-        if let ph_core::SampleRef::File(name) = &z.sample
-            && !out.samples.iter().any(|s| &s.name == name)
-        {
-            return Err(format!("zone {} plays unlisted sample {name}", z.id));
-        }
-    }
-    Ok(())
+    check_imported(out)
 }
 
 fn run(importer: &dyn Importer, name: &str, bytes: &[u8]) -> Result<(), String> {
@@ -206,13 +188,6 @@ proptest! {
         std::fs::write(&path, &bytes).unwrap();
         if let Ok(out) = Exs.import(ImportInput::Path(&path)) {
             prop_assert!(check(&out).is_ok(), "{:?}", check(&out));
-        }
-    }
-
-    #[test]
-    fn fuzz_kontakt(body in proptest::collection::vec(any::<u8>(), 0..800)) {
-        for name in ["fuzz.nki", "fuzz.nkm", "fuzz.ncw"] {
-            prop_assert!(run(&Kontakt, name, &body).is_ok());
         }
     }
 }
