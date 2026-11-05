@@ -35,10 +35,6 @@ stub!(
     DecentSampler, "dspreset", ["dspreset"], "DecentSampler", "M3/T4"
 );
 stub!(
-    /// Logic EXS24 `.exs`.
-    Exs, "exs", ["exs"], "EXS24", "M3/T4"
-);
-stub!(
     /// Kontakt `.nki`/`.nkm`/`.nkx`/`.nkc`/`.ncw`, unencrypted only: zones, loops, NCW,
     /// monoliths first. Encrypted content is detected and refused, never decrypted.
     Kontakt, "nki", ["nki", "nkm", "nkx", "nkc", "ncw"], "Kontakt", "M3/T6"

@@ -2,9 +2,11 @@
 //! byte-level builders of the binary formats, written from our own specs, used by the
 //! fixture tests, the fuzz seeds and the command tests. Nothing here reads a real library.
 
+pub mod exs;
 pub mod sf2;
 pub mod vorbis;
 
+pub use exs::{BeSignature, ExsBuilder, ExsGroup, ExsSample, ExsZone};
 pub use sf2::{Sf2Builder, Sf2Chunks, Sf2Instrument, Sf2Preset, Sf2Sample, Sf2Zone};
 
 /// A tagged test tone (rule 2 of the fixture plan): `id` × 0.05 DC for 10 ms at `rate`, then
