@@ -370,15 +370,7 @@ fn sampler_report_describes_the_instrument() {
 #[test]
 fn sampler_import_of_later_formats_names_their_track() {
     let mut r = Rig::piano();
-    for (cmd, params, track) in [
-        (
-            "sampler.import",
-            json!({ "path": "C:/Lib/x.dspreset" }),
-            "M3/T4",
-        ),
-        ("sampler.import", json!({ "path": "C:/Lib/x.exs" }), "M3/T4"),
-        ("sampler.import", json!({ "path": "C:/Lib/x.nki" }), "M3/T6"),
-    ] {
+    for (cmd, params, track) in [("sampler.import", json!({ "path": "C:/Lib/x.nki" }), "M3/T6")] {
         match r.err(cmd, params) {
             CmdError::Unavailable { track: t, .. } => assert_eq!(t, track, "{cmd}"),
             e => panic!("{cmd}: {e}"),
@@ -723,6 +715,64 @@ fn sampler_import_collects_an_sf2_preset_and_lists_the_others() {
         )
         .unwrap_err();
     assert!(e.to_string().contains("SF2/SF3 files only"), "{e}");
+}
+
+#[test]
+fn sampler_import_links_exs_and_decentsampler_libraries() {
+    use ph_sampler_formats::build::{ExsBuilder, ExsGroup, ExsSample, ExsZone};
+    let mut r = FsRig::new();
+    // EXS: the sample is found beside the file (its stored macOS path does not exist)
+    let d = r.h.lib.join("Strings");
+    tone(&d.join("vln_c4.wav"), 4800);
+    let mut b = ExsBuilder::new("Strings");
+    b.groups.push(ExsGroup::new("Sustain"));
+    b.samples
+        .push(ExsSample::new("vln_c4.wav", "/Users/someone/Samples"));
+    b.zones.push(ExsZone::new(0, 0, (55, 72), 60));
+    std::fs::write(d.join("strings.exs"), b.build()).unwrap();
+    let out = r.run(
+        "sampler.import",
+        json!({ "path": d.join("strings.exs").to_string_lossy() }),
+    );
+    assert_eq!(
+        (out["zones"].as_u64(), out["collected"].as_bool()),
+        (Some(1), Some(false))
+    );
+    assert_eq!(out["report"]["format"], "exs");
+    assert_eq!(
+        out["folder"].as_str().unwrap(),
+        d.to_string_lossy().replace('\\', "/")
+    );
+    assert_eq!(
+        zone_shapes(r.inst(0)),
+        vec![("vln_c4.wav".into(), 55, 72, 0, 127, 60, ZoneTrigger::Attack)]
+    );
+    // DecentSampler: a .dspreset, and a .dsbundle folder (not a folder of samples)
+    let bundle = r.h.lib.join("Keys.dsbundle");
+    tone(&bundle.join("Samples/k.wav"), 4800);
+    let preset = r#"<DecentSampler><groups><group name="K"><sample path="Samples/k.wav" rootNote="60" loNote="48" hiNote="72" trigger="release"/></group></groups></DecentSampler>"#;
+    std::fs::write(bundle.join("keys.dspreset"), preset).unwrap();
+    let out = r.run(
+        "sampler.import",
+        json!({ "path": bundle.join("keys.dspreset").to_string_lossy() }),
+    );
+    assert_eq!(out["report"]["format"], "dspreset");
+    assert_eq!(
+        zone_shapes(r.inst(1)),
+        vec![("k.wav".into(), 48, 72, 0, 127, 60, ZoneTrigger::Release)]
+    );
+    let out = r.run(
+        "sampler.import",
+        json!({ "path": bundle.to_string_lossy() }),
+    );
+    assert_eq!(out["report"]["presets"][0]["name"], "keys.dspreset");
+    assert_eq!(r.inst(2).zones.len(), 1);
+    // collected on request
+    let out = r.run(
+        "sampler.import",
+        json!({ "path": d.join("strings.exs").to_string_lossy(), "collect": true }),
+    );
+    assert_eq!(out["copied"], 1);
 }
 
 #[test]

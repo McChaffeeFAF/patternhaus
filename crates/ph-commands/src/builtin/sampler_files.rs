@@ -434,7 +434,9 @@ fn link_folder(imported: &Imported) -> Option<PathBuf> {
 }
 
 pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOutput> {
-    let path_is_dir = read_path(ctx, &p.path).is_ok_and(|d| d.is_dir());
+    // a folder is a folder of samples, unless it is an instrument container (`.dsbundle`)
+    let path_is_dir = read_path(ctx, &p.path).is_ok_and(|d| d.is_dir())
+        && importer_for(Path::new(&p.path)).is_none();
     if p.preset.is_some() && path_is_dir {
         return invalid("preset applies to SF2/SF3 files only, not to a folder of samples");
     }
