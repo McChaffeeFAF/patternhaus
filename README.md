@@ -57,7 +57,7 @@ Other repository tasks:
 
 - **Pattern workflow:** channel rack, step sequencer, piano roll, playlist and mixer, plus modular routing, an audio editor, live performance mode, and slicing and time-stretch.
 - **Agent-drivable:** every action in the app is a command. The UI, a CLI, a JSON-RPC channel and an MCP server all use the same commands. Agents can edit live alongside you, with per-author undo. They can also "hear" the result through loudness, spectrum, key and chord analysis, and spectrogram images.
-- **Haus Sampler:** a deep multi-sample instrument. It opens SFZ, SF2, DecentSampler, EXS and unencrypted Kontakt instruments, and runs Kontakt scripts through a clean-room KSP compatibility layer. It does not circumvent encrypted or licence-locked libraries.
+- **Haus Sampler:** a deep multi-sample instrument. It opens SFZ, SF2/SF3, DecentSampler and EXS instruments, saves them in an open native format, and takes more formats through a documented importer hook. It does not circumvent encrypted or licence-locked libraries.
 - **Plugins:** CLAP and VST3 (later AU and LV2), with crash isolation and a 32-bit bridge.
 - **Real-time safe engine:** multicore, with 64-bit summing on the master, and an offline renderer that serves as the test oracle.
 

@@ -499,6 +499,9 @@ pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Load) -> CmdResult<CommandOutp
                 }
             }
             let md = abs.join("import-report.md");
+            // the copies above create their own parent folders, but nothing guarantees the
+            // instrument folder itself exists yet (seen on Windows CI)
+            std::fs::create_dir_all(&abs).map_err(|e| host_err(&abs, e))?;
             std::fs::write(&md, imported.report.to_markdown()).map_err(|e| host_err(&md, e))?;
             copied = c.copied;
             inst.folder = Some(folder);
