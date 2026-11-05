@@ -15,6 +15,7 @@ mod agent;
 mod connections;
 mod diff;
 mod diff_m2;
+mod diff_m3;
 mod endpoint;
 mod events;
 mod grants;
@@ -43,6 +44,12 @@ pub use headless::{HeadlessOptions, find_assets_dir, start_headless};
 pub use host::{EngineHost, default_projects_dir};
 pub use jsonrpc::serve_jsonrpc;
 pub use mcp::PatternhausServer;
+
+/// The zone-map colours the `zone_map` snapshot uses, which match the sampler window's
+/// (`ph-ui` tests that they do).
+pub mod zone_colours {
+    pub use crate::views_m3::{OBJECT_COLOURS, articulation_colour, group_colour};
+}
 
 use ph_commands::{Caller, Registry, Request, Session, SessionHandle, UiRequest};
 use ph_core::Project;
@@ -495,5 +502,7 @@ mod coverage;
 mod plugin_tests;
 #[cfg(test)]
 mod record_tests;
+#[cfg(test)]
+mod sampler_agent_tests;
 #[cfg(test)]
 mod tests;

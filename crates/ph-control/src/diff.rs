@@ -89,17 +89,37 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
     // channels
     for (id, c) in after.channels.iter() {
         match before.channels.get(id) {
-            None => lines.push(format!("added channel {} (id {id})", c.name)),
+            None => {
+                lines.push(format!("added channel {} (id {id})", c.name));
+                if let Some(l) = crate::diff_m3::channel_instrument_line(
+                    after,
+                    &ph_core::InstrumentSpec::MultiSampler {
+                        library: None,
+                        instrument: None,
+                        params: Default::default(),
+                    },
+                    &c.instrument,
+                    &c.name,
+                ) {
+                    lines.push(l);
+                }
+            }
             Some(o) => {
                 if o.name != c.name {
                     lines.push(format!("renamed channel {} -> {}", o.name, c.name));
                 }
                 if o.instrument != c.instrument {
-                    lines.push(crate::diff_m2::instrument_line(
-                        &o.instrument,
-                        &c.instrument,
-                        &c.name,
-                    ));
+                    lines.push(
+                        crate::diff_m3::channel_instrument_line(
+                            after,
+                            &o.instrument,
+                            &c.instrument,
+                            &c.name,
+                        )
+                        .unwrap_or_else(|| {
+                            crate::diff_m2::instrument_line(&o.instrument, &c.instrument, &c.name)
+                        }),
+                    );
                 }
                 if o.volume != c.volume {
                     lines.push(format!(
@@ -248,6 +268,7 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
     }
 
     crate::diff_m2::m2_lines(before, after, &t, &mut lines);
+    crate::diff_m3::m3_lines(before, after, &mut lines);
 
     // mixer
     for (i, (o, n)) in before.mixer.iter().zip(after.mixer.iter()).enumerate() {

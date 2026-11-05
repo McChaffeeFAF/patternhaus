@@ -24,11 +24,21 @@ use std::sync::{Arc, Mutex};
 pub const EVENTS_URI: &str = "patternhaus://events";
 pub const OVERVIEW_URI: &str = "patternhaus://project/overview";
 pub const CATALOGUE_URI: &str = "patternhaus://catalogue";
+/// One Haus Sampler instrument's import report: `patternhaus://instrument/<id>/report`.
+pub const INSTRUMENT_REPORT_TEMPLATE: &str = "patternhaus://instrument/{id}/report";
+
+/// The instrument id of a `patternhaus://instrument/<id>/report` URI.
+pub fn instrument_report_id(uri: &str) -> Option<u64> {
+    uri.strip_prefix("patternhaus://instrument/")?
+        .strip_suffix("/report")?
+        .parse()
+        .ok()
+}
 
 const INSTRUCTIONS: &str = "Patternhaus is a DAW you drive through commands. Start with get_state (overview), then list_commands / describe_command / run. \
 Times are ticks: 960 per quarter note, 240 per 16th step; note 60 = C4. Build with run_batch (one undo step), then HEAR it: render + analyze (LUFS, spectrum, key, chords, clashes) \
 and SEE it: snapshot (piano_roll, playlist, waveform, spectrogram). Every change returns a musical diff. Factory samples are factory:drums/haus808/kick etc.; synth presets are listed by node_params. \
-Audio clips, automation and plugins are commands too: add_audio_clip, fit_to_tempo, add_automation, add_plugin_instrument; get_state views audio, automation, plugins. Hosted instruments the owner set up (e.g. sampled libraries in their own plugins) are in the plugin catalogue: catalogue.search / catalogue.get (with a playing guide: range, keyswitches, CCs, velocity), catalogue.add_to_channel, then write parts within the guide; catalogue.probe proposes a range and keyswitches when the guide is empty (patternhaus://catalogue lists them). For a bigger change use propose: the person previews it as ghost notes and accepts or rejects (proposal_status reads the decision). render with listen: true returns a short audio excerpt; analyze what [\"reference\"] compares the mix to a reference track. \nOther authors' edits are reported in while_you_worked blocks and in the patternhaus://events resource.";
+Audio clips, automation and plugins are commands too: add_audio_clip, fit_to_tempo, add_automation, add_plugin_instrument; get_state views audio, automation, plugins. Hosted instruments the owner set up (e.g. sampled libraries in their own plugins) are in the plugin catalogue: catalogue.search / catalogue.get (with a playing guide: range, keyswitches, CCs, velocity), catalogue.add_to_channel, then write parts within the guide; catalogue.probe proposes a range and keyswitches when the guide is empty (patternhaus://catalogue lists them). Haus Sampler instruments (SFZ, SF2/SF3, DecentSampler, EXS24 or native): sampler.import or sampler.load puts one on a channel; read get_state view zones (its playing guide: range, keyswitches, velocity layers, gaps; then the zones) or snapshot zone_map, write parts inside the range with a keyswitch note before each articulation change, edit with sampler.zone_move / zone_set / keyswitch_set (each diff names the zones it moved), then render + analyze. patternhaus://instrument/<id>/report holds the import report (what was approximated or skipped); sampler.prune removes instruments no channel plays. For a bigger change use propose: the person previews it as ghost notes and accepts or rejects (proposal_status reads the decision). render with listen: true returns a short audio excerpt; analyze what [\"reference\"] compares the mix to a reference track. \nOther authors' edits are reported in while_you_worked blocks and in the patternhaus://events resource.";
 
 pub struct PatternhausServer {
     agent: Arc<Agent>,
@@ -222,8 +232,35 @@ impl ServerHandler for PatternhausServer {
                 .into(),
         );
         catalogue.mime_type = Some("application/json".into());
+        let mut resources = vec![overview, events, catalogue];
+        for (id, name) in self.agent.instrument_names() {
+            let uri = INSTRUMENT_REPORT_TEMPLATE.replace("{id}", &id.to_string());
+            let mut r = Resource::new(uri, format!("Import report: {name}"));
+            r.description = Some(format!(
+                "Haus Sampler instrument {name}: its source, groups and zones, playing guide, and what the import approximated or skipped."
+            ));
+            r.mime_type = Some("application/json".into());
+            resources.push(r);
+        }
         Ok(ListResourcesResult {
-            resources: vec![overview, events, catalogue],
+            resources,
+            ..Default::default()
+        })
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, McpError> {
+        self.note_client(&context);
+        let t = ResourceTemplate::new(INSTRUMENT_REPORT_TEMPLATE, "Instrument import report")
+            .with_description(
+                "A Haus Sampler instrument's import report and summary; get_state view zones lists the ids.",
+            )
+            .with_mime_type("application/json");
+        Ok(ListResourceTemplatesResult {
+            resource_templates: vec![t],
             ..Default::default()
         })
     }
@@ -238,6 +275,10 @@ impl ServerHandler for PatternhausServer {
             OVERVIEW_URI => json!({ "view": "overview" }),
             EVENTS_URI => json!({ "view": "events" }),
             CATALOGUE_URI => json!({ "view": "catalogue" }),
+            other if instrument_report_id(other).is_some() => json!({
+                "view": "report",
+                "args": { "instrument": instrument_report_id(other) },
+            }),
             other => {
                 return Err(McpError::invalid_params(
                     format!("unknown resource {other}"),

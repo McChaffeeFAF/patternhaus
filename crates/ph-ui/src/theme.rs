@@ -643,6 +643,30 @@ mod tests {
         assert_eq!(hue_distance(350.0, 10.0), 20.0);
     }
 
+    /// The agent's `zone_map` snapshot colours groups as the sampler window does.
+    #[test]
+    fn zone_map_snapshots_use_the_default_theme_colours() {
+        use ph_control::zone_colours;
+        let t = Theme::default_theme();
+        assert_eq!(t.object_colors(), zone_colours::OBJECT_COLOURS.to_vec());
+        let mut inst = ph_core::HausInstrument::new("x");
+        for (n, c) in [(0u32, 0u32), (1, 0), (2, 0x123456), (3, 0), (4, 0)] {
+            let mut g = ph_core::Group::new("g");
+            g.id = ph_core::GroupId(n * 3);
+            g.color = c;
+            inst.groups.insert(g.id, g);
+        }
+        for g in inst.groups.keys() {
+            let a = crate::sampler_ui::group_colour(&t, &inst, *g);
+            let b = zone_colours::group_colour(&inst, *g);
+            assert_eq!(
+                ((a.r() as u32) << 16) | ((a.g() as u32) << 8) | a.b() as u32,
+                b,
+                "group {g}"
+            );
+        }
+    }
+
     #[test]
     fn builtin_themes_parse() {
         let n = Theme::neon_slate();

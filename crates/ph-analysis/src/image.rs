@@ -715,6 +715,230 @@ pub fn playlist(spec: &PlaylistSpec) -> Vec<u8> {
     c.png()
 }
 
+// -------------------------------------------------------------------------------------
+// zone map (M3/T7)
+
+/// One zone of a Haus Sampler zone map.
+#[derive(Clone)]
+pub struct ZoneBox {
+    /// Inclusive key range.
+    pub keys: (u8, u8),
+    /// Inclusive velocity range.
+    pub velocity: (u8, u8),
+    /// Its group's colour, 0xRRGGBB.
+    pub color: u32,
+    /// Release-trigger zones are drawn as outlines over the others.
+    pub release: bool,
+    /// Round robins share a rectangle: this zone's band, `(index, count)`, index 0 on top.
+    pub band: (u32, u32),
+    /// Written inside the box when it fits (a sample name, `RR 2`).
+    pub label: String,
+}
+
+/// One key × velocity map of a zone-map image: the zones that sound under one articulation
+/// (or all zones, for an instrument without articulations).
+pub struct ZonePanel {
+    /// Shown above the panel, e.g. `STACCATO (KEY C#1)`; empty for none.
+    pub title: String,
+    pub zones: Vec<ZoneBox>,
+}
+
+pub struct ZoneMapSpec<'a> {
+    pub title: String,
+    /// Stacked top to bottom over one keyboard.
+    pub panels: &'a [ZonePanel],
+    /// Group names and colours, in group order.
+    pub legend: &'a [(String, u32)],
+    /// Keyswitches on the keyboard strip: key, articulation name, colour.
+    pub keyswitches: &'a [(u8, String, u32)],
+    pub width: u32,
+}
+
+fn black_key(k: u8) -> bool {
+    matches!(k % 12, 1 | 3 | 6 | 8 | 10)
+}
+
+/// The zone map as the sampler window shows it: keys across (C4 = MIDI 60), velocity up,
+/// one box per zone in its group's colour, round robins as stacked bands, release zones as
+/// outlines, keyswitches coloured on the keyboard strip. Each panel is one articulation, so
+/// zones of different articulations never hide each other.
+pub fn zone_map(spec: &ZoneMapSpec) -> Vec<u8> {
+    let (l, r, top, kb_h) = (86, 20, 76, 56);
+    let n = spec.panels.len().max(1) as i32;
+    let head = th() + 14; // a panel's title line
+    let plot_h = (640 / n).clamp(110, 420);
+    let w = spec.width.clamp(480, 4000) as i32;
+    let h = top + n * (head + plot_h + 8) + kb_h + 64;
+    let mut c = Canvas::new(w as u32, h as u32);
+    // keys shown: everything mapped or switching, whole octaves, at least two
+    let mut lo = 127u8;
+    let mut hi = 0u8;
+    for z in spec.panels.iter().flat_map(|p| &p.zones) {
+        lo = lo.min(z.keys.0);
+        hi = hi.max(z.keys.1);
+    }
+    for (k, ..) in spec.keyswitches {
+        lo = lo.min(*k);
+        hi = hi.max(*k);
+    }
+    if lo > hi {
+        (lo, hi) = (48, 72);
+    }
+    let mut lo = lo - lo % 12;
+    let mut hi = (hi - hi % 12).saturating_add(11).min(127);
+    if hi - lo < 23 {
+        hi = (lo as u32 + 23).min(127) as u8;
+        if hi - lo < 23 {
+            lo = hi.saturating_sub(23);
+        }
+    }
+    let keys = (hi - lo) as i32 + 1;
+    let (x0, x1) = (l, w - r);
+    let kw = (x1 - x0) as f64 / keys as f64;
+    let kx = |k: u8| x0 + ((k as u32 - lo as u32) as f64 * kw).round() as i32;
+    let kx_end = |k: u8| x0 + ((k as u32 + 1 - lo as u32) as f64 * kw).round() as i32;
+
+    title(&mut c, &spec.title);
+    // legend: groups
+    let mut lx = 12;
+    for (name, color) in spec.legend {
+        let t = name.to_uppercase();
+        let tw = text::width(&t, SCALE) as i32;
+        if lx + 20 + tw > w - 12 {
+            break;
+        }
+        c.rect(lx, 40, 14, 14, rgb(*color));
+        c.text(&t, lx + 20, 40, TEXT);
+        lx += 20 + tw + 24;
+    }
+    let mut y0 = top;
+    for panel in spec.panels {
+        let ptop = y0 + head;
+        let vy = |v: u32| ptop + ((127 - v.min(127)) as f64 / 128.0 * plot_h as f64).round() as i32;
+        let vy_bottom =
+            |v: u32| ptop + ((128 - v.min(127)) as f64 / 128.0 * plot_h as f64).round() as i32;
+        c.text(&panel.title.to_uppercase(), x0, y0 + 4, TEXT);
+        c.text("VEL", 12, y0 + 4, DIM);
+        // the plot: key columns, octave lines, velocity lines
+        c.rect(x0, ptop, x1 - x0, plot_h, PANEL);
+        for k in lo..=hi {
+            if black_key(k) {
+                c.rect(kx(k), ptop, kx_end(k) - kx(k), plot_h, [0x18, 0x1a, 0x20]);
+            }
+        }
+        for k in lo..=hi {
+            if k % 12 == 0 {
+                c.rect(kx(k), ptop, 1, plot_h, GRID_STRONG);
+            }
+        }
+        for v in [32u32, 64, 96] {
+            c.rect(x0, vy(v), x1 - x0, 1, GRID);
+        }
+        let marks: &[u32] = if plot_h >= 200 {
+            &[0, 32, 64, 96, 127]
+        } else {
+            &[0, 64, 127]
+        };
+        for &v in marks {
+            let y = if v == 127 {
+                vy(127)
+            } else {
+                vy_bottom(v) - th()
+            };
+            c.text_right(
+                &v.to_string(),
+                x0 - 8,
+                y.clamp(ptop, ptop + plot_h - th()),
+                DIM,
+            );
+        }
+        // zones: attack first, release outlines on top
+        for release in [false, true] {
+            for z in panel.zones.iter().filter(|z| z.release == release) {
+                let xa = kx(z.keys.0);
+                let xb = kx_end(z.keys.1.min(hi)).max(xa + 2);
+                let ya = vy(z.velocity.1 as u32);
+                let yb = vy_bottom(z.velocity.0 as u32).max(ya + 2);
+                let (i, n) = (z.band.0 as i32, z.band.1.max(1) as i32);
+                let bh = (yb - ya) as f64 / n as f64;
+                let (ya, yb) = (
+                    ya + (bh * i as f64).round() as i32,
+                    ya + (bh * (i + 1) as f64).round() as i32,
+                );
+                let base = rgb(z.color);
+                if release {
+                    for t in 0..2 {
+                        c.rect(xa + t, ya + t, xb - xa - 2 * t, 1, base);
+                        c.rect(xa + t, yb - 1 - t, xb - xa - 2 * t, 1, base);
+                        c.rect(xa + t, ya + t, 1, yb - ya - 2 * t, base);
+                        c.rect(xb - 1 - t, ya + t, 1, yb - ya - 2 * t, base);
+                    }
+                } else {
+                    c.rect(xa, ya, xb - xa, yb - ya, [0, 0, 0]);
+                    c.rect(
+                        xa + 1,
+                        ya + 1,
+                        (xb - xa - 2).max(1),
+                        (yb - ya - 2).max(1),
+                        mix(PANEL, base, 0.7),
+                    );
+                }
+                let label = z.label.to_uppercase();
+                let tw = text::width(&label, SCALE) as i32;
+                if !label.is_empty() && tw + 8 <= xb - xa && th() + 4 <= yb - ya {
+                    let tc = if release {
+                        base
+                    } else if luminance(mix(PANEL, base, 0.7)) > 150.0 {
+                        [0x10, 0x12, 0x16]
+                    } else {
+                        [0xf4, 0xf6, 0xfa]
+                    };
+                    let (tx, ty) = if release {
+                        (xb - tw - 6, yb - th() - 4)
+                    } else {
+                        (xa + 4, ya + 4)
+                    };
+                    c.text(&label, tx, ty, tc);
+                }
+            }
+        }
+        y0 = ptop + plot_h + 8;
+    }
+    // keyboard strip, keyswitches in their colours
+    let ky = y0;
+    for k in lo..=hi {
+        let ks = spec.keyswitches.iter().find(|s| s.0 == k);
+        let fill = match ks {
+            Some((_, _, col)) => rgb(*col),
+            None if black_key(k) => [0x30, 0x33, 0x3b],
+            None => [0xd5, 0xd9, 0xe0],
+        };
+        c.rect(kx(k), ky, (kx_end(k) - kx(k) - 1).max(1), kb_h - 22, fill);
+        if k % 12 == 0 {
+            c.text(&note_name(k), kx(k) + 2, ky + kb_h - 18, TEXT);
+        }
+    }
+    let mut foot =
+        String::from("KEYS ACROSS, VELOCITY UP. BANDS = ROUND ROBINS, OUTLINES = RELEASE ZONES.");
+    if !spec.keyswitches.is_empty() {
+        let ks: Vec<String> = spec
+            .keyswitches
+            .iter()
+            .map(|(k, n, _)| format!("{} {}", note_name(*k), n.to_uppercase()))
+            .collect();
+        c.text(
+            &format!("KEYSWITCHES: {}", ks.join(", ")),
+            x0,
+            ky + kb_h + 8,
+            TEXT,
+        );
+    } else {
+        foot.insert_str(0, "NO KEYSWITCHES. ");
+    }
+    c.text(&foot, x0, ky + kb_h + 32, DIM);
+    c.png()
+}
+
 fn luminance(c: [u8; 3]) -> f32 {
     0.299 * c[0] as f32 + 0.587 * c[1] as f32 + 0.114 * c[2] as f32
 }
@@ -846,5 +1070,83 @@ mod tests {
         let (w, _, buf) = decode(&png);
         assert_eq!(w, 1200);
         assert!(distinct_colours(&buf) > 8);
+    }
+    #[test]
+    fn zone_map_draws_zones_bands_and_keyswitches() {
+        let zones = [
+            ZoneBox {
+                keys: (36, 84),
+                velocity: (0, 80),
+                color: 0x38c6ff,
+                release: false,
+                band: (0, 2),
+                label: "sus_p_rr1".into(),
+            },
+            ZoneBox {
+                keys: (36, 84),
+                velocity: (0, 80),
+                color: 0x38c6ff,
+                release: false,
+                band: (1, 2),
+                label: "RR 2".into(),
+            },
+            ZoneBox {
+                keys: (36, 71),
+                velocity: (81, 127),
+                color: 0xf472b6,
+                release: false,
+                band: (0, 1),
+                label: "stac_f".into(),
+            },
+            ZoneBox {
+                keys: (36, 84),
+                velocity: (0, 127),
+                color: 0x2dd4bf,
+                release: true,
+                band: (0, 1),
+                label: "rel".into(),
+            },
+        ];
+        let panels = [
+            ZonePanel {
+                title: "Sustain (key C1)".into(),
+                zones: zones[..2].iter().chain(&zones[3..]).cloned().collect(),
+            },
+            ZonePanel {
+                title: "Staccato (key C#1)".into(),
+                zones: vec![zones[2].clone()],
+            },
+        ];
+        let png = zone_map(&ZoneMapSpec {
+            title: "ZONE MAP  STRINGS".into(),
+            panels: &panels,
+            legend: &[("Sustain".into(), 0x38c6ff), ("Staccato".into(), 0xf472b6)],
+            keyswitches: &[
+                (24, "Sustain".into(), 0x94a3b8),
+                (127, "Edge".into(), 0x94a3b8),
+            ],
+            width: 1400,
+        });
+        let (w, h, buf) = decode(&png);
+        assert_eq!(w, 1400);
+        assert!(h >= 600, "{h}");
+        assert!(distinct_colours(&buf) > 8);
+        // a staccato forte box is pink, the sustain soft layer blue
+        let has = |c: [u8; 3]| {
+            buf.chunks(4)
+                .any(|p| [p[0], p[1], p[2]] == mix(PANEL, c, 0.7))
+        };
+        assert!(has(rgb(0xf472b6)) && has(rgb(0x38c6ff)));
+        // the keyswitch key is drawn in its colour on the strip
+        assert!(buf.chunks(4).any(|p| [p[0], p[1], p[2]] == rgb(0x94a3b8)));
+        // empty maps still draw
+        let empty = zone_map(&ZoneMapSpec {
+            title: "EMPTY".into(),
+            panels: &[],
+            legend: &[],
+            keyswitches: &[],
+            width: 300,
+        });
+        assert_eq!(decode(&empty).0, 480);
     }
 }

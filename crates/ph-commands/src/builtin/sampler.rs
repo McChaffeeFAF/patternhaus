@@ -101,6 +101,13 @@ pub fn register(r: &mut Registry) {
         READ,
         report,
     ));
+    r.register(typed(
+        "sampler.prune",
+        "Remove Haus Sampler instruments that no channel plays, as one undo step.",
+        Scope::Compose,
+        MUTATES,
+        prune,
+    ));
     // ---- stubs (final ids and schemas)
     r.register(typed(
         "sampler.load",
@@ -733,6 +740,66 @@ fn modulation_set(ctx: &mut CommandCtx<'_>, p: ModulationSet) -> CmdResult<Comma
             "set {} in {name}",
             plural(n, "modulation route", "modulation routes")
         ),
+    ))
+}
+
+// ------------------------------------------------------------------------- prune
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Prune {
+    /// Only these instruments (each must be unused); default every instrument no channel
+    /// plays.
+    #[serde(default)]
+    instruments: Option<Vec<InstrumentId>>,
+}
+
+fn prune(ctx: &mut CommandCtx<'_>, p: Prune) -> CmdResult<CommandOutput> {
+    let unused: Vec<InstrumentId> = match &p.instruments {
+        Some(list) => {
+            for i in list {
+                let inst = ctx.project.instrument(*i)?;
+                if let Some(c) = ctx.project.channels_playing(*i).next() {
+                    return invalid(format!(
+                        "{} is played by channel {}; remove or change that channel first",
+                        inst.name, c.name
+                    ));
+                }
+            }
+            let mut l = list.clone();
+            l.sort();
+            l.dedup();
+            l
+        }
+        None => ctx
+            .project
+            .instruments
+            .keys()
+            .copied()
+            .filter(|i| ctx.project.channels_playing(*i).next().is_none())
+            .collect(),
+    };
+    let names: Vec<String> = unused
+        .iter()
+        .map(|i| ctx.project.instruments[i].name.clone())
+        .collect();
+    let mut ed = Edit::new(ctx.project);
+    for i in &unused {
+        ed.remove_instrument(*i)?;
+    }
+    let summary = if unused.is_empty() {
+        "no unused instruments".to_string()
+    } else {
+        format!(
+            "removed {} ({})",
+            plural(unused.len(), "unused instrument", "unused instruments"),
+            names.join(", ")
+        )
+    };
+    Ok(CommandOutput::from_edit(
+        ed,
+        json!({ "removed": unused }),
+        summary,
     ))
 }
 

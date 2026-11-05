@@ -32,6 +32,8 @@ ph-formats.workspace = true
 ph-node.workspace = true
 # the repo's test plugins (ph_plugin_host::testing)
 ph-plugin-host.workspace = true
+# the M3 acceptance test writes its SF2 drum kit with the fixture builder
+ph-sampler-formats.workspace = true
 png = "0.18"
 rmcp = { version = "3.5", default-features = false, features = ["client", "transport-child-process", "transport-async-rw"] }
 serde_json.workspace = true
