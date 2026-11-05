@@ -73,6 +73,9 @@ impl Tab {
     }
 }
 
+/// How far a selection may move: ((key min, key max), (velocity min, velocity max)).
+type MoveLimits = ((i32, i32), (i32, i32));
+
 /// A drag on the map in progress.
 #[derive(Clone, Debug)]
 struct MapDrag {
@@ -564,7 +567,7 @@ fn zone_map(
         }
     }
     // zones (a drag shows the dragged ones where they would land)
-    let dragged: Option<(Grab, (i32, i32), ((i32, i32), (i32, i32)))> = view
+    let dragged: Option<(Grab, (i32, i32), MoveLimits)> = view
         .drag
         .as_ref()
         .map(|d| (d.grab, d.delta, map::move_limits(&d.zones)));
