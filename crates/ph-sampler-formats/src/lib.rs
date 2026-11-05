@@ -12,13 +12,14 @@
 //! |---|---|---|
 //! | `.sfz` | SFZ | M3/T3 |
 //! | `.sf2`, `.sf3` | SoundFont 2 (SF3: Ogg Vorbis samples) | M3/T4 |
-//! | `.dspreset` | DecentSampler | M3/T4 |
+//! | `.dspreset`, `.dsbundle` (folder), `.dslibrary` (refused: zip) | DecentSampler | M3/T4 |
 //! | `.exs` | EXS24 | M3/T4 |
 //! | `.nki`, `.nkm`, `.nkx`, `.nkc`, `.ncw` | Kontakt (unencrypted only) | M3/T6 |
 //!
-//! SFZ is implemented (M3/T3, [`Sfz`]); the others are stubs until their track
+//! SFZ (M3/T3, [`Sfz`]), SF2/SF3 ([`SoundFont`]), DecentSampler ([`DecentSampler`]) and EXS24
+//! ([`Exs`]) (M3/T4) are implemented; Kontakt is a stub until M3/T6
 //! ([`ImportError::Unavailable`]). [`automap`] maps a folder of samples by the note names in
-//! their file names (drop to create).
+//! their file names (drop to create). [`build`] holds the byte-level fixture writers.
 //!
 //! # What an import produces
 //!
@@ -27,8 +28,9 @@
 //!   folder). The caller (`sampler.import`, M3/T3) decides where they live: linked in place
 //!   (`folder` = the library folder, when every sample is a plain file there) or written into
 //!   the project (`instruments/<name>/samples/`).
-//! - [`ImportedSample::source`] says how to get the audio: a file on disk, or a byte range of
-//!   a container (SF2 sample data, Kontakt monoliths, NCW).
+//! - [`ImportedSample::source`] says how to get the audio: a file on disk, audio decoded
+//!   from inside the instrument file (SF2/SF3 samples, written out as WAV by the caller), a
+//!   synthesised sample, or a byte range of a container (Kontakt monoliths, NCW).
 //! - The report lists what was approximated, skipped or kept for later (scripts and UI data
 //!   are kept in `HausInstrument::extra` and reported as not run yet), and every opcode,
 //!   chunk or field the importer did not understand.
@@ -36,14 +38,34 @@
 use ph_core::{HausInstrument, ImportNote, ImportNoteKind};
 use std::path::{Path, PathBuf};
 
+mod assemble;
 pub mod automap;
+pub mod build;
+pub mod dspreset;
+pub mod exs;
 mod notes;
 pub mod probe;
+pub mod sf2;
 pub mod sfz;
 mod stubs;
 
+pub use dspreset::DecentSampler;
+pub use exs::Exs;
+pub use sf2::{PresetChoice, SoundFont};
 pub use sfz::Sfz;
-pub use stubs::{DecentSampler, Exs, Kontakt, SoundFont};
+pub use stubs::Kontakt;
+
+/// A float WAV file holding `audio` (for [`SampleSource::Audio`]).
+pub fn audio_wav(audio: &ph_node::SampleData) -> Result<Vec<u8>, String> {
+    let rate = audio.sample_rate.round().clamp(1.0, 1_000_000.0) as u32;
+    ph_formats::encode::encode_wav(
+        &audio.channels,
+        rate,
+        ph_formats::encode::WavFormat::Float32,
+        ph_formats::encode::DITHER_SEED,
+    )
+    .map_err(|e| e.to_string())
+}
 
 /// What an importer reads.
 #[derive(Copy, Clone, Debug)]
@@ -92,6 +114,11 @@ pub enum SampleSource {
     /// Audio the importer synthesises (SFZ `*sine`, `*silence`); the caller writes it as a
     /// WAV file ([`Generated::render`]) when it saves or collects the instrument.
     Generated(Generated),
+    /// Audio the importer decoded from inside the instrument file (SF2/SF3 sample data,
+    /// stereo pairs joined into one sample). The caller writes it as a float WAV
+    /// ([`audio_wav`]) into the instrument's `samples/` folder: such instruments are always
+    /// collected. Loop and root fields are unused (zones carry them).
+    Audio(std::sync::Arc<ph_node::SampleData>),
     /// A byte range of a container file, in a raw encoding.
     Chunk {
         container: PathBuf,
@@ -192,6 +219,20 @@ pub struct ImportReport {
     pub notes: Vec<ImportNote>,
     /// Opcodes, chunks or fields not understood at all, with counts.
     pub unknown: Vec<(String, u32)>,
+    /// Multi-preset files (SF2/SF3): every preset in the file, in file order. Empty for
+    /// formats with one instrument per file.
+    pub presets: Vec<PresetListing>,
+}
+
+/// One preset of a multi-preset file (SF2 `phdr`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PresetListing {
+    /// MIDI bank (128 = the percussion bank).
+    pub bank: u16,
+    pub program: u16,
+    pub name: String,
+    /// The preset this import read.
+    pub imported: bool,
 }
 
 impl ImportReport {
@@ -216,6 +257,18 @@ impl ImportReport {
                     }
                     s.push('\n');
                 }
+            }
+        }
+        if !self.presets.is_empty() {
+            s.push_str("\n## Presets in the file\n\n");
+            for p in &self.presets {
+                s.push_str(&format!(
+                    "- {:03}:{:03} {}{}\n",
+                    p.bank,
+                    p.program,
+                    p.name,
+                    if p.imported { " (imported)" } else { "" }
+                ));
             }
         }
         if !self.unknown.is_empty() {
@@ -314,7 +367,18 @@ mod tests {
         assert_eq!(
             all,
             [
-                "sfz", "sf2", "sf3", "dspreset", "exs", "nki", "nkm", "nkx", "nkc", "ncw"
+                "sfz",
+                "sf2",
+                "sf3",
+                "dspreset",
+                "dsbundle",
+                "dslibrary",
+                "exs",
+                "nki",
+                "nkm",
+                "nkx",
+                "nkc",
+                "ncw"
             ]
         );
         for (ext, format) in [
@@ -333,12 +397,7 @@ mod tests {
 
     #[test]
     fn stubs_name_their_track_and_unknown_files_are_refused() {
-        for (file, track) in [
-            ("a.sf2", "M3/T4"),
-            ("a.dspreset", "M3/T4"),
-            ("a.exs", "M3/T4"),
-            ("a.nki", "M3/T6"),
-        ] {
+        for (file, track) in [("a.nki", "M3/T6"), ("a.nkm", "M3/T6")] {
             match import_path(Path::new(file)) {
                 Err(ImportError::Unavailable { track: t, .. }) => assert_eq!(t, track),
                 other => panic!("{file}: {other:?}"),
@@ -378,6 +437,7 @@ mod tests {
                 },
             ],
             unknown: vec![("opcode:foo".into(), 3)],
+            presets: vec![],
         };
         let md = r.to_markdown();
         assert!(md.contains("## Approximated\n\n- opcode:fil_type=lpf_6p (2×): played as 4-pole"));

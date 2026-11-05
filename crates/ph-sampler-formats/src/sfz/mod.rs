@@ -100,6 +100,7 @@ pub fn import_text(bytes: &[u8], file: &str, dir: Option<&Path>) -> Result<Impor
         zones: instrument.zones.len(),
         notes,
         unknown,
+        presets: Vec::new(),
     };
     Ok(Imported {
         instrument,

@@ -38,6 +38,18 @@ GPL/LGPL/AGPL denied.
 All three pass `deny.toml`. T4 decides; choosing B or C adds a row to the contract log and
 runs `cargo xtask notices`.
 
+**Decision (M3/T4): option A.** `ph_sampler_formats::dspreset::xml` is our own reader
+(~350 lines with tests): elements, attributes, text, comments, CDATA, processing
+instructions, the five entities and numeric references, a skipped DOCTYPE (no DTD, no
+external entities), a nesting limit, and refusal of documents that are not well-formed. It
+also writes a subtree back out (the `<ui>` kept as data). No crate was added.
+
+**SF3 fixtures (M3/T4):** `ph-formats` decodes Ogg Vorbis but has no encoder, and none is
+installed on the development machine. The fixtures build their streams with
+`ph_sampler_formats::build::vorbis`, a minimal writer of our own from the public Vorbis I
+and Ogg framing specifications (short blocks, a flat floor, one spectral line per block:
+a steady tone). Nothing is committed and no crate was added.
+
 ## Later milestones (not M3)
 
 | need | crate | licence | note |

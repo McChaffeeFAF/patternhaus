@@ -5,8 +5,9 @@
 //! Implemented in M3/T0 (model only): `new`, `set`, `group_add`, `group_set`,
 //! `group_remove`, `zone_add`, `zone_move`, `zone_set`, `zone_remove`, `keyswitch_set`,
 //! `modulation_set`, `report`. M3/T3: `load`, `save_native`, `collect` and `import` for SFZ
-//! and sample folders (in `sampler_files.rs`); `import` of the other formats names its track
-//! (T4 SF2/SF3/DecentSampler/EXS, T6 Kontakt) until it lands.
+//! and sample folders (in `sampler_files.rs`); M3/T4: `import` of SF2/SF3, DecentSampler and
+//! EXS24 (the `preset` parameter picks an SF2 preset); `import` of Kontakt names its track
+//! (T6) until it lands.
 
 use super::util::*;
 use crate::*;
@@ -794,6 +795,28 @@ pub(crate) struct Load {
     /// folder (false, the default).
     #[serde(default)]
     pub collect: bool,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Import {
+    /// An instrument file (.sfz, .sf2, .sf3, .dspreset, .exs, ...) or a folder of samples
+    /// to map by the note names in their file names. Inside the project or an allowed
+    /// library folder.
+    pub path: String,
+    /// Put it on this channel instead of adding one.
+    #[serde(default)]
+    pub channel: Option<ChannelId>,
+    /// Copy the samples into the project (true) instead of playing them from the library
+    /// folder (false, the default). SF2/SF3 samples live inside the SoundFont, so those
+    /// imports are always collected.
+    #[serde(default)]
+    pub collect: bool,
+    /// SF2/SF3 only: the preset to import, as "bank:program" (e.g. "128:0" for the first
+    /// drum kit) or a preset name. Default: the first preset by bank, then program. The
+    /// report lists every preset in the file.
+    #[serde(default)]
+    pub preset: Option<String>,
 }
 
 #[derive(Deserialize, JsonSchema)]

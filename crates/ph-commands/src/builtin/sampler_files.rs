@@ -9,15 +9,21 @@
 //!   *from* them, and `save_native` refuses to write over the folder an instrument links.
 //! - Model changes are one undoable edit each. Files copied into the project stay when the
 //!   edit is undone (harmless, like `sample.import`).
+//! - SF2/SF3 instruments have no sample files: their samples (cut out of the SoundFont,
+//!   decoded and stereo-joined by the importer, `SampleSource::Audio`) are written as float
+//!   WAV files into `instruments/<name>/samples/`, so those imports are always collected
+//!   (M3/T4).
 
-use super::sampler::{InstrumentOnly, Load, SaveNative};
+use super::sampler::{Import, InstrumentOnly, Load, SaveNative};
 use super::util::*;
 use crate::*;
 use ph_core::*;
 use ph_formats::instrument::{
     INSTRUMENT_FILE, INSTRUMENT_SAMPLES_DIR, load_instrument, save_instrument,
 };
-use ph_sampler_formats::{ImportError, Imported, SampleSource, importer_for};
+use ph_sampler_formats::{
+    ImportError, ImportInput, Imported, PresetChoice, SampleSource, audio_wav, importer_for,
+};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -397,6 +403,9 @@ fn report_json(imported: &Imported) -> Value {
         "zones": r.zones,
         "notes": r.notes,
         "unknown": r.unknown.iter().map(|(w, n)| json!({ "what": w, "count": n })).collect::<Vec<_>>(),
+        "presets": r.presets.iter().map(|p| json!({
+            "bank": p.bank, "program": p.program, "name": p.name, "imported": p.imported,
+        })).collect::<Vec<_>>(),
     })
 }
 
@@ -424,8 +433,13 @@ fn link_folder(imported: &Imported) -> Option<PathBuf> {
     folder
 }
 
-pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Load) -> CmdResult<CommandOutput> {
-    let path_is_dir = read_path(ctx, &p.path).is_ok_and(|d| d.is_dir());
+pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOutput> {
+    // a folder is a folder of samples, unless it is an instrument container (`.dsbundle`)
+    let path_is_dir = read_path(ctx, &p.path).is_ok_and(|d| d.is_dir())
+        && importer_for(Path::new(&p.path)).is_none();
+    if p.preset.is_some() && path_is_dir {
+        return invalid("preset applies to SF2/SF3 files only, not to a folder of samples");
+    }
     let imported = if path_is_dir {
         let dir = read_path(ctx, &p.path)?;
         ph_sampler_formats::automap::map_folder(&dir).map_err(|e| CmdError::Host(e.to_string()))?
@@ -442,19 +456,29 @@ pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Load) -> CmdResult<CommandOutp
             ));
         };
         // formats whose importer is a later track answer before any file is touched
-        if let Err(ImportError::Unavailable { track, .. }) =
-            importer.import(ph_sampler_formats::ImportInput::Bytes {
-                name: &p.path,
-                bytes: &[],
-            })
-        {
+        if let Err(ImportError::Unavailable { track, .. }) = importer.import(ImportInput::Bytes {
+            name: &p.path,
+            bytes: &[],
+        }) {
             return Err(unavailable(&format!(".{ext} import"), &track));
         }
         let file = read_path(ctx, &p.path)?;
-        importer
-            .import(ph_sampler_formats::ImportInput::Path(&file))
-            .map_err(|e| CmdError::Host(e.to_string()))?
+        let input = ImportInput::Path(&file);
+        let result = match &p.preset {
+            Some(choice) if importer.format() == "sf2" => {
+                ph_sampler_formats::sf2::import_preset(input, &PresetChoice::parse(choice))
+            }
+            Some(_) => {
+                return invalid(format!(
+                    "preset applies to SF2/SF3 files only; {} has one instrument",
+                    p.path
+                ));
+            }
+            None => importer.import(input),
+        };
+        result.map_err(|e| CmdError::Host(e.to_string()))?
     };
+
     // agents read samples only from inside their allowed roots
     if *ctx.author != Author::Human {
         for s in &imported.samples {
@@ -485,8 +509,12 @@ pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Load) -> CmdResult<CommandOutp
                         let g = *g;
                         c.place(Path::new(g.name()), &s.name, || wav_bytes(g))?
                     }
+                    SampleSource::Audio(audio) => {
+                        let key = PathBuf::from(format!("audio:{}", s.name));
+                        c.place(&key, &s.name, || audio_wav(audio).map_err(CmdError::Host))?
+                    }
                     SampleSource::Chunk { .. } => {
-                        return Err(unavailable("samples inside containers", "M3/T4"));
+                        return Err(unavailable("samples inside containers", "M3/T6"));
                     }
                 };
                 names.insert(s.name.clone(), name);
