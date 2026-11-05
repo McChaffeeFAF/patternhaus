@@ -417,7 +417,7 @@ fn zone_map(
     if resp.drag_started()
         && let Some(o) = ui.input(|i| i.pointer.press_origin())
     {
-        match map::hit(&shapes, o) {
+        match map::hit_prefer(&shapes, o, |z| view.selected.contains(&z)) {
             Some((z, grab)) => {
                 if !view.selected.contains(&z) {
                     if !shift {
@@ -2677,7 +2677,7 @@ pub fn save_dialog(ctx: &egui::Context, core: &mut AppCore, f: &mut SaveForm) ->
             .color(dim),
         );
         ui.horizontal(|ui| {
-            if btn(ui, "Save").clicked() && !f.path.trim().is_empty() {
+            if btn(ui, "Save instrument").clicked() && !f.path.trim().is_empty() {
                 core.send(ms::save_native(f.instrument, f.path.trim()));
                 keep = false;
             }
@@ -2704,7 +2704,7 @@ pub fn load_dialog(ctx: &egui::Context, core: &mut AppCore, f: &mut LoadForm) ->
             .color(dim),
         );
         ui.horizontal(|ui| {
-            if btn(ui, "Load").clicked() && !f.path.trim().is_empty() {
+            if btn(ui, "Load instrument").clicked() && !f.path.trim().is_empty() {
                 core.send(ms::load(f.path.trim(), f.channel));
                 keep = false;
             }

@@ -192,6 +192,21 @@ pub fn hit(shapes: &[ZoneShape], p: Pos2) -> Option<(ZoneId, Grab)> {
         .or_else(|| pass(&|s| s.outlined && s.band.expand(1.0).contains(p)))
 }
 
+/// As [`hit`], but zones for which `prefer` holds (the selection) come first: a selected
+/// zone under a release outline can still be resized by its own edges.
+pub fn hit_prefer(
+    shapes: &[ZoneShape],
+    p: Pos2,
+    prefer: impl Fn(ZoneId) -> bool,
+) -> Option<(ZoneId, Grab)> {
+    shapes
+        .iter()
+        .rev()
+        .find(|s| prefer(s.zone) && s.band.expand(1.0).contains(p))
+        .map(|s| (s.zone, grab_of(s, p)))
+        .or_else(|| hit(shapes, p))
+}
+
 /// Which part of a shape `p` (inside it) grabs.
 fn grab_of(s: &ZoneShape, p: Pos2) -> Grab {
     let r = s.rect;
