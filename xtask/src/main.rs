@@ -7,6 +7,8 @@
 //!   `perf/baseline-7800x3d.json`; fails on a regression of more than 10% (the local gate on
 //!   the owner's machine). `--report` only prints (CI runners are noisy); `--update`
 //!   records the current numbers as the baseline.
+//! - `sampler-stress`: the Haus Sampler streaming stress test over a generated ~2 GB library
+//!   (M3 criterion 4): underruns, resident memory against the preload budget, load time.
 //! - `notices [--check]`: regenerates `THIRD_PARTY_NOTICES.md` with cargo-about;
 //!   `--check` fails if the committed file is out of date.
 //!
@@ -15,7 +17,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use tasks::{golden, notices, perf};
+use tasks::{golden, notices, perf, sampler_stress};
 
 mod tasks;
 
@@ -95,7 +97,7 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("ph-app", &["*"]),
 ];
 
-const USAGE: &str = "usage: cargo xtask <check-layers|check-provenance|check|golden [--update]|perf [--report|--update]|notices [--check]|flp-corpus [dir...]>";
+const USAGE: &str = "usage: cargo xtask <check-layers|check-provenance|check|golden [--update]|perf [--report|--update]|sampler-stress|notices [--check]|flp-corpus [dir...]>";
 
 fn main() -> ExitCode {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -111,6 +113,7 @@ fn main() -> ExitCode {
         "check" => check_layers(&root).and_then(|_| check_provenance(&root)),
         "golden" => golden(&root, flag("--update")),
         "perf" => perf(&root, flag("--report"), flag("--update")),
+        "sampler-stress" => sampler_stress(&root),
         "notices" => notices(&root, flag("--check")),
         "flp-corpus" => flp_corpus(&root, &args[1..]),
         _ => Err(vec![USAGE.into()]),
