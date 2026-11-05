@@ -26,6 +26,9 @@ pub struct HeadlessOptions {
     /// Plugin hosting (see [`StudioConfig::plugins`]): the CLI passes
     /// [`crate::default_plugin_config`], tests `Default::default()`.
     pub plugins: ph_engine::plugins::HostConfig,
+    /// The instrument importers (the importer hook, M3/T6): `Importers::builtin()` (the
+    /// default), or the built-ins plus those a separately built front end registered.
+    pub importers: ph_sampler_formats::Importers,
 }
 
 /// Looks for the `assets/` folder: `$PATTERNHAUS_ASSETS`, then next to the executable and
@@ -74,7 +77,7 @@ pub fn start_headless(opts: HeadlessOptions) -> Result<(Studio, Arc<Agent>), Str
         audio: opts.audio,
         plugins: opts.plugins.clone(),
     };
-    let studio = Studio::start(config, project)?;
+    let studio = Studio::start_with(config, project, opts.importers.clone())?;
     let agent = Agent::new(studio.handle(), Grants::fixed(opts.grant));
     Ok((studio, agent))
 }

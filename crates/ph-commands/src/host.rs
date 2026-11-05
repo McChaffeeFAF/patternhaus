@@ -137,6 +137,15 @@ pub trait Host {
         Err(no_plugins())
     }
 
+    // ---- sampler importers (M3/T6). Additive default: the built-in formats.
+
+    /// The instrument importers of this session (the importer hook): the built-ins plus any a
+    /// separately built front end registered. `sampler.import` and the UI's file filter use
+    /// this set, never a global list. Cheap to clone (shared importers).
+    fn importers(&self) -> ph_sampler_formats::Importers {
+        ph_sampler_formats::Importers::builtin()
+    }
+
     // ---- plugin catalogue (M3/T9). Additive defaults: hosts without one refuse.
 
     /// The per-user plugin catalogue folder (`docs/formats/catalogue.md`); `None` when this

@@ -127,7 +127,8 @@ pub enum Audition {
     Data(Arc<ph_node::SampleData>),
     /// An instrument file the Haus Sampler imports (`.sfz`, `.sf2`, ...): a few notes of it,
     /// rendered offline from a throw-away import (M3/T5).
-    InstrumentFile(std::path::PathBuf),
+    /// An instrument file, with the session's importers that read it.
+    InstrumentFile(std::path::PathBuf, ph_sampler_formats::Importers),
 }
 
 /// Samples in the scope trace.
@@ -142,11 +143,11 @@ fn play_audition(engine: &Arc<Engine>, what: Audition) {
             let _ = engine.audition(&reference, AUDITION_VELOCITY);
         }
         Audition::Data(d) => engine.audition_data(&d, AUDITION_VELOCITY),
-        Audition::InstrumentFile(path) => {
+        Audition::InstrumentFile(path, importers) => {
             // importing and rendering take a moment: keep the link thread responsive
             let engine = engine.clone();
             std::thread::spawn(move || {
-                if let Ok(d) = crate::sampler_ui::preview_audio(&path) {
+                if let Ok(d) = crate::sampler_ui::preview_audio(&path, &importers) {
                     engine.audition_data(&d, AUDITION_VELOCITY);
                 }
             });

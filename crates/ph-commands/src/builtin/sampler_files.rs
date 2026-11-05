@@ -13,6 +13,9 @@
 //!   decoded and stereo-joined by the importer, `SampleSource::Audio`) are written as float
 //!   WAV files into `instruments/<name>/samples/`, so those imports are always collected
 //!   (M3/T4).
+//! - Importers come from the session's host (`Host::importers`, the importer hook, M3/T6):
+//!   built-in formats plus any a separately built front end registered. Their samples may
+//!   also be byte ranges of a container (`SampleSource::Chunk`), cut out when collecting.
 
 use super::sampler::{Import, InstrumentOnly, Load, SaveNative};
 use super::util::*;
@@ -22,7 +25,8 @@ use ph_formats::instrument::{
     INSTRUMENT_FILE, INSTRUMENT_SAMPLES_DIR, load_instrument, save_instrument,
 };
 use ph_sampler_formats::{
-    ImportError, ImportInput, Imported, PresetChoice, SampleSource, audio_wav, importer_for,
+    ImportError, ImportInput, Imported, PresetChoice, SampleEncoding, SampleSource, audio_wav,
+    import_with,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -417,6 +421,72 @@ fn report_json(imported: &Imported) -> Value {
     })
 }
 
+/// Largest container range `sampler.import` cuts out in one piece (1 GiB).
+const MAX_CHUNK: u64 = 1 << 30;
+
+/// The file bytes for a `SampleSource::Chunk`: the range as it is (embedded files, Ogg),
+/// or raw PCM / float frames written as a float WAV.
+fn chunk_bytes(
+    container: &Path,
+    offset: u64,
+    length: u64,
+    encoding: SampleEncoding,
+    sample_rate: u32,
+    channels: u16,
+) -> CmdResult<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    if length > MAX_CHUNK {
+        return Err(host_err(
+            container,
+            format!("a sample of {length} bytes is too large to collect"),
+        ));
+    }
+    let mut f = std::fs::File::open(container).map_err(|e| host_err(container, e))?;
+    let size = f.metadata().map_err(|e| host_err(container, e))?.len();
+    if offset.checked_add(length).is_none_or(|end| end > size) {
+        return Err(host_err(
+            container,
+            format!("a sample at {offset}+{length} lies past the end of the file ({size} bytes)"),
+        ));
+    }
+    f.seek(SeekFrom::Start(offset))
+        .map_err(|e| host_err(container, e))?;
+    let mut raw = vec![0u8; length as usize];
+    f.read_exact(&mut raw).map_err(|e| host_err(container, e))?;
+    let width = match encoding {
+        SampleEncoding::EmbeddedFile | SampleEncoding::OggVorbis => return Ok(raw),
+        SampleEncoding::Pcm16Le => 2,
+        SampleEncoding::Pcm24Le => 3,
+        SampleEncoding::F32Le => 4,
+    };
+    let ch = channels.max(1) as usize;
+    if sample_rate == 0 || channels == 0 {
+        return Err(host_err(
+            container,
+            "a raw sample needs a sample rate and a channel count",
+        ));
+    }
+    let frames = raw.len() / (width * ch);
+    let mut planes = vec![Vec::with_capacity(frames); ch];
+    for (i, s) in raw.chunks_exact(width).take(frames * ch).enumerate() {
+        let v = match encoding {
+            SampleEncoding::Pcm16Le => i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0,
+            SampleEncoding::Pcm24Le => {
+                (i32::from_le_bytes([0, s[0], s[1], s[2]]) >> 8) as f32 / 8_388_608.0
+            }
+            _ => f32::from_le_bytes([s[0], s[1], s[2], s[3]]),
+        };
+        planes[i % ch].push(v);
+    }
+    ph_formats::encode::encode_wav(
+        &planes,
+        sample_rate,
+        ph_formats::encode::WavFormat::Float32,
+        ph_formats::encode::DITHER_SEED,
+    )
+    .map_err(|e| CmdError::Host(e.to_string()))
+}
+
 /// The folder every imported file sample lives under, when the samples can be linked in
 /// place: each source path ends with its zone name.
 fn link_folder(imported: &Imported) -> Option<PathBuf> {
@@ -442,9 +512,10 @@ fn link_folder(imported: &Imported) -> Option<PathBuf> {
 }
 
 pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOutput> {
+    let importers = ctx.host.importers();
     // a folder is a folder of samples, unless it is an instrument container (`.dsbundle`)
     let path_is_dir = read_path(ctx, &p.path).is_ok_and(|d| d.is_dir())
-        && importer_for(Path::new(&p.path)).is_none();
+        && importers.importer_for(Path::new(&p.path)).is_none();
     if p.preset.is_some() && path_is_dir {
         return invalid("preset applies to SF2/SF3 files only, not to a folder of samples");
     }
@@ -456,20 +527,13 @@ pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOu
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-        let Some(importer) = importer_for(Path::new(&p.path)) else {
+        let Some(importer) = importers.importer_for(Path::new(&p.path)) else {
             return invalid(format!(
                 "{} is not an instrument format the sampler reads ({}), nor a folder of samples",
                 p.path,
-                ph_sampler_formats::extensions().join(", ")
+                importers.extensions().join(", ")
             ));
         };
-        // formats whose importer is a later track answer before any file is touched
-        if let Err(ImportError::Unavailable { track, .. }) = importer.import(ImportInput::Bytes {
-            name: &p.path,
-            bytes: &[],
-        }) {
-            return Err(unavailable(&format!(".{ext} import"), &track));
-        }
         let file = read_path(ctx, &p.path)?;
         let input = ImportInput::Path(&file);
         let result = match &p.preset {
@@ -482,9 +546,15 @@ pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOu
                     p.path
                 ));
             }
-            None => importer.import(input),
+            None => import_with(importer, input),
         };
-        result.map_err(|e| CmdError::Host(e.to_string()))?
+        match result {
+            Ok(i) => i,
+            Err(ImportError::Unavailable { track, .. }) => {
+                return Err(unavailable(&format!(".{ext} import"), &track));
+            }
+            Err(e) => return Err(CmdError::Host(e.to_string())),
+        }
     };
 
     // agents read samples only from inside their allowed roots
@@ -521,8 +591,28 @@ pub(crate) fn import(ctx: &mut CommandCtx<'_>, p: Import) -> CmdResult<CommandOu
                         let key = PathBuf::from(format!("audio:{}", s.name));
                         c.place(&key, &s.name, || audio_wav(audio).map_err(CmdError::Host))?
                     }
-                    SampleSource::Chunk { .. } => {
-                        return Err(unavailable("samples inside containers", "M3/T6"));
+                    SampleSource::Chunk {
+                        container,
+                        offset,
+                        length,
+                        encoding,
+                        sample_rate,
+                        channels,
+                    } => {
+                        let key = PathBuf::from(format!(
+                            "chunk:{}:{offset}:{length}",
+                            container.display()
+                        ));
+                        c.place(&key, &s.name, || {
+                            chunk_bytes(
+                                container,
+                                *offset,
+                                *length,
+                                *encoding,
+                                *sample_rate,
+                                *channels,
+                            )
+                        })?
                     }
                 };
                 names.insert(s.name.clone(), name);

@@ -4,6 +4,7 @@
 //! against a temp folder.
 
 use ph_core::InstrumentSpec;
+use ph_sampler_formats::Importers;
 use std::path::{Path, PathBuf};
 
 const AUDIO_EXT: &[&str] = &["wav", "flac", "aif", "aiff", "mp3", "ogg"];
@@ -70,9 +71,10 @@ pub enum RefStyle {
     Absolute,
 }
 
-/// An instrument file (or `.dsbundle` folder) by its extension.
-fn is_instrument(p: &Path) -> bool {
-    ph_sampler_formats::importer_for(p).is_some()
+/// An instrument file (or `.dsbundle` folder) by its extension, among the session's
+/// importers (built-ins plus any registered through the importer hook, M3/T6).
+fn is_instrument(p: &Path, importers: &Importers) -> bool {
+    importers.importer_for(p).is_some()
 }
 
 fn is_audio(p: &Path) -> bool {
@@ -101,12 +103,19 @@ fn reference(path: &Path, root: &Path, style: &RefStyle) -> String {
     }
 }
 
-/// Scans `root` for audio files, folders first, names sorted. Empty folders are dropped.
-pub fn scan(root: &Path, style: &RefStyle, max_depth: usize) -> Vec<Node> {
-    scan_dir(root, root, style, max_depth)
+/// Scans `root` for audio files and the instrument files `importers` read, folders first,
+/// names sorted. Empty folders are dropped.
+pub fn scan(root: &Path, style: &RefStyle, max_depth: usize, importers: &Importers) -> Vec<Node> {
+    scan_dir(root, root, style, max_depth, importers)
 }
 
-fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node> {
+fn scan_dir(
+    dir: &Path,
+    root: &Path,
+    style: &RefStyle,
+    depth: usize,
+    importers: &Importers,
+) -> Vec<Node> {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -118,7 +127,7 @@ fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if is_instrument(&p) {
+        if is_instrument(&p, importers) {
             out.push(Node {
                 name: p
                     .file_name()
@@ -136,7 +145,7 @@ fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node
             {
                 continue;
             }
-            let children = scan_dir(&p, root, style, depth - 1);
+            let children = scan_dir(&p, root, style, depth - 1, importers);
             if !children.is_empty() {
                 out.push(Node {
                     name: p.file_name().unwrap().to_string_lossy().into_owned(),
@@ -158,8 +167,13 @@ fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node
 }
 
 /// Factory samples under `<assets>/samples`.
-pub fn factory_samples(assets_dir: &Path) -> Vec<Node> {
-    scan(&assets_dir.join("samples"), &RefStyle::Factory, 6)
+pub fn factory_samples(assets_dir: &Path, importers: &Importers) -> Vec<Node> {
+    scan(
+        &assets_dir.join("samples"),
+        &RefStyle::Factory,
+        6,
+        importers,
+    )
 }
 
 /// Presets grouped by category (`bass/sub` -> folder `bass`, preset `sub`).
@@ -237,7 +251,7 @@ mod tests {
         std::fs::write(root.join("drums/kit/notes.txt"), b"x").unwrap();
         std::fs::write(root.join("drums/snare.flac"), b"x").unwrap();
         std::fs::create_dir_all(root.join("empty")).unwrap();
-        let tree = scan(&root, &RefStyle::Factory, 6);
+        let tree = scan(&root, &RefStyle::Factory, 6, &Importers::builtin());
         assert_eq!(tree.len(), 1, "empty folders are dropped");
         let drums = &tree[0];
         assert_eq!(drums.name, "drums");
@@ -256,9 +270,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("samples")).unwrap();
         std::fs::write(dir.path().join("samples/a.wav"), b"x").unwrap();
-        let rel = scan(dir.path(), &RefStyle::RelativeTo(dir.path().into()), 4);
+        let rel = scan(
+            dir.path(),
+            &RefStyle::RelativeTo(dir.path().into()),
+            4,
+            &Importers::builtin(),
+        );
         assert_eq!(rel[0].children[0].samples()[0].1, "samples/a.wav");
-        let abs = scan(dir.path(), &RefStyle::Absolute, 4);
+        let abs = scan(dir.path(), &RefStyle::Absolute, 4, &Importers::builtin());
         assert!(abs[0].children[0].samples()[0].1.ends_with("samples/a.wav"));
         assert!(!abs[0].children[0].samples()[0].1.contains('\\'));
     }
@@ -270,7 +289,7 @@ mod tests {
         std::fs::write(dir.path().join("lib/piano.sfz"), b"<region>").unwrap();
         std::fs::write(dir.path().join("lib/kit.SF2"), b"x").unwrap();
         std::fs::write(dir.path().join("lib/readme.txt"), b"x").unwrap();
-        let tree = scan(dir.path(), &RefStyle::Absolute, 4);
+        let tree = scan(dir.path(), &RefStyle::Absolute, 4, &Importers::builtin());
         let lib = &tree[0];
         let kinds: Vec<(&str, bool)> = lib
             .children
@@ -318,7 +337,7 @@ mod tests {
     #[test]
     fn the_real_factory_folder_scans() {
         let assets = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
-        let tree = factory_samples(&assets);
+        let tree = factory_samples(&assets, &Importers::builtin());
         let all: Vec<_> = tree.iter().flat_map(|n| n.samples()).collect();
         assert!(all.iter().any(|(_, r)| *r == "factory:drums/haus808/kick"));
     }

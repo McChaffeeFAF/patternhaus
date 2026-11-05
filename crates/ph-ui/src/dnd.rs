@@ -67,12 +67,13 @@ pub enum Item {
     Skip(String, &'static str),
 }
 
-pub fn classify(path: &Path) -> Item {
+/// What `path` is; instrument files are those the session's `importers` read.
+pub fn classify(path: &Path, importers: &ph_sampler_formats::Importers) -> Item {
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into(),
     );
-    if crate::sampler_ui::is_instrument_file(path) && path.exists() {
+    if crate::sampler_ui::is_instrument_file(path, importers) && path.exists() {
         return Item::Instrument(path.to_path_buf());
     }
     if path.is_dir() {
@@ -122,10 +123,10 @@ pub struct Plan {
 }
 
 impl Plan {
-    pub fn from_paths(paths: &[PathBuf]) -> Plan {
+    pub fn from_paths(paths: &[PathBuf], importers: &ph_sampler_formats::Importers) -> Plan {
         let mut plan = Plan::default();
         for p in paths {
-            match classify(p) {
+            match classify(p, importers) {
                 Item::Audio(p) => plan.audio.push(p),
                 Item::Midi(p) => plan.midi.push(p),
                 Item::Flp(p) => plan.flp.push(p),
@@ -340,13 +341,13 @@ pub fn frame(core: &mut AppCore, ctx: &Context) {
     });
     core.drop_hover = None;
     if !dropped.is_empty() {
-        let plan = Plan::from_paths(&dropped);
+        let plan = Plan::from_paths(&dropped, core.studio.importers());
         let zone =
             zone_at(&core.drop_zones, pos, |z| audio_zone(z) || rack_zone(z)).map(|(_, z)| z);
         execute_at(core, plan, zone, pos);
         ctx.request_repaint();
     } else if !hovered.is_empty() {
-        let plan = Plan::from_paths(&hovered);
+        let plan = Plan::from_paths(&hovered, core.studio.importers());
         if let Some(h) = describe(core, &plan, pos) {
             let accent = core.theme.colors.accent;
             let p = ctx.layer_painter(LayerId::new(

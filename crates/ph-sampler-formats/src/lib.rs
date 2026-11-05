@@ -14,12 +14,19 @@
 //! | `.sf2`, `.sf3` | SoundFont 2 (SF3: Ogg Vorbis samples) | M3/T4 |
 //! | `.dspreset`, `.dsbundle` (folder), `.dslibrary` (refused: zip) | DecentSampler | M3/T4 |
 //! | `.exs` | EXS24 | M3/T4 |
-//! | `.nki`, `.nkm`, `.nkx`, `.nkc`, `.ncw` | Kontakt (unencrypted only) | M3/T6 |
 //!
 //! SFZ (M3/T3, [`Sfz`]), SF2/SF3 ([`SoundFont`]), DecentSampler ([`DecentSampler`]) and EXS24
-//! ([`Exs`]) (M3/T4) are implemented; Kontakt is a stub until M3/T6
-//! ([`ImportError::Unavailable`]). [`automap`] maps a folder of samples by the note names in
+//! ([`Exs`]) (M3/T4) are built in. [`automap`] maps a folder of samples by the note names in
 //! their file names (drop to create). [`build`] holds the byte-level fixture writers.
+//!
+//! # The importer hook (M3/T6)
+//!
+//! More formats come from importers built outside this repository: a separate binary builds
+//! an [`Importers`] set (the built-ins plus its own, [`Importers::register`]) and hands it to
+//! the front end (`ph_app::run`, `ph_cli::run`). The set travels with the session's host
+//! (`ph_commands::Host::importers`), so `sampler.import`, the extension list and the UI see
+//! the same formats; there is no global registry. `docs/formats/importer-hook.md` is the
+//! guide for writing one.
 //!
 //! # What an import produces
 //!
@@ -30,7 +37,7 @@
 //!   the project (`instruments/<name>/samples/`).
 //! - [`ImportedSample::source`] says how to get the audio: a file on disk, audio decoded
 //!   from inside the instrument file (SF2/SF3 samples, written out as WAV by the caller), a
-//!   synthesised sample, or a byte range of a container (Kontakt monoliths, NCW).
+//!   synthesised sample, or a byte range of a container file.
 //! - The report lists what was approximated, skipped or kept for later (scripts and UI data
 //!   are kept in `HausInstrument::extra` and reported as not run yet), and every opcode,
 //!   chunk or field the importer did not understand.
@@ -45,15 +52,15 @@ pub mod dspreset;
 pub mod exs;
 mod notes;
 pub mod probe;
+mod registry;
 pub mod sf2;
 pub mod sfz;
-mod stubs;
 
 pub use dspreset::DecentSampler;
 pub use exs::Exs;
+pub use registry::{Importers, RegisterError, check_imported, import_with};
 pub use sf2::{PresetChoice, SoundFont};
 pub use sfz::Sfz;
-pub use stubs::Kontakt;
 
 /// A float WAV file holding `audio` (for [`SampleSource::Audio`]).
 pub fn audio_wav(audio: &ph_node::SampleData) -> Result<Vec<u8>, String> {
@@ -119,7 +126,11 @@ pub enum SampleSource {
     /// ([`audio_wav`]) into the instrument's `samples/` folder: such instruments are always
     /// collected. Loop and root fields are unused (zones carry them).
     Audio(std::sync::Arc<ph_node::SampleData>),
-    /// A byte range of a container file, in a raw encoding.
+    /// A byte range of a container file, in a raw encoding. `sampler.import` cuts it out
+    /// when it collects the instrument: PCM and float encodings (interleaved frames of
+    /// `channels` samples at `sample_rate`) are written as a float WAV, an
+    /// [`SampleEncoding::EmbeddedFile`] or [`SampleEncoding::OggVorbis`] range is written
+    /// as it is (so the zone name's extension must match it).
     Chunk {
         container: PathBuf,
         offset: u64,
@@ -201,10 +212,8 @@ pub enum SampleEncoding {
     F32Le,
     /// An Ogg Vorbis stream (SF3).
     OggVorbis,
-    /// A whole embedded audio file (WAV/AIFF inside a monolith).
+    /// A whole embedded audio file (WAV, AIFF, FLAC, ... inside a container).
     EmbeddedFile,
-    /// Native Instruments' compressed audio (NCW), decoded by the Kontakt importer (M3/T6).
-    Ncw,
 }
 
 /// What an import did, for the person and for agents (`sampler.report`).
@@ -293,7 +302,8 @@ pub enum ImportError {
         file: String,
         detail: String,
     },
-    /// The importer for this format is a later track.
+    /// The importer for this format is not available (a later track, or a component built
+    /// without it). `sampler.import` reports it as `CmdError::Unavailable`.
     #[error("{format} import is not available until {track}")]
     Unavailable { format: String, track: String },
     /// Not a valid file of this format.
@@ -312,7 +322,8 @@ pub enum ImportError {
 
 /// An instrument file reader.
 pub trait Importer: Send + Sync {
-    /// Short format id: `sfz`, `sf2`, `dspreset`, `exs`, `nki`.
+    /// Short format id: `sfz`, `sf2`, `dspreset`, `exs`, ...; unique among the importers of
+    /// a session.
     fn format(&self) -> &'static str;
     /// Lower-case extensions (without the dot) this importer reads.
     fn extensions(&self) -> &'static [&'static str];
@@ -323,38 +334,10 @@ pub trait Importer: Send + Sync {
     fn import(&self, input: ImportInput<'_>) -> Result<Imported, ImportError>;
 }
 
-/// Every importer, in DESIGN §8 priority order.
+/// The built-in importers, in DESIGN §8 priority order. A session's importers are an
+/// [`Importers`] set, which starts from these.
 pub fn importers() -> &'static [&'static dyn Importer] {
-    &[&Sfz, &SoundFont, &DecentSampler, &Exs, &Kontakt]
-}
-
-/// The importer for a file name's extension (case-insensitive).
-pub fn importer_for(path: &Path) -> Option<&'static dyn Importer> {
-    let ext = path.extension()?.to_string_lossy().to_lowercase();
-    importers()
-        .iter()
-        .copied()
-        .find(|i| i.extensions().contains(&ext.as_str()))
-}
-
-/// Every extension some importer reads.
-pub fn extensions() -> Vec<&'static str> {
-    importers()
-        .iter()
-        .flat_map(|i| i.extensions().iter().copied())
-        .collect()
-}
-
-/// Imports a file by its extension.
-pub fn import_path(path: &Path) -> Result<Imported, ImportError> {
-    let importer = importer_for(path).ok_or_else(|| ImportError::Unsupported {
-        file: path.to_string_lossy().into_owned(),
-        reason: format!(
-            "not an instrument format the sampler reads ({})",
-            extensions().join(", ")
-        ),
-    })?;
-    importer.import(ImportInput::Path(path))
+    &[&Sfz, &SoundFont, &DecentSampler, &Exs]
 }
 
 #[cfg(test)]
@@ -362,10 +345,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_registry_covers_every_extension_once() {
-        let all = extensions();
+    fn the_builtin_set_covers_every_extension_once() {
+        let set = Importers::builtin();
         assert_eq!(
-            all,
+            set.extensions(),
             [
                 "sfz",
                 "sf2",
@@ -373,12 +356,7 @@ mod tests {
                 "dspreset",
                 "dsbundle",
                 "dslibrary",
-                "exs",
-                "nki",
-                "nkm",
-                "nkx",
-                "nkc",
-                "ncw"
+                "exs"
             ]
         );
         for (ext, format) in [
@@ -386,31 +364,23 @@ mod tests {
             ("kit.sf3", "sf2"),
             ("a.dspreset", "dspreset"),
             ("b.exs", "exs"),
-            ("c.nkm", "nki"),
-            ("d.ncw", "nki"),
         ] {
-            assert_eq!(importer_for(Path::new(ext)).unwrap().format(), format);
+            assert_eq!(set.importer_for(Path::new(ext)).unwrap().format(), format);
         }
-        assert!(importer_for(Path::new("x.wav")).is_none());
-        assert!(importer_for(Path::new("noext")).is_none());
+        assert!(set.importer_for(Path::new("x.wav")).is_none());
+        assert!(set.importer_for(Path::new("noext")).is_none());
     }
 
     #[test]
-    fn stubs_name_their_track_and_unknown_files_are_refused() {
-        for (file, track) in [("a.nki", "M3/T6"), ("a.nkm", "M3/T6")] {
-            match import_path(Path::new(file)) {
-                Err(ImportError::Unavailable { track: t, .. }) => assert_eq!(t, track),
-                other => panic!("{file}: {other:?}"),
-            }
-        }
+    fn unknown_files_are_refused_and_refusals_read_plainly() {
         assert!(matches!(
-            import_path(Path::new("a.txt")),
+            Importers::builtin().import_path(Path::new("a.txt")),
             Err(ImportError::Unsupported { .. })
         ));
         let e = ImportError::Encrypted {
-            format: "Kontakt".into(),
-            file: "x.nki".into(),
-            detail: "NI Player library".into(),
+            format: "Example".into(),
+            file: "x.example".into(),
+            detail: "a licence check".into(),
         };
         assert!(e.to_string().contains("does not open protected"));
     }

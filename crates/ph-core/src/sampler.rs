@@ -133,7 +133,8 @@ impl Default for InstrumentSettings {
 /// Provenance of an imported instrument.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct InstrumentSource {
-    /// `native`, `sfz`, `sf2`, `sf3`, `dspreset`, `exs`, `nki`, `nkm`, ...
+    /// `native`, `sfz`, `sf2`, `sf3`, `dspreset`, `exs`, or the format id of an importer
+    /// registered through the importer hook.
     pub format: String,
     /// The file it was read from, as given to the importer.
     pub file: String,

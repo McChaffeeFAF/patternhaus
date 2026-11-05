@@ -231,7 +231,7 @@ and the attack rises (08).
 | Modulation matrix | §6 | data | kept in `extra["exs.params"]` | | not mapped (enumerations undocumented) | F-EXS-08 |
 | Malformed input never panics | §1 | must | 2026-11-05 | | | `malformed_files_are_refused_never_panic`, `fuzz_exs`, `fuzz_exs_mutated` |
 
-## Kontakt
+## Formats from other importers
 
-Not part of this repository. By the owner's decision (2026-11-05), Kontakt import is an optional component kept outside the public project.
+Formats added through the importer hook (M3/T6, [`docs/formats/importer-hook.md`](../formats/importer-hook.md)) are built and documented outside this repository; their parity is kept with them. The hook itself is proven by a test importer in the test suite (`importer_hook_end_to_end_over_mcp`).
 

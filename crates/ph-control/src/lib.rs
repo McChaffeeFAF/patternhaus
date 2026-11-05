@@ -171,6 +171,8 @@ pub struct Studio {
     ui_attached: Arc<AtomicBool>,
     /// The plugin catalogue folder; `None` (the default) = no catalogue.
     catalogue: Arc<std::sync::RwLock<Option<PathBuf>>>,
+    /// The instrument importers this session reads with (the importer hook, M3/T6).
+    importers: ph_sampler_formats::Importers,
 }
 
 impl Drop for Studio {
@@ -207,8 +209,20 @@ fn spawn_pump(
 }
 
 impl Studio {
-    /// Starts the engine and the session on `project`, and connects them.
+    /// Starts the engine and the session on `project`, and connects them. The session reads
+    /// the built-in instrument formats; see [`Studio::start_with`].
     pub fn start(config: StudioConfig, project: Project) -> Result<Studio, String> {
+        Self::start_with(config, project, ph_sampler_formats::Importers::builtin())
+    }
+
+    /// [`Studio::start`] with the instrument importers the session uses (the importer hook,
+    /// M3/T6, `docs/formats/importer-hook.md`): `sampler.import`, and the UI's file filter
+    /// and drop-to-create through [`Studio::importers`]. The set is fixed for the session.
+    pub fn start_with(
+        config: StudioConfig,
+        project: Project,
+        importers: ph_sampler_formats::Importers,
+    ) -> Result<Studio, String> {
         let mut resolver = FileResolver::new()
             .with_project_dir(&config.project_dir)
             .with_assets_dir(&config.assets_dir);
@@ -256,7 +270,8 @@ impl Studio {
             .with_resolver(resolver)
             .with_midi(midi.clone())
             .with_ui_flag(ui_attached.clone())
-            .with_catalogue(catalogue.clone());
+            .with_catalogue(catalogue.clone())
+            .with_importers(importers.clone());
         let registry = Arc::new(studio_registry());
         let session = Session::new(registry.clone(), (*project).clone());
         let session = SessionHandle::spawn(session, host);
@@ -298,7 +313,14 @@ impl Studio {
             ui_hint: Arc::new(Mutex::new(None)),
             ui_attached,
             catalogue,
+            importers,
         })
+    }
+
+    /// The instrument importers of this session (built-ins plus registered ones): what
+    /// `sampler.import` reads, and the extensions the browser and drop-to-create accept.
+    pub fn importers(&self) -> &ph_sampler_formats::Importers {
+        &self.importers
     }
 
     /// Where the plugin catalogue lives (M3/T9); `None` turns the `catalogue.*` commands off.
@@ -372,6 +394,7 @@ impl Studio {
             registry: self.registry.clone(),
             hub: self.hub.clone(),
             ui_hint: self.ui_hint.clone(),
+            importers: self.importers.clone(),
         }
     }
 }
@@ -389,9 +412,15 @@ pub struct StudioHandle {
     pub registry: Arc<Registry>,
     hub: Arc<OnceLock<Arc<EventHub>>>,
     ui_hint: Arc<Mutex<Option<UiHint>>>,
+    importers: ph_sampler_formats::Importers,
 }
 
 impl StudioHandle {
+    /// The session's instrument importers (see [`Studio::importers`]).
+    pub fn importers(&self) -> &ph_sampler_formats::Importers {
+        &self.importers
+    }
+
     /// The hint the UI is showing (see [`Studio::ui_hint`]).
     pub fn ui_hint(&self) -> Option<UiHint> {
         self.ui_hint.lock().unwrap().clone()
