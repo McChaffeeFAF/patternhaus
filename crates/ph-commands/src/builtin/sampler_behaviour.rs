@@ -368,15 +368,9 @@ fn sampler_report_describes_the_instrument() {
 }
 
 #[test]
-fn sampler_stubs_name_their_track() {
+fn sampler_import_of_later_formats_names_their_track() {
     let mut r = Rig::piano();
     for (cmd, params, track) in [
-        ("sampler.load", json!({ "path": "C:/Lib/Piano" }), "M3/T3"),
-        (
-            "sampler.import",
-            json!({ "path": "C:/Lib/piano.sfz" }),
-            "M3/T3",
-        ),
         (
             "sampler.import",
             json!({ "path": "C:/Lib/kit.SF2" }),
@@ -389,12 +383,6 @@ fn sampler_stubs_name_their_track() {
         ),
         ("sampler.import", json!({ "path": "C:/Lib/x.exs" }), "M3/T4"),
         ("sampler.import", json!({ "path": "C:/Lib/x.nki" }), "M3/T6"),
-        (
-            "sampler.save_native",
-            json!({ "instrument": 0, "path": "instruments/Piano" }),
-            "M3/T3",
-        ),
-        ("sampler.collect", json!({ "instrument": 0 }), "M3/T3"),
     ] {
         match r.err(cmd, params) {
             CmdError::Unavailable { track: t, .. } => assert_eq!(t, track, "{cmd}"),
@@ -408,6 +396,333 @@ fn sampler_stubs_name_their_track() {
         r.err("sampler.load", json!({ "path": "x", "linked": true })),
         CmdError::BadParams { .. }
     ));
+}
+
+// ------------------------------------------------------------------------- files (M3/T3)
+
+/// A host over a temp folder: the project is `<root>/project`, a library `<root>/lib`.
+/// Agents may read and write inside the project and read the library; the human may read
+/// any absolute path.
+struct FsHost {
+    inner: NullHost,
+    project: std::path::PathBuf,
+    lib: std::path::PathBuf,
+}
+
+impl Host for FsHost {
+    fn transport(&mut self, cmd: TransportCmd) -> CmdResult<TransportState> {
+        self.inner.transport(cmd)
+    }
+    fn transport_state(&self) -> TransportState {
+        self.inner.transport_state()
+    }
+    fn render(&mut self, p: &Project, r: &RenderRequest) -> CmdResult<RenderReport> {
+        self.inner.render(p, r)
+    }
+    fn resolve_path(&self, path: &str, access: FileAccess) -> CmdResult<std::path::PathBuf> {
+        let p = std::path::Path::new(path);
+        if p.is_absolute() {
+            if p.starts_with(&self.project)
+                || (access == FileAccess::Read && p.starts_with(&self.lib))
+            {
+                return Ok(p.to_path_buf());
+            }
+            return Err(CmdError::Host(format!(
+                "{path} is outside the allowed folders"
+            )));
+        }
+        if p.components().any(|c| c == std::path::Component::ParentDir) {
+            return Err(CmdError::Host(format!("{path} leaves the project")));
+        }
+        Ok(self.project.join(p))
+    }
+    fn ui(&mut self, _: UiRequest) -> CmdResult<()> {
+        Ok(())
+    }
+}
+
+struct FsRig {
+    s: Session,
+    h: FsHost,
+    who: Caller,
+    dir: tempfile::TempDir,
+}
+
+fn tone(path: &std::path::Path, frames: usize) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let ch: Vec<f32> = (0..frames).map(|i| (i as f32 * 0.05).sin() * 0.5).collect();
+    ph_formats::encode::write_wav(path, &[ch], 48_000, ph_formats::encode::WavFormat::Pcm16)
+        .unwrap();
+}
+
+impl FsRig {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let (project, lib) = (dir.path().join("project"), dir.path().join("lib"));
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&lib).unwrap();
+        Self {
+            s: Session::new(Arc::new(Registry::with_builtins()), Project::empty("M3")),
+            h: FsHost {
+                inner: NullHost::default(),
+                project,
+                lib,
+            },
+            who: Caller::human(),
+            dir,
+        }
+    }
+
+    /// `lib/Piano/piano.sfz` with two velocity layers, a release sample and an unknown opcode.
+    fn sfz_library(&self) -> std::path::PathBuf {
+        let d = self.h.lib.join("Piano");
+        for f in ["Samples/c4_p.wav", "Samples/c4_f.wav", "Samples/rel.wav"] {
+            tone(&d.join(f), 4800);
+        }
+        std::fs::write(
+            d.join("piano.sfz"),
+            "<control> default_path=Samples/\n<group> lokey=48 hikey=72 pitch_keycenter=60 frobnicate=1\n\
+             <region> sample=c4_p.wav hivel=80\n<region> sample=c4_f.wav lovel=81\n\
+             <group> lokey=48 hikey=72 pitch_keycenter=60 trigger=release rt_decay=6\n<region> sample=rel.wav\n",
+        )
+        .unwrap();
+        d.join("piano.sfz")
+    }
+
+    fn try_run(&mut self, cmd: &str, params: Value) -> CmdResult<Executed> {
+        self.s
+            .execute(&self.who, Request::new(cmd, params), &mut self.h)
+    }
+
+    fn run(&mut self, cmd: &str, params: Value) -> Value {
+        match self.try_run(cmd, params) {
+            Ok(o) => o.result,
+            Err(e) => panic!("{cmd}: {e}"),
+        }
+    }
+
+    fn inst(&self, i: u32) -> &HausInstrument {
+        self.s.project().instrument(InstrumentId(i)).unwrap()
+    }
+}
+
+type Shape = (String, u8, u8, u8, u8, u8, ZoneTrigger);
+
+/// Zones without ids or group ids, for comparing instruments across load and save.
+fn zone_shapes(i: &HausInstrument) -> Vec<Shape> {
+    i.zones
+        .values()
+        .map(|z| {
+            let SampleRef::File(f) = &z.sample else {
+                panic!("registry sample")
+            };
+            (
+                f.rsplit('/').next().unwrap().to_string(),
+                z.keys.lo,
+                z.keys.hi,
+                z.velocity.lo,
+                z.velocity.hi,
+                z.root_key,
+                z.trigger,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn sampler_import_links_an_sfz_library_and_reports_what_it_skipped() {
+    let mut r = FsRig::new();
+    let sfz = r.sfz_library();
+    let out = r.run("sampler.import", json!({ "path": sfz.to_string_lossy() }));
+    assert_eq!(
+        (out["instrument"].as_u64(), out["channel"].as_u64()),
+        (Some(0), Some(0))
+    );
+    assert_eq!(out["zones"], 3);
+    assert_eq!(out["collected"], false);
+    let lib = r.h.lib.join("Piano").to_string_lossy().replace('\\', "/");
+    assert_eq!(out["folder"].as_str().unwrap(), lib);
+    assert_eq!(out["report"]["unknown"][0]["what"], "opcode:frobnicate");
+    let inst = r.inst(0).clone();
+    assert_eq!(inst.source.as_ref().unwrap().format, "sfz");
+    assert_eq!(
+        zone_shapes(&inst),
+        vec![
+            ("c4_p.wav".into(), 48, 72, 0, 80, 60, ZoneTrigger::Attack),
+            ("c4_f.wav".into(), 48, 72, 81, 127, 60, ZoneTrigger::Attack),
+            ("rel.wav".into(), 48, 72, 0, 127, 60, ZoneTrigger::Release),
+        ]
+    );
+    assert!(
+        inst.zones
+            .values()
+            .all(|z| matches!(&z.sample, SampleRef::File(f) if f.starts_with("Samples/")))
+    );
+    // nothing was written into the library
+    assert_eq!(std::fs::read_dir(r.h.lib.join("Piano")).unwrap().count(), 2);
+    // one undo removes the instrument and its channel
+    r.s.undo(&Author::Human).unwrap().unwrap();
+    assert!(r.s.project().instruments.is_empty() && r.s.project().channels.is_empty());
+}
+
+#[test]
+fn sampler_collect_copies_samples_into_the_project_as_one_undo() {
+    let mut r = FsRig::new();
+    let sfz = r.sfz_library();
+    r.run("sampler.import", json!({ "path": sfz.to_string_lossy() }));
+    let before = r.inst(0).clone();
+    let out = r.run("sampler.collect", json!({ "instrument": 0 }));
+    assert_eq!(out["copied"], 3);
+    assert_eq!(out["folder"], "instruments/piano");
+    let inst = r.inst(0).clone();
+    assert_eq!(inst.folder.as_deref(), Some("instruments/piano"));
+    for z in inst.zones.values() {
+        let SampleRef::File(f) = &z.sample else {
+            panic!()
+        };
+        assert!(f.starts_with("samples/"), "{f}");
+        assert!(
+            r.h.project.join("instruments/piano").join(f).is_file(),
+            "{f}"
+        );
+    }
+    assert_eq!(zone_shapes(&inst), zone_shapes(&before));
+    // collecting again is a no-op
+    assert_eq!(
+        r.run("sampler.collect", json!({ "instrument": 0 }))["copied"],
+        0
+    );
+    r.s.undo(&Author::Human).unwrap().unwrap();
+    assert_eq!(r.inst(0), &before);
+}
+
+#[test]
+fn sampler_save_native_is_byte_stable_and_load_reopens_it() {
+    let mut r = FsRig::new();
+    let sfz = r.sfz_library();
+    r.run("sampler.import", json!({ "path": sfz.to_string_lossy() }));
+    let out = r.run(
+        "sampler.save_native",
+        json!({ "instrument": 0, "path": "native/Piano" }),
+    );
+    assert_eq!(out["samples"], 3);
+    let file = r.h.project.join("native/Piano/instrument.toml");
+    let first = std::fs::read(&file).unwrap();
+    let again = r.run(
+        "sampler.save_native",
+        json!({ "instrument": 0, "path": "native/Piano" }),
+    );
+    assert_eq!(again["samples"], 0, "identical samples are reused");
+    assert_eq!(std::fs::read(&file).unwrap(), first, "byte-stable");
+    // the library folder an instrument links is never written
+    let lib = r.h.lib.join("Piano").to_string_lossy().into_owned();
+    assert!(
+        r.try_run(
+            "sampler.save_native",
+            json!({ "instrument": 0, "path": lib })
+        )
+        .is_err()
+    );
+    // reopen it linked (project-relative folder) and collected
+    let out = r.run("sampler.load", json!({ "path": "native/Piano" }));
+    assert_eq!(out["folder"], "native/Piano");
+    let linked = r.inst(1).clone();
+    assert_eq!(zone_shapes(&linked), zone_shapes(r.inst(0)));
+    assert_eq!(linked.import_notes, r.inst(0).import_notes);
+    let out = r.run(
+        "sampler.load",
+        json!({ "path": "native/Piano/instrument.toml", "collect": true, "channel": 0 }),
+    );
+    assert_eq!(out["channel"], 0);
+    assert_eq!(out["folder"], "instruments/piano");
+    assert_eq!(out["copied"], 3);
+    assert_eq!(zone_shapes(r.inst(2)), zone_shapes(&linked));
+    assert!(matches!(
+        r.s.project().channel(ChannelId(0)).unwrap().instrument,
+        InstrumentSpec::MultiSampler {
+            instrument: Some(InstrumentId(2)),
+            ..
+        }
+    ));
+    r.s.undo(&Author::Human).unwrap().unwrap();
+    assert!(r.s.project().instrument(InstrumentId(2)).is_err());
+}
+
+#[test]
+fn sampler_import_maps_a_folder_of_samples_by_note_names() {
+    let mut r = FsRig::new();
+    let d = r.h.lib.join("Rhodes");
+    for f in [
+        "rh_C3.wav",
+        "rh_C4_soft.wav",
+        "rh_C4_zloud.wav",
+        "rh_G4.wav",
+        "notes.wav",
+    ] {
+        tone(&d.join(f), 2400);
+    }
+    let out = r.run("sampler.import", json!({ "path": d.to_string_lossy() }));
+    assert_eq!(out["zones"], 4);
+    assert_eq!(out["report"]["notes"][0]["what"], "file:notes.wav");
+    let shapes = zone_shapes(r.inst(0));
+    assert_eq!(
+        shapes
+            .iter()
+            .map(|z| (z.0.as_str(), z.1, z.2, z.3, z.4, z.5))
+            .collect::<Vec<_>>(),
+        vec![
+            ("rh_C3.wav", 0, 54, 0, 127, 48),
+            ("rh_C4_soft.wav", 55, 63, 0, 63, 60),
+            ("rh_C4_zloud.wav", 55, 63, 64, 127, 60),
+            ("rh_G4.wav", 64, 127, 0, 127, 67),
+        ]
+    );
+    // collected on request, with the report beside it
+    let out = r.run(
+        "sampler.import",
+        json!({ "path": d.to_string_lossy(), "collect": true }),
+    );
+    assert_eq!(out["copied"], 4);
+    assert!(
+        r.h.project
+            .join("instruments/Rhodes/import-report.md")
+            .is_file()
+    );
+}
+
+#[test]
+fn sampler_import_keeps_agents_inside_their_folders() {
+    let mut r = FsRig::new();
+    let sfz = r.sfz_library();
+    // an instrument file outside the allowed folders is refused for an agent
+    let outside = r.dir.path().join("elsewhere");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("piano.sfz"), "<region> sample=x.wav").unwrap();
+    r.who = Caller::agent("claude", Grant::full());
+    let path = outside.join("piano.sfz").to_string_lossy().into_owned();
+    assert!(
+        r.try_run("sampler.import", json!({ "path": path }))
+            .is_err()
+    );
+    // samples outside the allowed folders are refused too
+    let secret = r.dir.path().join("secret.wav");
+    tone(&secret, 100);
+    std::fs::write(
+        r.h.lib.join("sneaky.sfz"),
+        format!("<region> sample={}", secret.display()),
+    )
+    .unwrap();
+    let path = r.h.lib.join("sneaky.sfz").to_string_lossy().into_owned();
+    assert!(
+        r.try_run("sampler.import", json!({ "path": path }))
+            .is_err()
+    );
+    // inside the library it works, and agents can collect into the project
+    let out = r.run(
+        "sampler.import",
+        json!({ "path": sfz.to_string_lossy(), "collect": true }),
+    );
+    assert_eq!(out["copied"], 3);
 }
 
 #[test]

@@ -31,11 +31,6 @@ macro_rules! stub {
 }
 
 stub!(
-    /// SFZ (`docs/formats/sfz.md`, M3/T1): headers, `#define`/`#include`, v1 and common
-    /// ARIA/v2 opcodes; unknown opcodes listed in the report.
-    Sfz, "sfz", ["sfz"], "SFZ", "M3/T3"
-);
-stub!(
     /// SoundFont 2.04 and SF3 (Ogg Vorbis sample data): presets, instruments, generators,
     /// modulators, sample links.
     SoundFont, "sf2", ["sf2", "sf3"], "SoundFont", "M3/T4"

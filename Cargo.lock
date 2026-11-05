@@ -2960,6 +2960,7 @@ version = "0.1.0"
 dependencies = [
  "ph-core",
  "ph-formats",
+ "ph-sampler-formats",
  "proptest",
  "schemars",
  "serde",
@@ -3113,7 +3114,12 @@ name = "ph-sampler-formats"
 version = "0.1.0"
 dependencies = [
  "ph-core",
+ "ph-engine",
+ "ph-formats",
+ "ph-node",
  "proptest",
+ "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

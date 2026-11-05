@@ -41,6 +41,7 @@ mod sample;
 mod sampler;
 #[cfg(test)]
 mod sampler_behaviour;
+mod sampler_files;
 mod slicer;
 mod step;
 #[cfg(test)]
