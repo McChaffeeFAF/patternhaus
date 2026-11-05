@@ -16,6 +16,7 @@ mod record;
 mod routing;
 mod rt_miri;
 mod rt_safety;
+mod sampler_stress;
 mod stretch_quality;
 mod timing;
 mod transport;

@@ -3,40 +3,56 @@
 //!
 //! - [`Plan`] is the immutable real-time plan an instrument compiles to (zone lookup by key,
 //!   then velocity, articulation, controller conditions and round robin at note-on).
-//! - [`samples`] is how the engine hands it audio: preloads now, the M2 disk streamer later
-//!   (the decision and its reasons are in that module's docs).
-//! - [`voice`] is the voice model: trigger, release, steal, round robin, and the seeding rule
-//!   that keeps live output bit-identical to offline renders.
-//! - [`t2`] marks where the real DSP goes (envelopes, loops, filter, modulation, crossfades,
-//!   legato, streaming, group effects).
+//! - [`samples`] is how the engine hands it audio: a preload per file, the rest streamed
+//!   through the host's [`StreamSource`] (the decision and its reasons are in that module).
+//! - [`voice`] is the voice model: trigger, release, steal (with short fades), round robin,
+//!   and the seeding rule that keeps live output bit-identical to offline renders.
+//! - [`render`] is the per-voice DSP, [`env`] the envelopes, [`effects`] the per-group insert
+//!   chains (which the host builds).
 //!
-//! # What plays in M3/T0
+//! # What plays (M3/T2)
 //!
-//! The minimal path: each zone the note selects plays its sample once from `start` to `end`
-//! (backwards if `reverse`), resampled to the note's pitch with linear interpolation, at
-//! instrument × group × zone level times velocity, balanced by pan. Note-off stops a voice at
-//! once unless the zone is one-shot. Release-trigger zones fire on note-off, quieter by
-//! `release_decay_db` per second held. Keyswitches and controller switches select
-//! articulations; mono and legato groups cut their previous voice. No envelopes, loops,
-//! filters or modulation yet (M3/T2).
+//! Each zone the note selects plays from `start` to `end` (backwards if `reverse`; a
+//! sample-start modulation moves the start), resampled to the note's pitch: 4-point Hermite
+//! in `Quality::Live`, a Kaiser-windowed sinc in `Quality::High` (as `ph.sampler`). Loops play
+//! forward (with a linear crossfade over `crossfade` frames before their end, into the
+//! material before their start) or ping-pong; a sustain loop (`on_release = exit`) is left at
+//! note-off. Per group: a DAHDSR amp envelope (note-off releases it; one-shot zones ignore
+//! note-off), a filter (TPT state-variable, 12 or 24 dB) with key tracking and its own
+//! envelope, up to four LFOs. The modulation matrix adds `depth × curve(source)` to pitch,
+//! volume, pan, cutoff, resonance or sample start; sources fixed for the note (velocity, key,
+//! random) are summed at note-on, the others every [`CONTROL_FRAMES`] frames of the voice.
+//! Velocity crossfades are fixed at note-on, controller crossfades follow the controller.
+//! Release triggers fire on note-off, quieter by `release_decay_db` per second held. Round
+//! robins are sequential or seeded random. Mono groups retrigger (gliding from the last pitch
+//! when `portamento` is set); legato groups glide a held voice to the new key instead.
+//! Voice limits steal by the group's mode, and a stolen or choked voice fades out over
+//! [`FADE_SECONDS`]. Pitch bend uses the instrument's bend range; channel pressure arrives as
+//! note expressions. Keyswitches and controller switches select articulations.
 //!
 //! # Multi-out
 //!
 //! Output port 0 is the main stereo output. A group with `output: n` (n ≥ 1) plays into port
 //! `n` (named `out <n + 1>`); the descriptor lists ports up to the highest bus a group uses.
-//! A host that passes fewer ports than that (the M3/T0 engine passes only port 0, until the
+//! A host that passes fewer ports than that (the engine passes only port 0, until the
 //! mixer routes extra outputs, M3/T8) gets those buses mixed into port 0, so nothing is lost.
 
+pub mod effects;
+pub mod env;
 pub mod plan;
+pub mod render;
 pub mod samples;
-pub mod t2;
 pub mod voice;
 
 pub use plan::Plan;
-pub use samples::{SampleSet, StreamSource, ZoneSample, load_samples};
+pub use samples::{SampleSet, StreamSource, ZoneSample, load_samples, load_samples_streamed};
 
-use ph_core::{HausInstrument, InstrumentId, Project, ZoneTrigger, midi_velocity};
+use effects::{Chains, GroupFx};
+use env::EnvShape;
+use ph_core::{HausInstrument, InstrumentId, Polyphony, Project, ZoneTrigger, midi_velocity};
+use ph_dsp::interp::SincInterpolator;
 use ph_node::*;
+use render::{CTRL, Controls, WINDOW};
 use std::sync::Arc;
 use voice::{Rng, RoundRobin, Trigger, VoicePool};
 
@@ -98,9 +114,9 @@ pub fn descriptor(max_output: u32) -> NodeDescriptor {
     }
 }
 
-/// Builds the sampler for project instrument `id`: loads its samples through `assets` and
-/// compiles the plan (off the audio thread). The warnings name samples that failed to load
-/// (their zones stay silent).
+/// Builds the sampler for project instrument `id`: loads its samples through `assets`, every
+/// file whole, and compiles the plan (off the audio thread). The warnings name samples that
+/// failed to load (their zones stay silent). Hosts that stream use [`create_streamed`].
 pub fn create(
     project: &Project,
     id: InstrumentId,
@@ -113,6 +129,41 @@ pub fn create(
     Ok((HausSampler::new(inst, samples), warnings))
 }
 
+/// What [`create_streamed`] calls to turn opened streams (and a voice-slot count) into the
+/// host's [`StreamSource`].
+pub type AttachStreams<'a> =
+    dyn FnMut(Vec<Box<dyn SampleStream>>, usize) -> Option<Arc<dyn StreamSource>> + 'a;
+
+/// [`create`] with disk streaming: long files keep only their head in memory
+/// ([`load_samples_streamed`]). `attach` gets the opened streams (indexed by
+/// [`ZoneSample::stream`]) and the number of voice slots that will read them, and returns the
+/// host's [`StreamSource`] over them; it is not called when nothing streams. Off the audio
+/// thread.
+pub fn create_streamed(
+    project: &Project,
+    id: InstrumentId,
+    assets: &dyn AssetResolver,
+    attach: &mut AttachStreams<'_>,
+) -> Result<(HausSampler, Vec<String>), String> {
+    let inst = project
+        .instrument(id)
+        .map_err(|e| format!("Haus Sampler: {e}"))?;
+    let (mut samples, warnings, streams) = load_samples_streamed(project, inst, assets);
+    if !streams.is_empty() {
+        samples.streams = attach(streams, voice_slots(inst));
+    }
+    Ok((HausSampler::new(inst, samples), warnings))
+}
+
+/// Voice slots a sampler for `inst` has (its voice limit, capped at [`MAX_VOICES`], plus
+/// the spares stolen voices fade in): what a [`StreamSource`] must serve.
+pub fn voice_slots(inst: &HausInstrument) -> usize {
+    VoicePool::capacity_for((inst.settings.voice_limit.max(1) as usize).min(MAX_VOICES))
+}
+
+/// Steal and choke fades, seconds.
+pub const FADE_SECONDS: f64 = 0.003;
+
 /// `ph.haus_sampler`.
 pub struct HausSampler {
     desc: NodeDescriptor,
@@ -120,19 +171,30 @@ pub struct HausSampler {
     samples: SampleSet,
     params: [f64; 3],
     sample_rate: f64,
+    sinc: Option<SincInterpolator>,
     pool: VoicePool,
     rr: RoundRobin,
     rng: Rng,
-    cc: [f32; 128],
+    ctl: Controls,
     articulation: usize,
     /// Per key: (velocity, frame it started) while held, for release triggers.
     held: [Option<(f32, u64)>; 128],
     /// Frames since the last reset.
     clock: u64,
     /// Per group, the round-robin position of the note being triggered (`u32::MAX` = not
-    /// drawn yet) and whether its mono voices were cut. Sized in `new`.
+    /// drawn yet), whether its mono voices were cut, and whether a legato note glided its
+    /// voices instead of starting new ones. Sized in `new`.
     rr_pos: Box<[u32]>,
     cut: Box<[bool]>,
+    glided: Box<[bool]>,
+    /// Per group: (amp, filter) envelope shapes at the sample rate (set in `activate`).
+    shapes: Box<[(EnvShape, EnvShape)]>,
+    /// Stream windows, `2 × WINDOW` frames per voice slot (empty when nothing streams).
+    win: Box<[f32]>,
+    /// Per-group insert chains.
+    chains: Chains,
+    /// Mono fallback for a one-channel port.
+    scratch: Box<[f32]>,
 }
 
 impl HausSampler {
@@ -142,7 +204,7 @@ impl HausSampler {
         let groups = plan.groups.len();
         let desc = descriptor(plan.max_output);
         let defaults = desc.params.iter().map(|p| p.default).collect::<Vec<_>>();
-        Self {
+        let mut s = Self {
             desc,
             pool: VoicePool::new(plan.voice_limit.min(MAX_VOICES)),
             rr: RoundRobin::new(groups),
@@ -152,19 +214,32 @@ impl HausSampler {
             samples,
             params: [defaults[0], defaults[1], defaults[2]],
             sample_rate: 48_000.0,
-            cc: [0.0; 128],
+            sinc: None,
+            ctl: Controls::default(),
             held: [None; 128],
             clock: 0,
             rr_pos: vec![u32::MAX; groups].into_boxed_slice(),
             cut: vec![false; groups].into_boxed_slice(),
-        }
+            glided: vec![false; groups].into_boxed_slice(),
+            shapes: Box::new([]),
+            win: Box::new([]),
+            chains: Chains::default(),
+            scratch: Box::new([]),
+        };
+        s.sync_params();
+        s
     }
 
     pub fn plan(&self) -> &Plan {
         &self.plan
     }
 
-    /// Voices sounding now.
+    /// The voices (active or not), for inspection.
+    pub fn voices(&self) -> &[voice::Voice] {
+        &self.pool.voices
+    }
+
+    /// Voices sounding now (fading ones included).
     pub fn active_voices(&self) -> usize {
         self.pool.active()
     }
@@ -174,16 +249,50 @@ impl HausSampler {
         self.articulation
     }
 
+    /// Bytes of sample data this sampler holds in memory (heads and whole files).
+    pub fn resident_bytes(&self) -> usize {
+        self.samples.resident_bytes() + self.win.len() * 4
+    }
+
+    /// Installs group `group`'s insert chain (index into [`Plan::groups`]): effect
+    /// processors and their dry/wet mix, in order. The host builds them (see
+    /// [`effects`]). Call before `activate`, off the audio thread.
+    pub fn set_group_effects(&mut self, group: usize, chain: Vec<(Box<dyn Processor>, f32)>) {
+        let n = self.plan.groups.len();
+        self.chains.chains.resize_with(n, Vec::new);
+        if let Some(c) = self.chains.chains.get_mut(group) {
+            *c = chain
+                .into_iter()
+                .map(|(fx, mix)| GroupFx { fx, mix })
+                .collect();
+        }
+    }
+
+    fn sync_params(&mut self) {
+        self.ctl.volume = 10f32.powf(self.params[P_VOLUME] as f32 / 20.0);
+        self.ctl.pan = self.params[P_PAN] as f32;
+    }
+
     /// Back to the state right after `activate`: no voices, round robins and RNG at the
-    /// seed, controllers at 0, default articulation. Real-time.
+    /// seed, controllers at 0, default articulation, effect tails cleared. Real-time.
     fn clear(&mut self) {
+        if let Some(s) = self.samples.streams.as_deref() {
+            for (i, v) in self.pool.voices.iter_mut().enumerate() {
+                if v.active {
+                    render::finish(v, i, Some(s));
+                }
+            }
+        }
         self.pool.reset();
         self.rr.reset();
         self.rng.reset();
-        self.cc = [0.0; 128];
+        self.ctl.cc = [0.0; 128];
+        self.ctl.bend = 0.0;
+        self.ctl.aftertouch = 0.0;
         self.held = [None; 128];
         self.articulation = self.plan.default_articulation;
         self.clock = 0;
+        self.chains.reset();
     }
 
     /// Starts the zones of `trigger` for one note. Real-time.
@@ -201,7 +310,15 @@ impl HausSampler {
         let vel7 = midi_velocity(velocity);
         self.rr_pos.fill(u32::MAX);
         self.cut.fill(false);
+        self.glided.fill(false);
         let plan = self.plan.clone();
+        // one random draw per note, only when something uses it (keeps the round-robin
+        // sequence of instruments without random sources as it was)
+        let random = if plan.uses_random {
+            self.rng.unit()
+        } else {
+            0.0
+        };
         for &zi in plan.zones_for(key, trigger) {
             let z = &plan.zones[zi as usize];
             if vel7 < z.vel_lo || vel7 > z.vel_hi || !plan.group_plays(z.group, self.articulation) {
@@ -210,66 +327,168 @@ impl HausSampler {
             if !z
                 .cc_conditions
                 .iter()
-                .all(|c| (c.lo..=c.hi).contains(&self.cc[c.controller as usize & 127]))
+                .all(|c| (c.lo..=c.hi).contains(&self.ctl.cc[c.controller as usize & 127]))
             {
                 continue;
             }
-            let g = &plan.groups[z.group];
+            let gi = z.group;
+            let g = &plan.groups[gi];
             if let Some(p) = z.round_robin {
-                if self.rr_pos[z.group] == u32::MAX {
-                    self.rr_pos[z.group] =
-                        self.rr
-                            .advance(z.group, g.rr_len, g.round_robin, &mut self.rng);
+                if self.rr_pos[gi] == u32::MAX {
+                    self.rr_pos[gi] = self.rr.advance(gi, g.rr_len, g.round_robin, &mut self.rng);
                 }
-                if self.rr_pos[z.group] != p {
+                if self.rr_pos[gi] != p {
                     continue;
                 }
             }
-            let Some(s) = z.sample.and_then(|s| self.samples.samples.get(s)) else {
+            let Some(si) = z.sample else {
+                continue;
+            };
+            let Some(s) = self.samples.samples.get(si) else {
                 continue;
             };
             if z.end <= z.start {
                 continue;
             }
-            if g.polyphony != ph_core::Polyphony::Poly && !self.cut[z.group] {
-                self.cut[z.group] = true;
-                self.pool.choke_group(z.group); // T2: legato glides instead
+            let vel_xfade =
+                render::crossfade_gain(&z.crossfades, velocity, &self.ctl.cc, Some(true));
+            if vel_xfade <= 0.0 {
+                continue;
             }
             let semis = key as f64 - z.root_key as f64
                 + z.transpose
                 + plan.transpose
                 + self.params[P_TRANSPOSE]
                 + fine as f64 / 100.0;
-            let mut step = (semis / 12.0).exp2() * s.sample_rate() / self.sample_rate;
+            let ratio = s.sample_rate() / self.sample_rate;
+            let glide_frames = (g.portamento as f64 * self.sample_rate).round();
+            // mono and legato groups: one note at a time
+            let mut glide_from = None;
+            if g.polyphony != Polyphony::Poly && trigger == ZoneTrigger::Attack {
+                if self.glided[gi] {
+                    continue;
+                }
+                if !self.cut[gi] {
+                    self.cut[gi] = true;
+                    let held = self
+                        .pool
+                        .voices
+                        .iter()
+                        .any(|v| v.counts() && v.group == gi && v.held);
+                    if g.polyphony == Polyphony::Legato && held {
+                        // glide the held voices to the new note; no new voices
+                        self.glided[gi] = true;
+                        for v in self
+                            .pool
+                            .voices
+                            .iter_mut()
+                            .filter(|v| v.counts() && v.group == gi && v.held)
+                        {
+                            let vz = &plan.zones[v.zone];
+                            let old = v.key as f64 - vz.root_key as f64;
+                            let new = key as f64 - vz.root_key as f64;
+                            let base = v.step / (old / 12.0).exp2();
+                            v.step = base * (new / 12.0).exp2();
+                            v.glide += old - new;
+                            v.glide_step = if glide_frames >= 1.0 {
+                                v.glide / glide_frames
+                            } else {
+                                v.glide
+                            };
+                            v.note_id = note_id;
+                            v.key = key;
+                        }
+                        continue;
+                    }
+                    // the newest sounding voice is where a mono glide starts from
+                    if g.portamento > 0.0
+                        && let Some(v) = self
+                            .pool
+                            .voices
+                            .iter()
+                            .filter(|v| v.counts() && v.group == gi)
+                            .max_by_key(|v| v.order)
+                    {
+                        let vz = &plan.zones[v.zone];
+                        let from = v.key as f64 - vz.root_key as f64 + v.glide;
+                        glide_from = Some(from - (key as f64 - z.root_key as f64));
+                    }
+                    self.pool.choke_group(gi);
+                }
+            }
+            let mut step = (semis / 12.0).exp2() * ratio;
             let pos = if z.reverse {
                 step = -step;
                 (z.end - 1) as f64
             } else {
                 z.start as f64
             };
-            let mut gain = plan.gain
-                * g.gain
-                * z.gain
-                * velocity
-                * 10f32.powf(self.params[P_VOLUME] as f32 / 20.0);
+            let mut level = plan.gain * g.gain * z.gain * velocity;
             if trigger == ZoneTrigger::Release && z.release_decay_db > 0.0 {
-                gain *= 10f32.powf(-z.release_decay_db * held_seconds as f32 / 20.0);
+                level *= 10f32.powf(-z.release_decay_db * held_seconds as f32 / 20.0);
             }
-            let p = (plan.pan + z.pan + pan + self.params[P_PAN] as f32).clamp(-1.0, 1.0);
-            let gains = [gain * (1.0 - p).min(1.0), gain * (1.0 + p).min(1.0)];
-            self.pool.trigger(
+            let note_pan = plan.pan + z.pan + pan;
+            let Some(slot) = self.pool.trigger(
                 &plan,
                 Trigger {
                     note_id,
                     key,
                     zone: zi as usize,
-                    group: z.group,
+                    group: gi,
                     bus: g.output,
                     pos,
                     step,
-                    gain: gains,
+                    gain: [level, level],
                 },
-            );
+            ) else {
+                continue;
+            };
+            let (amp, fenv) = self.shapes.get(gi).copied().unwrap_or_default();
+            let v = &mut self.pool.voices[slot];
+            v.velocity = velocity;
+            v.random = random;
+            v.pressure = 0.0;
+            v.level = level;
+            v.note_pan = note_pan;
+            v.vel_xfade = vel_xfade;
+            v.amp.start(amp);
+            v.fenv.start(fenv);
+            v.lfo_phase = [0.0; plan::MAX_LFOS];
+            v.lfo_rng = (random.to_bits() as u64) << 32 | zi as u64;
+            for h in v.lfo_hold.iter_mut() {
+                *h = (render::splitmix(&mut v.lfo_rng) >> 40) as f32 / (1u64 << 23) as f32 - 1.0;
+            }
+            v.age = 0;
+            for f in v.filt.iter_mut() {
+                f.reset();
+            }
+            v.glide = glide_from.unwrap_or(0.0);
+            v.glide_step = if glide_frames >= 1.0 {
+                v.glide / glide_frames
+            } else {
+                v.glide
+            };
+            v.ctrl = 0;
+            v.looping = z.looping.is_some() && trigger == ZoneTrigger::Attack;
+            if trigger == ZoneTrigger::Release {
+                v.held = false;
+            }
+            v.fixed = render::modulate(&g.routes, true, v, &self.ctl, &[0.0; plan::MAX_LFOS]);
+            let offset = render::start_offset(&g.routes, v, &self.ctl);
+            if offset > 0.0 {
+                v.pos = if z.reverse {
+                    (v.pos - offset).max(z.start as f64)
+                } else {
+                    (v.pos + offset).min((z.end - 1) as f64)
+                };
+            }
+            // start fetching the stream where the head ends
+            if let (Some(src), Some(streams)) = (s.stream, self.samples.streams.as_deref())
+                && !s.complete
+            {
+                streams.want(slot, src, s.head.frames() as u64, false);
+                v.win_start = i64::MIN;
+            }
         }
     }
 
@@ -313,7 +532,7 @@ impl HausSampler {
             EventKind::Param { id, value } => self.set_param(id, value),
             EventKind::Cc { controller, value } => {
                 let c = controller as usize & 127;
-                self.cc[c] = value;
+                self.ctl.cc[c] = value;
                 for (i, a) in self.plan.articulations.iter().enumerate() {
                     if let ph_core::ArticulationTrigger::Cc {
                         controller: ac,
@@ -327,46 +546,73 @@ impl HausSampler {
                     }
                 }
             }
-            // T2: pitch bend and note expressions through the modulation matrix
-            EventKind::PitchBend { .. } | EventKind::NoteExpression { .. } => {}
+            EventKind::PitchBend { value } => self.ctl.bend = value.clamp(-1.0, 1.0),
+            EventKind::NoteExpression {
+                note_id,
+                kind: NoteExpressionKind::Pressure,
+                value,
+            } => {
+                let value = value.clamp(0.0, 1.0);
+                self.ctl.aftertouch = value;
+                for v in self
+                    .pool
+                    .voices
+                    .iter_mut()
+                    .filter(|v| v.active && v.note_id == note_id)
+                {
+                    v.pressure = value;
+                }
+            }
+            EventKind::NoteExpression { .. } => {}
         }
     }
 
-    /// Renders every active voice into `out[port][channel][from..to]`. Real-time.
+    /// Renders every active voice into its port (or its group's chain buffer) over
+    /// `from..to`. Real-time.
     fn render(&mut self, out: &mut [&mut [&mut [f32]]], from: usize, to: usize) {
         let ports = out.len();
-        for v in self.pool.voices.iter_mut().filter(|v| v.active) {
+        let streams = self.samples.streams.as_deref();
+        let sinc = self.sinc.as_ref();
+        for (slot, v) in self.pool.voices.iter_mut().enumerate() {
+            if !v.active {
+                continue;
+            }
             let z = &self.plan.zones[v.zone];
             let Some(s) = z.sample.and_then(|s| self.samples.samples.get(s)) else {
                 v.active = false;
                 continue;
             };
-            let data = &s.head.channels;
-            let len = data.first().map_or(0, |c| c.len()) as f64;
-            let (lo, hi) = (z.start as f64, (z.end as f64).min(len));
+            let win: &mut [f32] = if self.win.is_empty() {
+                &mut []
+            } else {
+                &mut self.win[slot * 2 * WINDOW..(slot + 1) * 2 * WINDOW]
+            };
+            if let Some(b) = self.chains.buffer_of.get(v.group).copied().flatten() {
+                let (l, r) = self.chains.buffer(b, to);
+                render::render_voice(
+                    v, slot, &self.plan, s, streams, win, sinc, &self.ctl, l, r, from, to,
+                );
+                continue;
+            }
             let port = if (v.bus as usize) < ports {
                 v.bus as usize
             } else {
                 0
             };
-            for i in from..to {
-                if v.pos < lo || v.pos > hi - 1.0 {
-                    // past the end (or, streamed, past the preload: T2 reads on)
-                    v.active = false;
-                    break;
+            let Some(o) = out.get_mut(port) else {
+                continue;
+            };
+            match &mut o[..] {
+                [l, r, ..] => render::render_voice(
+                    v, slot, &self.plan, s, streams, win, sinc, &self.ctl, l, r, from, to,
+                ),
+                [m] => {
+                    let r = &mut self.scratch[..to];
+                    render::render_voice(
+                        v, slot, &self.plan, s, streams, win, sinc, &self.ctl, m, r, from, to,
+                    );
                 }
-                let i0 = v.pos as usize;
-                let frac = (v.pos - i0 as f64) as f32;
-                let i1 = (i0 + 1).min(hi as usize - 1);
-                let at = |c: &Vec<f32>| c[i0] + (c[i1] - c[i0]) * frac;
-                let l = at(&data[0]);
-                let r = data.get(1).map_or(l, at);
-                let o = &mut out[port];
-                o[0][i] += l * v.gain[0];
-                if o.len() > 1 {
-                    o[1][i] += r * v.gain[1];
-                }
-                v.pos += v.step;
+                [] => {}
             }
         }
     }
@@ -379,14 +625,50 @@ impl Processor for HausSampler {
 
     fn activate(&mut self, info: &ActivateInfo) {
         self.sample_rate = info.sample_rate;
+        self.ctl.sample_rate = info.sample_rate;
         self.rng = Rng::new(info.seed);
         self.pool = VoicePool::new(self.plan.voice_limit.min(MAX_VOICES));
+        self.pool.fade_frames = (FADE_SECONDS * info.sample_rate).round().max(1.0) as u32;
+        self.sinc = match info.quality {
+            Quality::Live => None,
+            Quality::High => Some(SincInterpolator::new(
+                render::SINC_HALF_WIDTH,
+                render::SINC_MAX_STRETCH,
+            )),
+        };
+        self.shapes = self
+            .plan
+            .groups
+            .iter()
+            .map(|g| {
+                (
+                    EnvShape::new(&g.amp_env, info.sample_rate),
+                    g.filter_env
+                        .as_ref()
+                        .map(|e| EnvShape::new(e, info.sample_rate))
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+        let streamed =
+            self.samples.streams.is_some() && self.samples.samples.iter().any(|s| !s.complete);
+        self.win = if streamed {
+            vec![0.0; self.pool.voices.len() * 2 * WINDOW].into_boxed_slice()
+        } else {
+            Box::new([])
+        };
+        self.scratch = vec![0.0; info.max_frames.max(1)].into_boxed_slice();
+        self.chains.activate(self.plan.groups.len(), info);
         self.clear();
     }
 
     fn process(&mut self, ctx: &ProcessContext, io: &mut ProcessIo<'_, '_>) -> ProcessStatus {
         silence(io);
         let n = ctx.frames;
+        let fx = !self.chains.is_empty();
+        if fx {
+            self.chains.begin(n);
+        }
         let mut at = 0usize;
         for e in io.events {
             let f = (e.frame as usize).min(n);
@@ -399,8 +681,30 @@ impl Processor for HausSampler {
         if at < n {
             self.render(io.outputs, at, n);
         }
+        let mut tail = false;
+        if fx {
+            let ports = io.outputs.len();
+            for g in 0..self.plan.groups.len() {
+                if self.chains.buffer_of.get(g).copied().flatten().is_none() {
+                    continue;
+                }
+                let bus = self.plan.groups[g].output as usize;
+                let port = if bus < ports { bus } else { 0 };
+                let Some(o) = io.outputs.get_mut(port) else {
+                    continue;
+                };
+                tail |= match &mut o[..] {
+                    [l, r, ..] => self.chains.run(g, ctx, l, r),
+                    [m] => {
+                        let r = &mut self.scratch[..n];
+                        self.chains.run(g, ctx, m, r)
+                    }
+                    [] => false,
+                };
+            }
+        }
         self.clock += n as u64;
-        if self.pool.voices.iter().any(|v| v.active) {
+        if tail || self.pool.voices.iter().any(|v| v.active) {
             ProcessStatus::Continue
         } else {
             ProcessStatus::Sleep
@@ -410,6 +714,7 @@ impl Processor for HausSampler {
     fn set_param(&mut self, id: ParamId, value: f64) {
         if let Some(p) = self.desc.params.get(id.0 as usize) {
             self.params[id.0 as usize] = p.clamp(value);
+            self.sync_params();
         }
     }
 
@@ -421,6 +726,9 @@ impl Processor for HausSampler {
         self.clear();
     }
 }
+
+/// Control updates happen every [`CTRL`] frames of a voice (re-exported for hosts and tests).
+pub const CONTROL_FRAMES: u32 = CTRL;
 
 #[cfg(test)]
 mod tests;

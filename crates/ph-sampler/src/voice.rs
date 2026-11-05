@@ -100,8 +100,25 @@ impl RoundRobin {
     }
 }
 
+/// Modulation sums for one voice, in the targets' units (see [`ph_core::ModTarget`]).
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
+pub struct Mods {
+    /// Cents.
+    pub pitch: f32,
+    /// dB.
+    pub volume: f32,
+    /// Pan units.
+    pub pan: f32,
+    /// Cents.
+    pub cutoff: f32,
+    /// dB.
+    pub resonance: f32,
+    /// Frames of the file.
+    pub start: f32,
+}
+
 /// One sounding zone.
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Voice {
     pub active: bool,
     /// The note it belongs to (`EventKind::NoteOn::note_id`).
@@ -113,15 +130,117 @@ pub struct Voice {
     pub group: usize,
     /// Output bus.
     pub bus: u32,
-    /// Read position in frames of the file; `step` frames per output frame (negative when
-    /// reversed).
+    /// Read position in frames of the file.
     pub pos: f64,
+    /// Frames of the file per output frame at the note's own pitch (always positive).
     pub step: f64,
+    /// +1 forwards, -1 backwards (reverse zones, the way back of a ping-pong loop).
+    pub dir: f64,
+    /// Static gain per channel: levels × velocity × pan (release decay included).
     pub gain: [f32; 2],
     /// Start order, for stealing (higher = newer).
     pub order: u64,
     /// Held: a note-off has not arrived yet.
     pub held: bool,
+    /// Note velocity 0..=1, the note's random draw 0..=1, its poly pressure 0..=1.
+    pub velocity: f32,
+    pub random: f32,
+    pub pressure: f32,
+    /// Linear gain of the zone, group, instrument and velocity (release decay included),
+    /// and the note's own pan: before modulation and parameters.
+    pub level: f32,
+    pub note_pan: f32,
+    /// Crossfade gain from velocity (fixed for the note).
+    pub vel_xfade: f32,
+    /// Routes with sources fixed at note-on, summed once.
+    pub fixed: Mods,
+    pub amp: crate::env::Env,
+    pub fenv: crate::env::Env,
+    pub lfo_phase: [f64; crate::plan::MAX_LFOS],
+    pub lfo_hold: [f32; crate::plan::MAX_LFOS],
+    pub lfo_rng: u64,
+    /// Frames since the note started (LFO delay and fade).
+    pub age: u64,
+    /// Two stages per channel: `[l1, r1, l2, r2]`.
+    pub filt: [ph_dsp::filter::Svf; 4],
+    /// Glide offset in semitones (moves to 0 by `glide_step` per frame).
+    pub glide: f64,
+    pub glide_step: f64,
+    /// Frames until the next control update.
+    pub ctrl: u32,
+    /// Output gain per channel now, and its per-frame ramp to the control target.
+    pub g_now: [f32; 2],
+    pub g_inc: [f32; 2],
+    /// Frames of the file per output frame now (pitch modulation included).
+    pub rate: f64,
+    /// The zone loop is in effect (false once a sustain loop is left at note-off).
+    pub looping: bool,
+    /// A steal or choke fade: frames left of `fade_len` (0 = none).
+    pub fade: u32,
+    pub fade_len: u32,
+    /// First file frame held in this voice's stream window (`i64::MIN` = empty).
+    pub win_start: i64,
+    /// Output level at the last control update (for `quietest` stealing).
+    pub loudness: f32,
+}
+
+impl Default for Voice {
+    fn default() -> Self {
+        Self {
+            active: false,
+            note_id: 0,
+            key: 0,
+            zone: 0,
+            group: 0,
+            bus: 0,
+            pos: 0.0,
+            step: 1.0,
+            dir: 1.0,
+            gain: [0.0; 2],
+            order: 0,
+            held: false,
+            velocity: 0.0,
+            random: 0.0,
+            pressure: 0.0,
+            level: 0.0,
+            note_pan: 0.0,
+            vel_xfade: 1.0,
+            fixed: Mods::default(),
+            amp: Default::default(),
+            fenv: Default::default(),
+            lfo_phase: [0.0; crate::plan::MAX_LFOS],
+            lfo_hold: [0.0; crate::plan::MAX_LFOS],
+            lfo_rng: 0,
+            age: 0,
+            filt: Default::default(),
+            glide: 0.0,
+            glide_step: 0.0,
+            ctrl: 0,
+            g_now: [0.0; 2],
+            g_inc: [0.0; 2],
+            rate: 1.0,
+            looping: false,
+            fade: 0,
+            fade_len: 0,
+            win_start: i64::MIN,
+            loudness: 0.0,
+        }
+    }
+}
+
+impl Voice {
+    /// True while it sounds and has not been told to give way.
+    pub fn counts(&self) -> bool {
+        self.active && self.fade == 0
+    }
+
+    /// Starts a short fade-out (stolen or choked). Real-time.
+    pub fn fade_out(&mut self, frames: u32) {
+        if self.active && self.fade == 0 {
+            self.fade = frames.max(1);
+            self.fade_len = frames.max(1);
+        }
+    }
 }
 
 /// What a trigger asks for.
@@ -133,121 +252,157 @@ pub struct Trigger {
     pub group: usize,
     pub bus: u32,
     pub pos: f64,
+    /// Negative when the zone plays backwards.
     pub step: f64,
     pub gain: [f32; 2],
 }
 
-/// A fixed pool of voices, allocated in `activate`.
+/// Spare voices beyond the instrument's limit, for the fades of stolen voices.
+pub const SPARE_VOICES: usize = 16;
+
+/// A fixed pool of voices, allocated in `activate`: the instrument's limit plus
+/// [`SPARE_VOICES`] so a stolen voice can fade while its successor starts.
 pub struct VoicePool {
     pub voices: Box<[Voice]>,
     order: u64,
+    /// Steal and choke fade, frames.
+    pub fade_frames: u32,
 }
 
 impl VoicePool {
+    /// A pool for an instrument limit of `n` voices.
     pub fn new(n: usize) -> Self {
         Self {
-            voices: vec![Voice::default(); n.max(1)].into_boxed_slice(),
+            voices: vec![Voice::default(); n.max(1) + SPARE_VOICES].into_boxed_slice(),
             order: 0,
+            fade_frames: 144,
         }
+    }
+
+    /// Slots in a pool for an instrument limit of `n` (what a stream source must serve).
+    pub fn capacity_for(n: usize) -> usize {
+        n.max(1) + SPARE_VOICES
     }
 
     pub fn reset(&mut self) {
         for v in self.voices.iter_mut() {
             v.active = false;
+            v.fade = 0;
         }
         self.order = 0;
     }
 
+    /// Voices sounding (fading ones included).
     pub fn active(&self) -> usize {
         self.voices.iter().filter(|v| v.active).count()
     }
 
     /// Starts a voice, stealing one when the group's or the instrument's limit is reached
-    /// (the group's [`StealMode`] decides which; `None` refuses the new voice). Returns the
-    /// voice index. Real-time.
+    /// (the group's [`StealMode`] decides which; `None` refuses the new voice). A stolen voice
+    /// fades out over `fade_frames` while its successor starts in a free slot. Returns the
+    /// voice index; the caller sets up the rest of the voice. Real-time.
     pub fn trigger(&mut self, plan: &Plan, t: Trigger) -> Option<usize> {
         let g = &plan.groups[t.group];
         if let Some(limit) = g.voice_limit {
             let in_group = self
                 .voices
                 .iter()
-                .filter(|v| v.active && v.group == t.group)
+                .filter(|v| v.counts() && v.group == t.group)
                 .count();
             if in_group >= limit as usize {
                 let victim = self.steal(g.stealing, Some(t.group))?;
-                return Some(self.start(victim, t));
+                let f = self.fade_frames;
+                self.voices[victim].fade_out(f);
             }
         }
-        let limit = plan.voice_limit.min(self.voices.len());
-        let free = self.voices[..limit].iter().position(|v| !v.active);
-        let slot = match free {
+        let counting = self.voices.iter().filter(|v| v.counts()).count();
+        if counting >= plan.voice_limit {
+            let victim = self.steal(g.stealing, None)?;
+            let f = self.fade_frames;
+            self.voices[victim].fade_out(f);
+        }
+        let slot = match self.voices.iter().position(|v| !v.active) {
             Some(i) => i,
-            None => self.steal(g.stealing, None)?,
+            // every spare is still fading: cut the fade nearest its end
+            None => self
+                .voices
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| v.fade > 0)
+                .min_by_key(|(_, v)| (v.fade, v.order))
+                .map(|(i, _)| i)?,
         };
         Some(self.start(slot, t))
     }
 
     fn start(&mut self, i: usize, t: Trigger) -> usize {
         self.order += 1;
-        self.voices[i] = Voice {
-            active: true,
-            note_id: t.note_id,
-            key: t.key,
-            zone: t.zone,
-            group: t.group,
-            bus: t.bus,
-            pos: t.pos,
-            step: t.step,
-            gain: t.gain,
-            order: self.order,
-            held: true,
-        };
+        let v = &mut self.voices[i];
+        v.active = true;
+        v.note_id = t.note_id;
+        v.key = t.key;
+        v.zone = t.zone;
+        v.group = t.group;
+        v.bus = t.bus;
+        v.pos = t.pos;
+        v.step = t.step.abs();
+        v.dir = if t.step < 0.0 { -1.0 } else { 1.0 };
+        v.gain = t.gain;
+        v.order = self.order;
+        v.held = true;
+        v.fade = 0;
+        v.fade_len = 0;
+        v.win_start = i64::MIN;
         i
     }
 
-    /// The voice to give way, among active voices (of `group` when given). Real-time.
+    /// The voice to give way, among sounding voices that are not already fading (of `group`
+    /// when given). Real-time.
     pub fn steal(&mut self, mode: StealMode, group: Option<usize>) -> Option<usize> {
         let candidates = self
             .voices
             .iter()
             .enumerate()
-            .filter(|(_, v)| v.active && group.is_none_or(|g| v.group == g));
+            .filter(|(_, v)| v.counts() && group.is_none_or(|g| v.group == g));
         let pick = match mode {
             StealMode::None => None,
             StealMode::Oldest => candidates.min_by_key(|(_, v)| v.order),
             StealMode::Newest => candidates.max_by_key(|(_, v)| v.order),
             StealMode::Quietest => candidates.min_by(|(_, a), (_, b)| {
-                let (ga, gb) = (a.gain[0] + a.gain[1], b.gain[0] + b.gain[1]);
-                ga.total_cmp(&gb).then(a.order.cmp(&b.order))
+                a.loudness
+                    .total_cmp(&b.loudness)
+                    .then(a.order.cmp(&b.order))
             }),
         };
         pick.map(|(i, _)| i)
     }
 
-    /// Note-off for `note_id`: held voices are released. Without envelopes (M3/T0) a released
-    /// voice that is not one-shot stops at once; T2 starts its amp-envelope release instead.
-    /// Real-time.
+    /// Note-off for `note_id`: held voices release their amp and filter envelopes (one-shot
+    /// zones play on), and sustain loops (`exit`) are left. Real-time.
     pub fn release(&mut self, plan: &Plan, note_id: u32) {
         for v in self
             .voices
             .iter_mut()
-            .filter(|v| v.active && v.note_id == note_id)
+            .filter(|v| v.active && v.held && v.note_id == note_id)
         {
             v.held = false;
-            if !plan.zones[v.zone].one_shot {
-                v.active = false; // T2: amp envelope release
+            let z = &plan.zones[v.zone];
+            if z.looping.as_ref().is_some_and(|l| l.exit_on_release) {
+                v.looping = false;
+            }
+            if !z.one_shot {
+                v.amp.release();
+                v.fenv.release();
             }
         }
     }
 
-    /// Mono and legato groups: the voices of `group` give way to a new note. Real-time.
+    /// Mono and legato groups: the voices of `group` give way to a new note with a short
+    /// fade. Real-time.
     pub fn choke_group(&mut self, group: usize) {
-        for v in self
-            .voices
-            .iter_mut()
-            .filter(|v| v.active && v.group == group)
-        {
-            v.active = false; // T2: a short fade, and legato glides instead
+        let f = self.fade_frames;
+        for v in self.voices.iter_mut().filter(|v| v.group == group) {
+            v.fade_out(f);
         }
     }
 }

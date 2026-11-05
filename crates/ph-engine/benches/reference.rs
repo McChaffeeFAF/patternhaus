@@ -14,6 +14,11 @@
 //! instrument parameter sweep, an effect parameter, a channel pan and a mixer volume ride,
 //! all with curves) playing the whole time.
 //!
+//! M3 criterion 6 (M3/T2): the reference project plus a 64-voice streamed piano part: a Haus
+//! Sampler channel with one 20 s sample per key (each streamed from "disk" past its 32k-frame
+//! preload) playing 64-note chords every bar, voice limit 64 (older voices are stolen with
+//! fades).
+//!
 //! `cargo bench -p ph-engine` prints the DSP load (all cores, and one thread), then runs
 //! the criterion benchmarks.
 
@@ -54,9 +59,67 @@ fn loop_frames(bpm: f64) -> u64 {
     (16.0 * 60.0 / bpm * SR as f64).round() as u64
 }
 
+/// `gen:piano/<key>`: 20 s, stereo, four decaying partials of the key's pitch.
+const PIANO_SECONDS: u64 = 20;
+
+fn piano_key(r: &str) -> Option<u8> {
+    r.strip_prefix("gen:piano/")?.parse().ok()
+}
+
+fn piano_frame(key: u8, ch: usize, i: u64) -> f32 {
+    let t = i as f64 / SR as f64;
+    let f = 440.0 * ((key as f64 - 69.0) / 12.0).exp2();
+    let tau = std::f64::consts::TAU;
+    let mut x = 0.0;
+    for h in 1..=4 {
+        let h = h as f64;
+        x += 0.5 / h * (tau * h * f * t + ch as f64 * 0.3).sin() * (-t * (1.0 + h) / 3.0).exp();
+    }
+    (0.2 * x) as f32
+}
+
+struct PianoStream(u8);
+impl SampleStream for PianoStream {
+    fn frames(&self) -> u64 {
+        PIANO_SECONDS * SR as u64
+    }
+    fn sample_rate(&self) -> f64 {
+        SR as f64
+    }
+    fn channels(&self) -> usize {
+        2
+    }
+    fn read(&mut self, start: u64, out: &mut [&mut [f32]]) -> Result<usize, StreamError> {
+        let n = out.iter().map(|c| c.len()).min().unwrap_or(0);
+        let frames = self.frames();
+        for (c, o) in out.iter_mut().enumerate() {
+            for (k, v) in o.iter_mut().enumerate().take(n) {
+                let i = start + k as u64;
+                *v = if i < frames {
+                    piano_frame(self.0, c, i)
+                } else {
+                    0.0
+                };
+            }
+        }
+        Ok(n.min(frames.saturating_sub(start) as usize))
+    }
+}
+
 struct BenchAssets;
 impl AssetResolver for BenchAssets {
     fn sample(&self, r: &str) -> Result<Arc<SampleData>, String> {
+        if let Some(k) = piano_key(r) {
+            let n = PIANO_SECONDS * SR as u64;
+            return Ok(Arc::new(SampleData {
+                sample_rate: SR as f64,
+                channels: (0..2)
+                    .map(|c| (0..n).map(|i| piano_frame(k, c, i)).collect())
+                    .collect(),
+                loop_range: None,
+                root_key: None,
+            }));
+        }
         let bpm = loop_bpm(r).ok_or_else(|| format!("no sample `{r}`"))?;
         let n = loop_frames(bpm);
         Ok(Arc::new(SampleData {
@@ -69,6 +132,9 @@ impl AssetResolver for BenchAssets {
         }))
     }
     fn stream(&self, r: &str) -> Option<Result<Box<dyn SampleStream>, String>> {
+        if let Some(k) = piano_key(r) {
+            return Some(Ok(Box::new(PianoStream(k))));
+        }
         let bpm = loop_bpm(r)?;
         Some(Ok(Box::new(LoopStream(bpm))))
     }
@@ -187,6 +253,54 @@ fn automated_project() -> Project {
     e.finish().0
 }
 
+/// The reference project plus a 64-voice streamed piano (M3 criterion 6).
+fn piano_project() -> Project {
+    let mut e = Edit::new(&reference_project());
+    let mut inst = HausInstrument::new("Bench Piano");
+    inst.settings.voice_limit = 64;
+    let i = e.add_instrument(inst).unwrap();
+    let mut g = Group::new("keys");
+    g.amp_env.release = 0.4;
+    let g = e.add_group(i, g).unwrap();
+    for k in 21..=108u8 {
+        e.add_zone(
+            i,
+            Zone::new(
+                g,
+                SampleRef::File(format!("gen:piano/{k}")),
+                KeyRange { lo: k, hi: k },
+                k,
+            ),
+        )
+        .unwrap();
+    }
+    let ch = e
+        .add_channel(
+            "Piano",
+            InstrumentSpec::MultiSampler {
+                library: None,
+                instrument: Some(i),
+                params: [("volume".to_string(), -12.0)].into(),
+            },
+        )
+        .unwrap();
+    let pat = e.add_pattern("Piano").unwrap();
+    for bar in 0..4u64 {
+        // 64 keys a bar, spread over the first beat, held for the bar
+        for n in 0..64u64 {
+            let key = 30 + ((n * 5 + bar * 3) % 64) as u8;
+            e.add_note(
+                pat,
+                ch,
+                NoteSpec::new(key, bar * 4 * PPQ + n * 15, 4 * PPQ - n * 15),
+            )
+            .unwrap();
+        }
+    }
+    e.add_clip(1, pat, 0).unwrap();
+    e.finish().0
+}
+
 fn reference_project() -> Project {
     let mut e = Edit::new(&Project::empty("reference"));
     e.update_settings(|s| s.bpm = 120.0).unwrap();
@@ -263,6 +377,7 @@ enum Load {
     Reference,
     Audio,
     AudioAutomation,
+    Piano,
 }
 
 fn engine(threads: usize, load: Load) -> (Engine, ph_engine::SimulatedDevice) {
@@ -280,6 +395,7 @@ fn engine(threads: usize, load: Load) -> (Engine, ph_engine::SimulatedDevice) {
         Load::Reference => reference_project(),
         Load::Audio => audio_project(),
         Load::AudioAutomation => automated_project(),
+        Load::Piano => piano_project(),
     };
     engine.set_project(Arc::new(project)).unwrap();
     engine.transport(TransportCommand::Play);
@@ -331,6 +447,8 @@ fn perf_json(path: &str) {
         ("audio_one_thread", 1, Load::Audio),
         ("automation_all_cores", 0, Load::AudioAutomation),
         ("automation_one_thread", 1, Load::AudioAutomation),
+        ("piano_all_cores", 0, Load::Piano),
+        ("piano_one_thread", 1, Load::Piano),
     ] {
         let mut means = Vec::new();
         let mut medians = Vec::new();
@@ -390,6 +508,8 @@ fn bench(c: &mut Criterion) {
             1,
             Load::AudioAutomation,
         ),
+        ("all cores, + 64-voice streamed piano", 0, Load::Piano),
+        ("one thread, + 64-voice streamed piano", 1, Load::Piano),
     ] {
         let (mean, median, worst) = loads(&block_times(threads, 2000, load));
         println!(
@@ -407,6 +527,8 @@ fn bench(c: &mut Criterion) {
         ("audio_one_thread", 1, Load::Audio),
         ("automation_all_cores", 0, Load::AudioAutomation),
         ("automation_one_thread", 1, Load::AudioAutomation),
+        ("piano_all_cores", 0, Load::Piano),
+        ("piano_one_thread", 1, Load::Piano),
     ] {
         let (_engine, mut dev) = engine(threads, load);
         g.bench_function(label, |b| b.iter(|| dev.pull(BUFFER as usize)));

@@ -745,6 +745,28 @@ impl AudioCtx {
         o
     }
 
+    /// A stream cache for a Haus Sampler node (M3/T2): `streams` are its long files, `voices`
+    /// its voice slots. Registered with the prefetch thread like an audio track's cache, under
+    /// the same policy, and its underruns count in `EngineStats::underruns`. Control thread.
+    pub fn sampler_cache(
+        &mut self,
+        streams: Vec<Box<dyn ph_node::SampleStream>>,
+        voices: usize,
+    ) -> Arc<Cache> {
+        let sources = streams
+            .into_iter()
+            .map(|s| Arc::new(Source::new(s)))
+            .collect();
+        self.register(Cache::with_geometry(
+            sources,
+            voices,
+            self.policy,
+            self.underruns.clone(),
+            SAMPLER_BLOCK_FRAMES,
+            SAMPLER_LOOKAHEAD_BLOCKS,
+        ))
+    }
+
     fn register(&mut self, cache: Cache) -> Arc<Cache> {
         match self.policy {
             StreamPolicy::Sync => Arc::new(cache),
@@ -755,6 +777,12 @@ impl AudioCtx {
         }
     }
 }
+
+/// Block size of a sampler stream cache, frames (43 ms at 48 kHz). Smaller than an audio
+/// track's: a sampler has many more voices, and each holds `lookahead + 2` blocks.
+pub const SAMPLER_BLOCK_FRAMES: usize = 2048;
+/// Blocks a sampler voice keeps loaded ahead of where it reads (256 ms at 48 kHz).
+pub const SAMPLER_LOOKAHEAD_BLOCKS: usize = 6;
 
 /// What makes two compilations of a track the same (then its state moves across plans).
 #[derive(Clone, Debug, PartialEq)]

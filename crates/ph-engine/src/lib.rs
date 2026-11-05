@@ -971,7 +971,7 @@ pub fn project_warnings_with(
             }
             continue;
         }
-        match plan::create_instrument(project, &ch.instrument, assets) {
+        match plan::create_instrument(project, &ch.instrument, assets, None) {
             Err(e) => out.push(format!(
                 "channel {:?} (id {}): {e}; it will play silence",
                 ch.name, ch.id.0

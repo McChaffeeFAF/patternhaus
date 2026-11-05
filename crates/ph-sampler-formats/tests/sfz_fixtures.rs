@@ -11,10 +11,9 @@
 //! 4. saves the instrument as a native folder (`instrument.toml` + `samples/`), reopens it
 //!    and renders again: bit-identical to step 2.
 //!
-//! `PH_GOLDEN_UPDATE=1` rewrites the references (say why in the PR). Fixtures whose features
-//! need M3/T2's DSP (envelopes, loops, filters, LFOs, crossfades, modulation) are marked
-//! *pending T2* in `docs/parity/haus-sampler.md`: their references hold the T0 engine's
-//! sound until T2 lands and regenerates them; their models are checked now.
+//! `PH_GOLDEN_UPDATE=1` rewrites the references (say why in the PR). The fixtures whose
+//! features need M3/T2's DSP (03, 07, 08, 09, 10, 11, 13, 14, 16) also have sound checks on
+//! the render (`sfz_sound`): the references alone only pin what the engine does now.
 
 use ph_core::*;
 use ph_engine::assets::FileResolver;
@@ -26,6 +25,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 mod sfz_seeds;
+mod sfz_sound;
 use sfz_seeds::MALFORMED;
 
 const SR: u32 = 48_000;
@@ -1030,6 +1030,7 @@ fn run_fixture(f: &Fixture) -> Result<(), String> {
         .fold(0f32, |m, x| m.max(x.abs()));
     assert!(peak > 0.01, "{}: the render is silent", f.id);
     compare(f.id, &fingerprint(&a))?;
+    sfz_sound::check(f.id, &a, &imported)?;
 
     let back = save_and_reopen(&inst, &folder, tmp.path());
     let p2 = project(&back, &f.phrase);

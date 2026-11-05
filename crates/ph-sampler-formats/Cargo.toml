@@ -14,6 +14,7 @@ ph-node.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+ph-sampler.workspace = true
 proptest.workspace = true
 tempfile.workspace = true
 ph-engine.workspace = true

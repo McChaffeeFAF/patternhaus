@@ -51,19 +51,30 @@ const PERF_GATED: &[&str] = &[
 ];
 /// The DSP load target of M1 and M2 criterion 7, in percent of the buffer duration.
 const PERF_TARGET_PCT: f64 = 25.0;
-/// The loads held to [`PERF_TARGET_PCT`]: (metric, what it measures).
-const PERF_TARGETS: &[(&str, &str)] = &[
+/// The DSP load target of M3 criterion 6 (the reference project plus a 64-voice streamed
+/// piano).
+const PERF_TARGET_M3_PCT: f64 = 30.0;
+/// The loads held to a target: (metric, what it measures, target %).
+const PERF_TARGETS: &[(&str, &str, f64)] = &[
     (
         "all_cores_dsp_load_mean_pct",
         "reference project (M1 criterion 7)",
+        PERF_TARGET_PCT,
     ),
     (
         "audio_all_cores_dsp_load_mean_pct",
         "+ 8 stretched audio clips",
+        PERF_TARGET_PCT,
     ),
     (
         "automation_all_cores_dsp_load_mean_pct",
         "+ 8 stretched clips + 4 automation clips (M2 crit. 7)",
+        PERF_TARGET_PCT,
+    ),
+    (
+        "piano_all_cores_dsp_load_mean_pct",
+        "+ 64-voice streamed piano (M3 criterion 6)",
+        PERF_TARGET_M3_PCT,
     ),
 ];
 /// A gated metric fails above baseline × this (a regression of more than 10%).
@@ -72,6 +83,28 @@ const PERF_TOLERANCE: f64 = 1.10;
 fn read_json(p: &Path) -> Result<serde_json::Value, Vec<String>> {
     let text = std::fs::read_to_string(p).map_err(|e| vec![format!("{}: {e}", p.display())])?;
     serde_json::from_str(&text).map_err(|e| vec![format!("{}: {e}", p.display())])
+}
+
+/// M3 criterion 4: the Haus Sampler streaming stress test over a generated library of about
+/// 2 GB (written to a temporary folder and removed afterwards; `#[ignore]`d in the normal test
+/// run). Prints underruns, resident memory against the preload budget, and load time.
+pub fn sampler_stress(root: &Path) -> Result<(), Vec<String>> {
+    let mut cmd = cargo();
+    cmd.current_dir(root).args([
+        "test",
+        "-p",
+        "ph-engine",
+        // the engine's lib tests need debug assertions (assert_no_alloc), so the dev
+        // profile (optimised dependencies) rather than --release
+        "--lib",
+        "sampler_stress",
+        "--",
+        "--ignored",
+        "--nocapture",
+        "--test-threads",
+        "1",
+    ]);
+    run(&mut cmd)
 }
 
 pub fn perf(root: &Path, report_only: bool, update: bool) -> Result<(), Vec<String>> {
@@ -123,22 +156,18 @@ pub fn perf(root: &Path, report_only: bool, update: bool) -> Result<(), Vec<Stri
             ));
         }
     }
-    // M1 criterion 7 and M2 criterion 7: mean DSP load on all cores within 25%
+    // M1/M2 criterion 7 (25%) and M3 criterion 6 (30%): mean DSP load on all cores
     println!();
-    println!("DSP load against the {PERF_TARGET_PCT:.0}% target (all cores, mean):");
-    for (key, label) in PERF_TARGETS {
+    println!("DSP load against the targets (all cores, mean):");
+    for (key, label, target) in PERF_TARGETS {
         let Some(now) = current[*key].as_f64() else {
             continue;
         };
-        let verdict = if now <= PERF_TARGET_PCT {
-            "within"
-        } else {
-            "OVER"
-        };
-        println!("  {label:<52} {now:>6.2}%  {verdict}");
-        if now > PERF_TARGET_PCT {
+        let verdict = if now <= *target { "within" } else { "OVER" };
+        println!("  {label:<52} {now:>6.2}%  {verdict} {target:.0}%");
+        if now > *target {
             errors.push(format!(
-                "{label}: {now:.2}% mean DSP load, above the {PERF_TARGET_PCT:.0}% target"
+                "{label}: {now:.2}% mean DSP load, above the {target:.0}% target"
             ));
         }
     }

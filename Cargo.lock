@@ -3106,6 +3106,7 @@ version = "0.1.0"
 dependencies = [
  "assert_no_alloc",
  "ph-core",
+ "ph-dsp",
  "ph-node",
 ]
 
@@ -3117,6 +3118,7 @@ dependencies = [
  "ph-engine",
  "ph-formats",
  "ph-node",
+ "ph-sampler",
  "proptest",
  "serde_json",
  "tempfile",
