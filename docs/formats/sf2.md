@@ -81,7 +81,8 @@ RIFF <size> 'sfbk'
 - `sm24` (2.04 and later): one byte per `smpl` frame holding the **low 8 bits** of a 24-bit
   value; the 24-bit frame is `(smpl << 8) | sm24` [S §6.2].
   - Ignore `sm24` if `ifil` is below 2.04, if `smpl` is missing, or if its size is not
-    `ceil(size(smpl) / 4) × 2`, i.e. half of `smpl`'s byte size, rounded up to even [S §6.2].
+    exactly half of `smpl`'s byte size, plus 1 when that half is odd (the pad byte)
+    [S §6.2].
 - Samples may also live in a sound **ROM** (section 6.3).
 
 ---
