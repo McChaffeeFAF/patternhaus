@@ -7,7 +7,8 @@
 
 use crate::samples::SampleSet;
 use ph_core::{
-    ArticulationTrigger, CcCondition, GroupId, HausInstrument, LoopRelease, Polyphony,
+    ArticulationTrigger, CcCondition, Crossfade, CrossfadeSource, Envelope, Filter, GroupEffect,
+    GroupId, HausInstrument, Lfo, LoopRelease, ModCurve, ModSource, ModTarget, Polyphony,
     RoundRobinMode, StealMode, ZoneId, ZoneTrigger,
 };
 use std::ops::Range;
@@ -37,8 +38,15 @@ pub struct PlanZone {
     pub release_decay_db: f32,
     pub round_robin: Option<u32>,
     pub cc_conditions: Vec<CcCondition>,
+    /// Velocity and controller crossfades (gain = the product of all of them).
+    pub crossfades: Vec<Crossfade>,
+    /// True when a crossfade follows a controller (its gain moves while the note plays).
+    pub cc_crossfade: bool,
 }
 
+/// A zone loop, clamped to the zone: `start..end` inside `zone.start..zone.end`, at least two
+/// frames long; `crossfade` at most the loop length and at most `start` (the crossfade reads
+/// the material before the loop).
 #[derive(Clone, Debug)]
 pub struct PlanLoop {
     pub start: u64,
@@ -63,6 +71,39 @@ pub struct PlanGroup {
     pub output: u32,
     /// Articulation indices (into [`Plan::articulations`]) it plays in; empty = all.
     pub articulations: Vec<usize>,
+    pub amp_env: Envelope,
+    pub filter_env: Option<Envelope>,
+    pub filter: Option<Filter>,
+    /// At most [`MAX_LFOS`].
+    pub lfos: Vec<Lfo>,
+    /// Glide seconds (mono and legato groups).
+    pub portamento: f32,
+    /// The modulation routes that apply to this group's voices, in matrix order.
+    pub routes: Vec<PlanRoute>,
+    /// The insert chain (built by the host: see [`crate::effects`]).
+    pub effects: Vec<GroupEffect>,
+}
+
+/// LFOs per group.
+pub const MAX_LFOS: usize = 4;
+
+/// One modulation route as a voice applies it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlanRoute {
+    pub source: ModSource,
+    pub target: ModTarget,
+    pub depth: f32,
+    pub curve: ModCurve,
+}
+
+impl PlanRoute {
+    /// True when the source is fixed for the whole note (known at note-on).
+    pub fn is_static(&self) -> bool {
+        matches!(
+            self.source,
+            ModSource::Velocity | ModSource::Key | ModSource::Random
+        )
+    }
 }
 
 /// An articulation switch.
@@ -86,6 +127,12 @@ pub struct Plan {
     pub voice_limit: usize,
     /// Highest output bus used.
     pub max_output: u32,
+    /// Pitch-bend range, semitones.
+    pub bend_up: f32,
+    pub bend_down: f32,
+    /// True when a route reads [`ModSource::Random`] or an LFO is random (a note then draws
+    /// one value from the node's RNG).
+    pub uses_random: bool,
     /// `attack[key]` / `release[key]`: a range of `lookup` holding zone indices.
     attack: Vec<Range<u32>>,
     release: Vec<Range<u32>>,
@@ -123,22 +170,32 @@ impl Plan {
                     pan: z.pan,
                     start: z.start.min(file_end),
                     end: z.end.unwrap_or(file_end).min(file_end),
-                    looping: z.looping.as_ref().map(|l| PlanLoop {
-                        start: l.start,
-                        end: l.end,
-                        crossfade: l.crossfade,
-                        ping_pong: l.mode == ph_core::LoopMode::PingPong,
-                        exit_on_release: l.on_release == LoopRelease::Exit,
+                    looping: z.looping.as_ref().and_then(|l| {
+                        let zs = z.start.min(file_end);
+                        let ze = z.end.unwrap_or(file_end).min(file_end);
+                        let (start, end) = (l.start.max(zs), l.end.min(ze));
+                        (end >= start + 2).then(|| PlanLoop {
+                            start,
+                            end,
+                            crossfade: l.crossfade.min(end - start).min(start),
+                            ping_pong: l.mode == ph_core::LoopMode::PingPong,
+                            exit_on_release: l.on_release == LoopRelease::Exit,
+                        })
                     }),
                     reverse: z.reverse,
                     one_shot: z.one_shot,
                     release_decay_db: z.release_decay_db,
                     round_robin: z.round_robin,
                     cc_conditions: z.cc_conditions.clone(),
+                    crossfades: z.crossfades.clone(),
+                    cc_crossfade: z
+                        .crossfades
+                        .iter()
+                        .any(|c| matches!(c.source, CrossfadeSource::Cc { .. })),
                 })
             })
             .collect();
-        let groups = inst
+        let groups: Vec<PlanGroup> = inst
             .groups
             .values()
             .enumerate()
@@ -161,6 +218,23 @@ impl Plan {
                     .iter()
                     .filter_map(|a| art_ids.iter().position(|x| x == a))
                     .collect(),
+                amp_env: g.amp_env.clone(),
+                filter_env: g.filter_env.clone(),
+                filter: g.filter.clone(),
+                lfos: g.lfos.iter().take(MAX_LFOS).cloned().collect(),
+                portamento: g.portamento.clamp(0.0, 10.0),
+                routes: inst
+                    .modulation
+                    .iter()
+                    .filter(|r| r.group.is_none_or(|x| x == g.id))
+                    .map(|r| PlanRoute {
+                        source: r.source.clone(),
+                        target: r.target,
+                        depth: r.depth,
+                        curve: r.curve,
+                    })
+                    .collect(),
+                effects: g.effects.clone(),
             })
             .collect();
         // plan indices skip zones without a group, so map by id
@@ -216,6 +290,16 @@ impl Plan {
             transpose: s.transpose as f64 + s.tune_cents as f64 / 100.0,
             voice_limit: s.voice_limit.max(1) as usize,
             max_output: inst.max_output(),
+            bend_up: s.bend_up.clamp(0.0, 48.0),
+            bend_down: s.bend_down.clamp(0.0, 48.0),
+            uses_random: inst
+                .modulation
+                .iter()
+                .any(|r| r.source == ModSource::Random)
+                || inst
+                    .groups
+                    .values()
+                    .any(|g| g.lfos.iter().any(|l| l.shape == ph_core::LfoShape::Random)),
             attack,
             release,
             lookup,

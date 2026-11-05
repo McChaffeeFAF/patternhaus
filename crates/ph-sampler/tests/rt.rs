@@ -122,5 +122,5 @@ fn process_never_allocates() {
             s.process(&ctx, &mut io);
         });
     }
-    assert!(s.active_voices() <= 4);
+    assert!(s.voices().iter().filter(|v| v.counts()).count() <= 4);
 }

@@ -350,15 +350,18 @@ fn voice_limits_steal_and_mono_groups_cut() {
         64,
         1,
     );
+    assert_eq!(s.active_voices(), 3, "the stolen voice fades out");
+    render(&mut s, &[], 300, 64, 1);
     assert_eq!(s.active_voices(), 2);
-    let keys: Vec<u8> = s
+    let mut keys: Vec<u8> = s
         .pool
         .voices
         .iter()
         .filter(|v| v.active)
         .map(|v| v.key)
         .collect();
-    assert_eq!(keys, [62, 61], "the oldest gave way");
+    keys.sort();
+    assert_eq!(keys, [61, 62], "the oldest gave way");
     // `none` refuses the new note
     let mut g = Group::new("g");
     g.voice_limit = Some(1);
@@ -378,7 +381,7 @@ fn voice_limits_steal_and_mono_groups_cut() {
         vec![(zone(0, (0, 127), 60), data(1000, 0.1))],
         |_| {},
     );
-    render(&mut s, &[on(0, 1, 60, 1.0), on(1, 2, 64, 1.0)], 10, 64, 1);
+    render(&mut s, &[on(0, 1, 60, 1.0), on(1, 2, 64, 1.0)], 300, 64, 1);
     assert_eq!(s.active_voices(), 1);
 }
 
