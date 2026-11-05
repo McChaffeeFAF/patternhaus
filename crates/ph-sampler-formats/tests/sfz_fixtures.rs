@@ -86,6 +86,9 @@ fn wav(data: &[f32], smpl: Option<(u32, u32, u32)>) -> Vec<u8> {
 
 // ------------------------------------------------------------------------- fixtures
 
+/// (path relative to `lib/`, frames, `smpl` root and inclusive loop).
+type SampleSpec = (&'static str, usize, Option<(u32, u32, u32)>);
+
 struct Fixture {
     id: &'static str,
     /// The main file, `lib/<id>.sfz`.
@@ -93,13 +96,13 @@ struct Fixture {
     /// Other text files (includes), relative to `lib/`.
     texts: Vec<(&'static str, &'static str)>,
     /// Samples relative to `lib/`: (path, frames, smpl).
-    samples: Vec<(&'static str, usize, Option<(u32, u32, u32)>)>,
+    samples: Vec<SampleSpec>,
     /// (key, start step, length in steps, velocity 0..1); 120 BPM, two bars rendered.
     phrase: Vec<(u8, u64, u64, f32)>,
     check: fn(&Imported),
 }
 
-fn s(path: &'static str) -> (&'static str, usize, Option<(u32, u32, u32)>) {
+fn s(path: &'static str) -> SampleSpec {
     (path, 12_000, None)
 }
 

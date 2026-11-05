@@ -404,8 +404,7 @@ fn cc_routes(
     prefix: &str,
     curve_prefix: &str,
     target: ModTarget,
-    scale: f64,
-    range: f64,
+    (scale, range): (f64, f64),
 ) {
     for n in o.numbered(prefix) {
         let name = format!("{prefix}{n}");
@@ -733,8 +732,7 @@ impl Mapper<'_> {
             "offset_oncc",
             "offset_curvecc",
             ModTarget::SampleStart,
-            1.0,
-            4_294_967_295.0,
+            (1.0, 4_294_967_295.0),
         );
         if let Some(d) = o.num("delay", 0.0, 60.0)
             && d > 0.0
@@ -902,8 +900,7 @@ impl Mapper<'_> {
             "gain_oncc",
             "gain_curvecc",
             ModTarget::Volume,
-            1.0,
-            144.0,
+            (1.0, 144.0),
         );
         cc_routes(
             &mut o,
@@ -912,8 +909,7 @@ impl Mapper<'_> {
             "pan_oncc",
             "pan_curvecc",
             ModTarget::Pan,
-            0.01,
-            200.0,
+            (0.01, 200.0),
         );
         for n in o.numbered("amplitude_oncc") {
             let _ = o.raw(&format!("amplitude_oncc{n}"));
@@ -1052,8 +1048,7 @@ impl Mapper<'_> {
             "pitch_oncc",
             "pitch_curvecc",
             ModTarget::Pitch,
-            1.0,
-            9600.0,
+            (1.0, 9600.0),
         );
         let semis = (cents / 100.0).round();
         let tune = semis.clamp(-48.0, 48.0);
@@ -1151,8 +1146,7 @@ impl Mapper<'_> {
                         "cutoff_oncc",
                         "cutoff_curvecc",
                         ModTarget::Cutoff,
-                        1.0,
-                        9600.0,
+                        (1.0, 9600.0),
                     );
                     cc_routes(
                         &mut o,
@@ -1161,8 +1155,7 @@ impl Mapper<'_> {
                         "resonance_oncc",
                         "resonance_curvecc",
                         ModTarget::Resonance,
-                        1.0,
-                        40.0,
+                        (1.0, 40.0),
                     );
                     let fdepth = o.num_or("fileg_depth", -12000.0, 12000.0, 0.0);
                     let any_fileg = ops.keys().any(|k| k.starts_with("fileg_"));
