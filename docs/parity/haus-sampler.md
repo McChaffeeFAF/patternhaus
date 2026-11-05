@@ -1,0 +1,205 @@
+# Haus Sampler format parity tracker
+
+One table per import format (M3 criterion 2). Rows were seeded by M3/T1 from the format
+specs in `docs/formats/`. **Implementers fill in the last four columns** when the feature
+lands:
+
+- **Supported:** imported and played as the format means it. Write the date.
+- **Approximated:** imported, but played differently. Say how (e.g. "curve snapped to
+  exponential").
+- **Skipped:** not imported. It must still be listed in the import report (never silently
+  dropped). Write "reported" once the report lists it.
+- **Test:** the fixture id(s) from the spec's fixture plan (and the test name) that prove
+  the row.
+
+**M3 target** is the spec's recommendation: **must** (support in M3), **approx** (an
+approximation is acceptable), **skip** (may be skipped, but reported), **data** (kept as
+data in the native instrument for a later milestone, and reported). Exactly one of
+Supported / Approximated / Skipped is filled per row; a **must** row needs Supported or a
+written reason.
+
+Fixture ids are defined in each spec's last section; the shared rules are in
+[`docs/formats/sampler-fixtures.md`](../formats/sampler-fixtures.md).
+
+---
+
+## SFZ ([spec](../formats/sfz.md))
+
+| Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
+|---|---|---|---|---|---|---|
+| Lexer: comments, whitespace, values with spaces, CRLF | §1 | must | | | | F-SFZ-15 |
+| `#define` substitution (longest name first) | §2.1 | must | | | | F-SFZ-12 |
+| `#include` (main-file-relative, nesting, cycle check) | §2.2 | must | | | | F-SFZ-12 |
+| Headers `<control> <global> <master> <group> <region>` and inheritance resets | §3.1–3.2 | must | | | | F-SFZ-02 |
+| `<curve>` and built-in curves 0–6 | §3.5 | must | | | | F-SFZ-14 |
+| `<effect>` blocks | §12 | approx (reverb, delay, comp, eq, filter, phaser, disto) / data (others) | | | | F-SFZ-16 |
+| `<midi>`, `<sample>` headers | §3.1 | skip | | | | F-SFZ-15 |
+| Note names, `note_offset`, `octave_offset`, `sw_*_offset` | §3.3 | must | | | | F-SFZ-12 |
+| Sample paths, `default_path`, case-insensitive fallback | §3.4 | must | | | | F-SFZ-12, F-SFZ-15 |
+| Built-in samples `*sine`, `*silence` / others | §3.4 | must / skip | | | | F-SFZ-15 |
+| Key and velocity mapping, `key=` expansion, channel range | §4.1 | must | | | | F-SFZ-01 |
+| Triggers `attack`, `release`, `release_key`, `first`, `legato` | §4.2 | must | | | | F-SFZ-05 |
+| `rt_decay` | §4.2 | must | | | | F-SFZ-05 |
+| Round robin `seq_length` / `seq_position` | §4.3 | must | | | | F-SFZ-04 |
+| Random `lorand` / `hirand` (seeded) | §4.3 | must | | | | F-SFZ-04 |
+| Keyswitches `sw_lokey/hikey/last/lolast/hilast/down/up/previous/default/label` | §4.4 | must | | | | F-SFZ-06 |
+| `sw_vel` | §4.4 | skip | | | | |
+| CC conditions `loccN/hiccN`, HD CCs, bend, channel aftertouch | §4.5 | must | | | | F-SFZ-07 |
+| Poly aftertouch, program, bpm, timer conditions | §4.5 | skip | | | | |
+| `set_ccN`, sustain opcodes | §4.5 | must | | | | F-SFZ-07 |
+| CC-triggered regions `on_loccN/on_hiccN` | §4.6 | must | | | | F-SFZ-07 |
+| Extended CCs 128, 129, 131, 133, 135, 136 | §4.7 | must | | | | |
+| `offset`, `offset_random`, `offset_onccN`, `end` | §5 | must | | | | F-SFZ-08 |
+| `delay`, `delay_random` | §5 | must | | | | |
+| `direction=reverse` | §5 | must | | | | F-SFZ-08 |
+| `count`, sync/beats opcodes, `sample_fadeout` | §5 | approx / skip | | | | |
+| Loop modes, `loop_start/end`, file loop default, ARIA whole-sample rule | §5.1 | must | | | | F-SFZ-08 |
+| `loop_type` (alternate, backward), `loop_crossfade` | §5.1 | must | | | | F-SFZ-08 |
+| `volume`, `amplitude`, `pan`, `width`, `position`, `output` | §6 | must | | | | F-SFZ-01 |
+| Velocity curve: `amp_veltrack`, `amp_velcurve_N`, `amp_random`, `amp_keytrack` | §6 | must | | | | F-SFZ-03 |
+| CC gain/pan/amplitude modulation with `_curveccN` | §6 | must | | | | F-SFZ-14 |
+| `_smoothccN`, `_stepccN` | §6 | skip | | | | |
+| Crossfades key / velocity / CC with `gain` and `power` curves | §6.1 | must | | | | F-SFZ-03, F-SFZ-07 |
+| Pitch: keycenter, keytrack, tune, transpose, veltrack, random, bend range | §7 | must | | | | F-SFZ-01 |
+| `pitch_onccN` | §7 | must | | | | |
+| `ampeg_*` DAHDSR and `vel2*` | §8.1 | must | | | | F-SFZ-09 |
+| `ampeg_*ccN`, shape opcodes | §8.1 | skip / approx | | | | |
+| `fileg_*`, `pitcheg_*` | §8.2 | must | | | | F-SFZ-09 |
+| `egN_*` flex envelopes | §8.3 | approx | | | | |
+| `amplfo_*`, `fillfo_*`, `pitchlfo_*` | §9.1 | must | | | | F-SFZ-10 |
+| `lfoN_*` waves 0–7, targets pitch/volume/amplitude/pan/cutoff/resonance, `_onccN` | §9.2 | must | | | | F-SFZ-10 |
+| LFO waves 12–13, LFO-to-LFO, sub-oscillators | §9.2 | skip | | | | |
+| Filter 1 and 2: `cutoff`, `resonance`, v1 types, tracking, random, CC | §10 | must | | | | F-SFZ-11 |
+| v2/ARIA filter types (4p, 6p, sv, shelves) | §10 | approx | | | | F-SFZ-11 |
+| `comb`, `pink`, `apf_1p` | §10 | skip | | | | |
+| `eqN_*` | §10 | approx | | | | |
+| `group` / `off_by` / `off_mode` / `off_time` | §11 | must | | | | F-SFZ-13 |
+| `polyphony`, `note_polyphony` | §11 | must | | | | F-SFZ-13 |
+| Labels (`label_ccN`, `*_label`) | §13 | data | | | | |
+| Opcode aliases | §14 | must | | | | F-SFZ-15 |
+| Unknown opcodes listed in the report with counts | §15 | must | | | | F-SFZ-15 |
+| Acceptance instrument (criterion 1) | §18 | must | | | | F-SFZ-17 |
+
+## SF2 / SF3 ([spec](../formats/sf2.md))
+
+| Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
+|---|---|---|---|---|---|---|
+| RIFF container, INFO metadata, version | §1–2 | must | | | | F-SF2-01 |
+| 16-bit `smpl` | §3 | must | | | | F-SF2-01 |
+| 24-bit `sm24` and its ignore rules | §3 | must | | | | F-SF2-11 |
+| Hydra records and structural rejection rules | §4 | must | | | | F-SF2-12 |
+| Preset selection (bank:program; bank 128 percussion) | §4.1, §7 | must | | | | F-SF2-02 |
+| Global zones, generator ordering rules | §4.4 | must | | | | F-SF2-03 |
+| Generator summing (instrument absolute, preset relative, range intersection) | §7 | must | | | | F-SF2-03 |
+| Sample addresses and coarse offsets | §5.1 | must | | | | F-SF2-05 |
+| `sampleModes` 0/1/3 | §10 | must | | | | F-SF2-05 |
+| Pitch: root key, override, correction, coarse/fine, scaleTuning, keynum/velocity substitution | §5.2 | must | | | | F-SF2-06 |
+| initialAttenuation with the 0.4 convention | §8.4 | approx | | | | F-SF2-04 |
+| Pan | §5 | must | | | | |
+| Volume envelope (dB decay/release) | §10 | must | | | | F-SF2-07 |
+| Modulation envelope → pitch, cutoff | §10 | must | | | | F-SF2-07 |
+| keynumTo… hold/decay | §10 | must | | | | F-SF2-07 |
+| Mod LFO, vib LFO | §10 | must | | | | F-SF2-08 |
+| Low-pass filter Fc, Q | §10 | must | | | | F-SF2-08 |
+| Default modulators (10) | §8.4 | must | | | | F-SF2-09 |
+| File modulators: sources, curves, polarity, direction, transforms | §8 | must | | | | F-SF2-09 |
+| Modulator override/add hierarchy | §8.3 | must | | | | F-SF2-04, F-SF2-09 |
+| Linked modulators | §8.2 | skip | | | | F-SF2-09 |
+| exclusiveClass (choke) | §10 | must | | | | F-SF2-02 |
+| Reverb / chorus sends | §10 | data | | | | |
+| Stereo pairs joined into stereo zones | §6.2 | approx | | | | F-SF2-10 |
+| ROM samples | §6.3 | skip | | | | F-SF2-12 |
+| SF3 Ogg Vorbis samples, offsets, loops, padding | §9 | must | | | | F-SF3-01 |
+| SF3 invalid/unsupported streams reported | §9 | must | | | | F-SF3-02 |
+
+## DecentSampler ([spec](../formats/dspreset.md))
+
+| Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
+|---|---|---|---|---|---|---|
+| XML parse, paths relative to the preset | §1 | must | | | | F-DS-01 |
+| `.dsbundle` folders, `DSLibraryInfo.xml` | §1 | must / data | | | | F-DS-14 |
+| `.dslibrary` archives | §1 | approx (if zip support) | | | | |
+| Inheritance; volume multiply; pan offsets; tuning sum | §3.1 | must | | | | F-DS-02 |
+| Volume in linear and dB | §3.2 | must | | | | F-DS-02 |
+| Sample mapping, start/end, tuning, pan, key tracking | §3.5 | must | | | | F-DS-01 |
+| `delay`, `delayUnit` | §3.5 | must | | | | |
+| Triggers incl. `continuous`, `releaseTriggerDecay` | §3.5 | must | | | | F-DS-04 |
+| `previousNotes`, `legatoInterval` | §3.5 | must | | | | F-DS-04 |
+| CC conditions and CC triggers | §3.5 | must | | | | F-DS-05 |
+| Round robin (`seqMode` all four) | §3.5 | must | | | | F-DS-03 |
+| Loops, crossfade modes, `loopDuringRelease` | §3.5 | must | | | | F-DS-06 |
+| `ampEnvEnabled=false` (one-shot) | §3.4 | must | | | | F-DS-06 |
+| AHDSR envelope and aliases | §3.5 | must | | | | F-DS-07 |
+| Envelope curves | §3.5 | approx | | | | F-DS-07 |
+| Silencing (`tags`, `silencedByTags`, modes, decay) | §3.5 | must | | | | F-DS-08 |
+| Output targets, aux outputs | §3.5 | must | | | | F-DS-13 |
+| Glide | §3.3 | must | | | | |
+| Retrigger, slice stretch | §3.5 | skip | | | | |
+| Oscillators | §3.6 | data | | | | F-DS-13 |
+| Effects: filters, gain, convolution | §4 | must | | | | F-DS-10 |
+| Effects: reverb, delay, chorus, phaser, compressor, stereo, bit crusher | §4 | approx | | | | F-DS-10 |
+| Effects: pitch shift, wave folder/shaper, stutter | §4 | skip | | | | F-DS-10 |
+| Group effect chains | §4 | approx | | | | F-DS-10 |
+| UI knobs/menus/buttons → native controls via bindings | §5.1–5.2 | approx | | | | F-DS-11 |
+| `<ui>` kept as data | §5.2 | data | | | | F-DS-11 |
+| MIDI CC bindings | §5.3 | must | | | | F-DS-11 |
+| Keyswitches from `<midi><note>` group-enable bindings | §5.3 | must | | | | F-DS-09 |
+| Modulators: LFO, envelope, midiCC, velocity, random | §5.4 | must | | | | F-DS-12 |
+| MPE modulators | §5.4 | skip | | | | |
+| Tags (enable, volume, polyphony) | §5.5 | must | | | | F-DS-13 |
+| Buses with effects | §5.5 | approx | | | | F-DS-10 |
+| Note sequences, arpeggiator | §5.6 | data | | | | F-DS-13 |
+| Limiter style | §2 | skip | | | | |
+
+## EXS24 ([spec](../formats/exs.md)) — layout unconfirmed on real files
+
+| Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
+|---|---|---|---|---|---|---|
+| Block chain, magics, byte order, size flag | §1 | must | | | | F-EXS-01, F-EXS-02 |
+| 0x40 variant and plist blocks 0x0A/0x0B | §1.3 | data | | | | F-EXS-10 |
+| Instrument block counts cross-check | §2 | must | | | | F-EXS-01 |
+| Zone mapping, tunes, volume, pan, pitch off, reverse, one-shot | §3 | must | | | | F-EXS-04 |
+| Zone loops (direction, crossfade, play-to-end) | §3 | must | | | | F-EXS-05 |
+| Zone output assignment | §3 | must | | | | |
+| Groups: volume, pan, polyphony, exclusive, limits, mute | §4 | must | | | | F-EXS-06 |
+| Release-trigger groups | §4 | must | | | | F-EXS-06 |
+| Round robin (enable-by 2) | §4 | must | | | | F-EXS-07 |
+| Keyswitch / CC / articulation enable | §4 | must / approx | | | | F-EXS-07 |
+| Tempo / bend / channel enable | §4 | skip | | | | |
+| Group crossfades | §4 | approx | | | | |
+| Sample lookup rules | §5 | must | | | | F-EXS-09 |
+| Consolidated single-file samples | §5 | must (WAV/AIFF) / skip (CAF/AAC) | | | | |
+| Parameters: master volume/pan, tune, transpose, bend, polyphony, legato | §6 | must | | | | F-EXS-08 |
+| Parameters: amp and filter envelopes | §6 | must | | | | F-EXS-08 |
+| Parameters: filter 1 | §6 | approx | | | | F-EXS-08 |
+| Parameters: filter 2, LFOs, glide, velocity curve, random pitch, crossfade | §6 | approx | | | | |
+| Modulation matrix | §6 | data | | | | |
+
+## Kontakt ([spec](../formats/nki.md)) — unencrypted only; layout unconfirmed on real files
+
+| Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
+|---|---|---|---|---|---|---|
+| First-bytes dispatch for every family | §2 | must | | | | F-NKI-01 |
+| Kontakt 1 / 1.5 (zlib XML) | §3, §5 | must | | | | F-NKI-02, F-NKI-03 |
+| Kontakt 2–4.1 header + zlib XML, both byte orders | §4.2, §5 | must | | | | F-NKI-04, F-NKI-05 |
+| Kontakt 4.2 FastLZ preset chunks | §4.3, §6.5 | must | | | | F-NKI-07 |
+| Kontakt 5–7 `hsin` container and preset chunks | §6 | must | | | | F-NKI-08, F-NKI-09 |
+| Zones: key/velocity ranges, root, tune, volume, pan, start/end | §5.2, §6.8 | must | | | | F-NKI-04, F-NKI-08 |
+| Zone key/velocity crossfades | §5.2, §6.8 | must | | | | |
+| Loops (up to 8; modes, alternating, crossfade, tuning) | §5.3, §6.8 | must | | | | F-NKI-08 |
+| Group membership | §5.1, §6.8 | must | | | | F-NKI-04, F-NKI-08 |
+| Group volume/pan/tune, reverse, release trigger, voice groups | §5.4, §6.7 | must | | | | F-NKI-04 |
+| Round robin (K2 `cycle` start criteria; K5 STAR_CRIT_LIST) | §5.4, §6.7 | approx (K2) / skip until confirmed (K5) | | | | |
+| Envelopes, filters, modulators | §5.5, §6.7 | skip in M3 (DESIGN §8 order) / data | | | | |
+| KSP scripts | §6.5 | data (M3b) | | | | |
+| Sample paths: XML `file_ex2`, FILENAME_LIST(_EX) segments | §5.2, §6.9 | must | | | | F-NKI-04, F-NKI-08 |
+| Multis (`.nkm`) | §6.5 | must | | | | F-NKI-11 |
+| Banks (`.nkb`) | §1 | skip | | | | |
+| K2–4 monoliths | §7.1 | must | | | | F-NKI-06 |
+| K5+ monoliths (FC MTD), streamed by byte range | §7.2 | must | | | | F-NKI-10 |
+| `.nkx` library monoliths | §7.3 | skip unless FC MTD | | | | |
+| NCW decode (all modes, mid/side, float, 16/24/32) | §8 | must | | | | F-NCW-01 |
+| Refuse: `.nicnt` Player library | §9.1 | must | | | | F-NKI-12 |
+| Refuse: Authorization PIDs, Encryption Item, undecodable subtree | §9.2 | must | | | | F-NKI-12 |
+| Refuse: K4.2 CRC/FastLZ failure; zlib/XML failure | §9.3–9.4 | must | | | | F-NKI-12 |
+| Corpus report wording (opened / refused / failed) | §9.5 | must | | | | criterion 3 |
