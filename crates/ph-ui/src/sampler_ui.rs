@@ -387,8 +387,15 @@ fn zone_map(
         key_w: view.key_w,
     };
     if !view.fitted {
+        // the played keys and the keyswitches
         let (_, range) = map::coverage(inst);
-        let (lo, hi) = range.unwrap_or((36, 84));
+        let (mut lo, mut hi) = range.unwrap_or((36, 84));
+        for a in &inst.articulations {
+            if let ArticulationTrigger::Key { key } = a.trigger {
+                lo = lo.min(key);
+                hi = hi.max(key);
+            }
+        }
         mv.fit(lo, hi);
         view.fitted = true;
     }
@@ -603,13 +610,16 @@ fn zone_map(
                 label = format!("REL {label}");
             }
             let text = crate::paint::fit_str(&p, &label, font.clone(), band.width() - 6.0);
-            p.text(
-                band.left_top() + Vec2::new(3.0, 2.0),
-                Align2::LEFT_TOP,
-                text,
-                font.clone(),
-                c.text,
-            );
+            // a release outline usually sits on its attack zone: its name goes at the bottom
+            let (at, align) = if s.outlined {
+                (
+                    band.left_bottom() + Vec2::new(3.0, -2.0),
+                    Align2::LEFT_BOTTOM,
+                )
+            } else {
+                (band.left_top() + Vec2::new(3.0, 2.0), Align2::LEFT_TOP)
+            };
+            p.text(at, align, text, font.clone(), c.text);
         }
         if let Some((grab, (dk, dv), allowed)) = dragged
             && selected
@@ -744,8 +754,8 @@ fn keyboard_strip(
         let ks = keyswitch_at(inst, k8);
         let fill = match ks {
             Some(a) => articulation_colour(theme, inst, a),
-            None if map::is_black(k8) => c.key_black,
-            None => c.key_white,
+            None if map::is_black(k8) => c.bg0,
+            None => crate::paint::over(c.bg4, c.text, 0.6),
         };
         p.rect_filled(kr, CornerRadius::same(1), fill);
         if view.held == Some(k8) {
@@ -778,7 +788,7 @@ fn keyboard_strip(
                 Align2::CENTER_BOTTOM,
                 format!("C{}", k / 12 - 1),
                 FontId::new(9.0, crate::fonts::cond()),
-                c.bg0,
+                c.bg1,
             );
         }
     }
