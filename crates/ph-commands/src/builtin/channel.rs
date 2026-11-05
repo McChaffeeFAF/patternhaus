@@ -18,7 +18,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "channel.remove",
-        "Remove a channel and all of its notes (undoable).",
+        "Remove a channel and all of its notes (undoable); optionally its now-unused Haus Sampler instrument.",
         Scope::Compose,
         MUTATES,
         remove,
@@ -144,15 +144,50 @@ struct ChannelOnly {
     channel: ChannelId,
 }
 
-fn remove(ctx: &mut CommandCtx<'_>, p: ChannelOnly) -> CmdResult<CommandOutput> {
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Remove {
+    /// Channel id.
+    channel: ChannelId,
+    /// Also remove the Haus Sampler instrument the channel plays, when no other channel plays
+    /// it (default false: the instrument stays, and the result names it as unused).
+    #[serde(default)]
+    remove_instrument: bool,
+}
+
+fn remove(ctx: &mut CommandCtx<'_>, p: Remove) -> CmdResult<CommandOutput> {
     let name = channel_name(ctx.project, p.channel)?;
+    let plays = match &ctx.project.channel(p.channel)?.instrument {
+        InstrumentSpec::MultiSampler {
+            instrument: Some(i),
+            ..
+        } => Some(*i),
+        _ => None,
+    };
     let mut ed = Edit::new(ctx.project);
     ed.remove_channel(p.channel)?;
-    Ok(CommandOutput::from_edit(
-        ed,
-        json!({ "channel": p.channel }),
-        format!("removed channel {name}"),
-    ))
+    // the instrument it played, if nothing else plays it now
+    let unused = plays.filter(|i| {
+        ed.project().instruments.contains_key(i)
+            && ed.project().channels_playing(*i).next().is_none()
+    });
+    let mut result = json!({ "channel": p.channel });
+    let mut summary = format!("removed channel {name}");
+    if let Some(i) = unused {
+        let iname = ctx.project.instrument(i)?.name.clone();
+        if p.remove_instrument {
+            ed.remove_instrument(i)?;
+            result["removed_instrument"] = json!(i);
+            summary.push_str(&format!(" and its instrument {iname}"));
+        } else {
+            result["unused_instrument"] = json!(i);
+            result["note"] = json!(format!(
+                "instrument {iname} (id {i}) is no longer played; remove it with channel.remove remove_instrument: true or sampler.prune"
+            ));
+            summary.push_str(&format!("; instrument {iname} is now unused"));
+        }
+    }
+    Ok(CommandOutput::from_edit(ed, result, summary))
 }
 
 #[derive(Deserialize, JsonSchema)]

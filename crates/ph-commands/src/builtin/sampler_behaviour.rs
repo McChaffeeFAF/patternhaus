@@ -943,3 +943,176 @@ fn sampler_edits_survive_project_new_and_undo() {
     expected.next_ids = r.p().next_ids.clone(); // ids are never freed
     assert_eq!(r.p(), &expected);
 }
+
+#[test]
+fn channel_remove_offers_to_remove_an_unused_instrument() {
+    let mut r = Rig::piano();
+    // a second channel playing the same instrument keeps it in use
+    r.run(
+        "channel.add",
+        json!({ "name": "Piano 2", "instrument": { "kind": "multi_sampler", "instrument": 0 } }),
+    );
+    let out = r.run("channel.remove", json!({ "channel": 1 }));
+    assert_eq!(out, json!({ "channel": 1 }), "still played by channel 0");
+    // the last channel: the instrument stays and the result names it
+    let out = r.run("channel.remove", json!({ "channel": 0 }));
+    assert_eq!(out["unused_instrument"], 0, "{out}");
+    assert!(
+        out["note"].as_str().unwrap().contains("sampler.prune"),
+        "{out}"
+    );
+    assert_eq!(r.p().instruments.len(), 1, "not removed silently");
+    r.s.undo(&Author::Human).unwrap();
+    // with the option, channel and instrument go in one undo step
+    let out = r.run(
+        "channel.remove",
+        json!({ "channel": 0, "remove_instrument": true }),
+    );
+    assert_eq!(out["removed_instrument"], 0, "{out}");
+    assert!(r.p().instruments.is_empty() && r.p().channels.is_empty());
+    r.s.undo(&Author::Human).unwrap();
+    assert_eq!(r.inst().zones.len(), 2);
+    assert!(r.p().channel(ChannelId(0)).is_ok());
+    // other instruments: the option changes nothing
+    r.run(
+        "channel.add",
+        json!({ "name": "Lead", "instrument": { "kind": "synth", "preset": null } }),
+    );
+    let out = r.run(
+        "channel.remove",
+        json!({ "channel": 2, "remove_instrument": true }),
+    );
+    assert_eq!(out, json!({ "channel": 2 }));
+    let e = r.err(
+        "channel.remove",
+        json!({ "channel": 0, "remove_instrumnet": true }),
+    );
+    assert!(e.to_string().contains("remove_instrumnet"), "{e}");
+}
+
+#[test]
+fn sampler_prune_removes_unused_instruments_in_one_undo_step() {
+    let mut r = Rig::piano();
+    assert_eq!(r.run("sampler.prune", json!({})), json!({ "removed": [] }));
+    // two more instruments; one replaces the piano on its channel, one has no channel
+    r.run("sampler.new", json!({ "name": "Kit", "channel": 0 }));
+    r.run("sampler.new", json!({ "name": "Pad" }));
+    r.run("channel.remove", json!({ "channel": 1 }));
+    assert_eq!(r.p().instruments.len(), 3);
+    // naming an instrument a channel plays is refused
+    let e = r.err("sampler.prune", json!({ "instruments": [1] }));
+    assert!(e.to_string().contains("played by channel"), "{e}");
+    let e = r.err("sampler.prune", json!({ "instruments": [9] }));
+    assert!(e.to_string().contains('9'), "{e}");
+    let out =
+        r.s.execute(&r.who, Request::new("sampler.prune", json!({})), &mut r.h)
+            .unwrap();
+    assert_eq!(out.result, json!({ "removed": [0, 2] }));
+    assert_eq!(
+        out.summary.as_deref(),
+        Some("removed 2 unused instruments (Piano, Pad)")
+    );
+    let left: Vec<_> = r.p().instruments.keys().copied().collect();
+    assert_eq!(left, vec![InstrumentId(1)]);
+    // one undo brings both back, zones and all
+    r.s.undo(&Author::Human).unwrap();
+    assert_eq!(r.p().instruments.len(), 3);
+    assert_eq!(r.inst().zones.len(), 2);
+    // a chosen subset
+    assert_eq!(
+        r.run("sampler.prune", json!({ "instruments": [2, 2] })),
+        json!({ "removed": [2] })
+    );
+    assert_eq!(r.p().instruments.len(), 2);
+}
+
+/// `project.new` over a project with several instruments, a registry-sample zone, group-scoped
+/// routes, articulations and channels; and `replace_project` into a target that has
+/// instruments of its own (the same id with fewer groups and a moved zone, another one gone).
+#[test]
+fn project_new_and_replace_handle_full_instruments() {
+    let mut r = Rig::piano();
+    r.run(
+        "sampler.group_add",
+        json!({ "instrument": 0, "name": "Release" }),
+    );
+    r.run(
+        "sampler.keyswitch_set",
+        json!({ "instrument": 0, "name": "Soft", "trigger": { "kind": "key", "key": 24 }, "groups": [0] }),
+    );
+    r.run(
+        "sampler.modulation_set",
+        json!({ "instrument": 0, "routes": [
+            { "source": { "kind": "velocity" }, "target": "volume", "depth": -6, "group": 1 },
+            { "source": { "kind": "cc", "controller": 1 }, "target": "cutoff", "depth": 1200 }] }),
+    );
+    // a kit playing a registry sample
+    let mut ed = Edit::new(r.p());
+    let sid = ed
+        .add_sample(SampleEntry {
+            id: SampleId(0),
+            path: "samples/kick.wav".into(),
+            name: "kick.wav".into(),
+            frames: 4_800,
+            sample_rate: 48_000,
+            channels: 1,
+            bpm: None,
+            root_key: None,
+            analysis: Default::default(),
+            provenance: Default::default(),
+        })
+        .unwrap();
+    let start = ed.finish().0;
+    r.s = Session::new(Arc::new(Registry::with_builtins()), start);
+    r.run("sampler.new", json!({ "name": "Kit", "group": "Hits" }));
+    r.run(
+        "sampler.zone_add",
+        json!({ "instrument": 1, "zones": [{ "group": 2, "sample": sid, "root_key": 36, "keys": [36, 36] }] }),
+    );
+    let before = r.p().clone();
+    assert_eq!(before.instruments.len(), 2);
+    let mut req = Request::new("project.new", json!({ "title": "Next" }));
+    req.confirm = true;
+    r.s.execute(&r.who, req, &mut r.h).unwrap();
+    assert!(r.p().instruments.is_empty() && r.p().channels.is_empty());
+    assert!(r.p().samples.is_empty(), "the zone went before its sample");
+    assert_eq!(r.p().settings.title, "Next");
+    // undo, redo and undo again round trip exactly
+    let mut expected = before.clone();
+    r.s.undo(&Author::Human).unwrap();
+    expected.next_ids = r.p().next_ids.clone();
+    assert_eq!(r.p(), &expected);
+    r.s.redo(&Author::Human).unwrap();
+    assert!(r.p().instruments.is_empty());
+    r.s.undo(&Author::Human).unwrap();
+    assert_eq!(r.p(), &expected);
+
+    // replace_project into a target with instruments
+    let mut target = before.clone();
+    {
+        let insts = Arc::make_mut(&mut target.instruments);
+        let i0 = insts.get_mut(&InstrumentId(0)).unwrap();
+        i0.groups.remove(&GroupId(1));
+        i0.modulation.retain(|m| m.group.is_none());
+        i0.zones.get_mut(&ZoneId(0)).unwrap().keys = KeyRange { lo: 30, hi: 41 };
+        i0.name = "Grand".into();
+        insts.remove(&InstrumentId(1));
+        Arc::make_mut(&mut target.channels).retain(|_, c| {
+            !matches!(
+                c.instrument,
+                InstrumentSpec::MultiSampler {
+                    instrument: Some(InstrumentId(1)),
+                    ..
+                }
+            )
+        });
+        let keep = target.channels.clone();
+        Arc::make_mut(&mut target.channel_order).retain(|c| keep.contains_key(c));
+    }
+    let mut ed = Edit::new(r.p());
+    super::util::replace_project(&mut ed, &target).unwrap();
+    let (after, _) = ed.finish();
+    let mut want = target.clone();
+    want.next_ids = after.next_ids.clone();
+    assert_eq!(after, want);
+}
