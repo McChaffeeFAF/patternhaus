@@ -29,7 +29,7 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("ph-instruments", &["ph-core", "ph-node", "ph-dsp"]),
     ("ph-effects", &["ph-core", "ph-node", "ph-dsp"]),
     ("ph-sampler", &["ph-core", "ph-node", "ph-dsp", "ph-script"]),
-    ("ph-sampler-formats", &["ph-core", "ph-sampler"]),
+    ("ph-sampler-formats", &["ph-core", "ph-node", "ph-sampler", "ph-formats"]),
     ("ph-script", &[]),
     ("ph-formats", &["ph-core", "ph-node"]),
     ("ph-audio-io", &[]),
@@ -54,7 +54,7 @@ const LAYERS: &[(&str, &[&str])] = &[
         ],
     ),
     // commands and perception
-    ("ph-commands", &["ph-core", "ph-formats"]),
+    ("ph-commands", &["ph-core", "ph-formats", "ph-sampler-formats"]),
     ("ph-analysis", &["ph-core", "ph-node", "ph-dsp"]),
     // front ends
     (

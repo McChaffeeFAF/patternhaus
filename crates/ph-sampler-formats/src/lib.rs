@@ -16,7 +16,9 @@
 //! | `.exs` | EXS24 | M3/T4 |
 //! | `.nki`, `.nkm`, `.nkx`, `.nkc`, `.ncw` | Kontakt (unencrypted only) | M3/T6 |
 //!
-//! Every importer is a stub in M3/T0 ([`ImportError::Unavailable`]).
+//! SFZ is implemented (M3/T3, [`Sfz`]); the others are stubs until their track
+//! ([`ImportError::Unavailable`]). [`automap`] maps a folder of samples by the note names in
+//! their file names (drop to create).
 //!
 //! # What an import produces
 //!
@@ -34,9 +36,14 @@
 use ph_core::{HausInstrument, ImportNote, ImportNoteKind};
 use std::path::{Path, PathBuf};
 
+pub mod automap;
+mod notes;
+pub mod probe;
+pub mod sfz;
 mod stubs;
 
-pub use stubs::{DecentSampler, Exs, Kontakt, Sfz, SoundFont};
+pub use sfz::Sfz;
+pub use stubs::{DecentSampler, Exs, Kontakt, SoundFont};
 
 /// What an importer reads.
 #[derive(Copy, Clone, Debug)]
@@ -82,6 +89,9 @@ pub struct ImportedSample {
 pub enum SampleSource {
     /// An audio file `ph-formats` decodes (WAV, AIFF, FLAC, Ogg, ...).
     File(PathBuf),
+    /// Audio the importer synthesises (SFZ `*sine`, `*silence`); the caller writes it as a
+    /// WAV file ([`Generated::render`]) when it saves or collects the instrument.
+    Generated(Generated),
     /// A byte range of a container file, in a raw encoding.
     Chunk {
         container: PathBuf,
@@ -91,6 +101,64 @@ pub enum SampleSource {
         sample_rate: u32,
         channels: u16,
     },
+}
+
+/// A synthetic sample (SFZ built-in generators, `docs/formats/sfz.md` §3.4).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Generated {
+    /// A looped sine: [`Generated::SINE_HZ`] at [`Generated::RATE`], one second, whole-file
+    /// loop. Zones playing it are tuned so their root key sounds at its own pitch.
+    Sine,
+    /// A tenth of a second of silence.
+    Silence,
+}
+
+impl Generated {
+    pub const RATE: u32 = 48_000;
+    /// A whole number of cycles per second, so the whole-file loop is seamless.
+    pub const SINE_HZ: f64 = 375.0;
+
+    /// The zone name the importers use (`generated/sine.wav`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Generated::Sine => "generated/sine.wav",
+            Generated::Silence => "generated/silence.wav",
+        }
+    }
+
+    /// Cents that bring the sine from [`Self::SINE_HZ`] to middle C (C4 = 60, 261.63 Hz), so
+    /// a zone with root key `k` plays key `k`'s pitch at `k`.
+    pub fn sine_correction_cents() -> f64 {
+        let c4 = 440.0 * 2f64.powf(-9.0 / 12.0);
+        -1200.0 * (Self::SINE_HZ / c4).log2()
+    }
+
+    /// Mono audio at [`Self::RATE`].
+    pub fn render(self) -> Vec<f32> {
+        match self {
+            Generated::Sine => (0..Self::RATE as usize)
+                .map(|i| {
+                    (0.5 * (std::f64::consts::TAU * Self::SINE_HZ * i as f64 / Self::RATE as f64)
+                        .sin()) as f32
+                })
+                .collect(),
+            Generated::Silence => vec![0.0; Self::RATE as usize / 10],
+        }
+    }
+
+    /// The facts an importer needs (length, rate, loop).
+    pub fn info(self) -> probe::SampleInfo {
+        let frames = match self {
+            Generated::Sine => Self::RATE as u64,
+            Generated::Silence => Self::RATE as u64 / 10,
+        };
+        probe::SampleInfo {
+            frames,
+            sample_rate: Self::RATE,
+            loop_range: matches!(self, Generated::Sine).then_some((0, frames)),
+            root_key: None,
+        }
+    }
 }
 
 /// Raw sample encodings found inside containers.
@@ -264,7 +332,6 @@ mod tests {
     #[test]
     fn stubs_name_their_track_and_unknown_files_are_refused() {
         for (file, track) in [
-            ("a.sfz", "M3/T3"),
             ("a.sf2", "M3/T4"),
             ("a.dspreset", "M3/T4"),
             ("a.exs", "M3/T4"),
