@@ -132,7 +132,9 @@ fn groups_and_zones_are_their_own_small_objects() {
     assert!(header.get("zones").is_none() && header.get("groups").is_none());
     let z = get(&p, ObjectPath::Zone(id, ZoneId(1))).unwrap();
     assert_eq!(z["root_key"], 60);
-    assert_eq!(z["sample"], json!({ "file": "samples/60.wav" }));
+    assert_eq!(z["sample"], json!("samples/60.wav"));
+    let r: SampleRef = serde_json::from_value(json!(4)).unwrap();
+    assert_eq!(r, SampleRef::Registry(SampleId(4)));
     // an instrument value carrying zones is refused
     let mut v = serde_json::to_value(p.instrument(id).unwrap()).unwrap();
     assert!(v.get("zones").is_some());

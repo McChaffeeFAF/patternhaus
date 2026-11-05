@@ -1,7 +1,8 @@
 //! Property tests for per-author undo (AGENTS.md: property tests for anything history- or
 //! merge-related). Two authors make random interleaved edits through real commands, over
-//! M1 objects and the M2 ones: audio clips, automation clips and points, and the sample
-//! registry (seeded with two samples, since the null host cannot import).
+//! M1 objects, the M2 ones (audio clips, automation clips and points, and the sample
+//! registry, seeded with two samples since the null host cannot import) and the M3 ones
+//! (Haus Sampler instruments, groups, zones, articulations and modulation routes).
 
 use crate::*;
 use ph_core::*;
@@ -24,7 +25,7 @@ struct Op {
 fn op() -> impl Strategy<Value = Op> {
     (
         any::<bool>(),
-        0u8..30,
+        0u8..40,
         any::<u16>(),
         any::<u16>(),
         any::<u16>(),
@@ -102,6 +103,29 @@ impl Rig {
             if let Some(a) = c.automation() {
                 v.extend(a.points.keys().map(|p| (c.id.0, p.0)));
             }
+        }
+        v
+    }
+
+    fn instruments(&self) -> Vec<u32> {
+        self.s.project().instruments.keys().map(|i| i.0).collect()
+    }
+
+    /// Groups of instrument `i`.
+    fn groups(&self, i: u32) -> Vec<u32> {
+        self.s
+            .project()
+            .instruments
+            .get(&InstrumentId(i))
+            .map(|x| x.groups.keys().map(|g| g.0).collect())
+            .unwrap_or_default()
+    }
+
+    /// Every zone, as (instrument, zone).
+    fn all_zones(&self) -> Vec<(u32, u32)> {
+        let mut v = Vec::new();
+        for i in self.s.project().instruments.values() {
+            v.extend(i.zones.keys().map(|z| (i.id.0, z.0)));
         }
         v
     }
@@ -313,10 +337,109 @@ impl Rig {
                 ),
                 None => return,
             },
-            _ => match Self::pick(&self.samples(), op.a) {
+            29 => match Self::pick(&self.samples(), op.a) {
                 Some(s) => ("sample.remove", json!({ "sample": s })),
                 None => return,
             },
+            // ---- M3 objects: Haus Sampler instruments
+            30 => ("sampler.new", json!({ "name": format!("s{}", op.a % 50) })),
+            31 => {
+                let Some(i) = Self::pick(&self.instruments(), op.a) else {
+                    return;
+                };
+                let Some(g) = Self::pick(&self.groups(i), op.b) else {
+                    return;
+                };
+                let lo = 24 + op.c % 80;
+                let sample = match Self::pick(&self.samples(), op.c) {
+                    Some(s) if op.b.is_multiple_of(2) => json!(s),
+                    _ => json!(format!("samples/z{}.wav", op.c % 9)),
+                };
+                (
+                    "sampler.zone_add",
+                    json!({ "instrument": i, "zones": [{ "group": g, "sample": sample,
+                            "root_key": lo + 2, "keys": [lo, lo + 4] }] }),
+                )
+            }
+            32 => match Self::pick(&self.all_zones(), op.a) {
+                Some((i, z)) => (
+                    "sampler.zone_move",
+                    json!({ "instrument": i, "zones": [z], "shift": (op.b % 7) as i32 - 3,
+                            "velocity": [op.c % 64, 64 + op.c % 64] }),
+                ),
+                None => return,
+            },
+            33 => match Self::pick(&self.all_zones(), op.a) {
+                Some((i, z)) => (
+                    "sampler.zone_set",
+                    json!({ "instrument": i, "zones": [z], "set": {
+                        "volume_db": (op.b % 13) as f32 - 6.0, "tune": (op.c % 5) as i32 - 2 } }),
+                ),
+                None => return,
+            },
+            34 => match Self::pick(&self.all_zones(), op.a) {
+                Some((i, z)) => (
+                    "sampler.zone_remove",
+                    json!({ "instrument": i, "zones": [z] }),
+                ),
+                None => return,
+            },
+            35 => match Self::pick(&self.instruments(), op.a) {
+                Some(i) => (
+                    "sampler.group_add",
+                    json!({ "instrument": i, "name": format!("g{}", op.b % 9) }),
+                ),
+                None => return,
+            },
+            36 => {
+                let Some(i) = Self::pick(&self.instruments(), op.a) else {
+                    return;
+                };
+                match Self::pick(&self.groups(i), op.b) {
+                    Some(g) => (
+                        "sampler.group_set",
+                        json!({ "instrument": i, "group": g, "set": {
+                            "voice_limit": 1 + op.c % 16, "portamento": (op.c % 5) as f32 / 10.0,
+                            "round_robin": if op.c.is_multiple_of(2) { "random" } else { "sequential" } } }),
+                    ),
+                    None => return,
+                }
+            }
+            37 => {
+                let Some(i) = Self::pick(&self.instruments(), op.a) else {
+                    return;
+                };
+                let groups: Vec<u32> = Self::pick(&self.groups(i), op.b).into_iter().collect();
+                (
+                    "sampler.keyswitch_set",
+                    json!({ "instrument": i, "name": format!("k{}", op.c % 5),
+                            "trigger": { "kind": "key", "key": op.c % 24 }, "groups": groups }),
+                )
+            }
+            38 => {
+                let Some(i) = Self::pick(&self.instruments(), op.a) else {
+                    return;
+                };
+                let group = Self::pick(&self.groups(i), op.b);
+                (
+                    "sampler.modulation_set",
+                    json!({ "instrument": i, "routes": [
+                        { "source": { "kind": "velocity" }, "target": "volume",
+                          "depth": -((op.c % 24) as f32), "group": group }] }),
+                )
+            }
+            _ => {
+                let Some(i) = Self::pick(&self.instruments(), op.a) else {
+                    return;
+                };
+                match Self::pick(&self.groups(i), op.b) {
+                    Some(g) => (
+                        "sampler.group_remove",
+                        json!({ "instrument": i, "group": g }),
+                    ),
+                    None => return,
+                }
+            }
         };
         let who = if op.agent { &self.agent } else { &self.human };
         let _ = self.s.execute(who, Request::new(cmd, params), &mut self.h);
@@ -443,12 +566,49 @@ proptest! {
                         .after
                         .as_ref()
                         .is_some_and(|v| v["kind"] == "audio" && v["sample"] == json!(x.0)),
+                    // M3: whatever the human made inside an instrument, or a channel playing
+                    // it, keeps it; a zone keeps its group, a scoped route its group, and a
+                    // zone its registry sample
+                    (ObjectPath::Instrument(x), ObjectPath::Group(i, _) | ObjectPath::Zone(i, _)) => x == i,
+                    (ObjectPath::Instrument(x), ObjectPath::Channel(_)) => p
+                        .after
+                        .as_ref()
+                        .is_some_and(|v| v["instrument"]["instrument"] == json!(x.0)),
+                    (ObjectPath::Group(i, g), ObjectPath::Zone(zi, _)) => {
+                        i == zi
+                            && p.after.as_ref().is_some_and(|v| v["group"] == json!(g.0))
+                    }
+                    (ObjectPath::Group(i, g), ObjectPath::Instrument(x)) => {
+                        i == x
+                            && p.after.as_ref().is_some_and(|v| {
+                                v["modulation"]
+                                    .as_array()
+                                    .is_some_and(|r| r.iter().any(|r| r["group"] == json!(g.0)))
+                            })
+                    }
+                    (ObjectPath::Sample(x), ObjectPath::Zone(..)) => p
+                        .after
+                        .as_ref()
+                        .is_some_and(|v| v["sample"] == json!(x.0)),
                     _ => false,
                 })
             })
         };
         for (path, (human, agent)) in &touched_by {
-            if *agent && !*human && !path.is_order_list() && !human_depends(*path) {
+            // M3 chains (a human note keeps the agent's channel, which keeps its
+            // instrument): an instrument or group that still has dependants is kept alive
+            let alive = match *path {
+                ObjectPath::Instrument(i) => {
+                    after.channels_playing(i).next().is_some()
+                        || after.instruments.get(&i).is_some_and(|x| !x.groups.is_empty())
+                }
+                ObjectPath::Group(i, g) => after.instruments.get(&i).is_some_and(|x| {
+                    x.zones_of(g).next().is_some()
+                        || x.modulation.iter().any(|r| r.group == Some(g))
+                }),
+                _ => false,
+            };
+            if *agent && !*human && !path.is_order_list() && !human_depends(*path) && !alive {
                 prop_assert_eq!(
                     get(&after, *path),
                     get(&base, *path),
@@ -469,6 +629,21 @@ proptest! {
         for c in after.clips.values() {
             if let Some(a) = c.audio() {
                 prop_assert!(after.samples.contains_key(&a.sample), "clip {} lost its sample", c.id);
+            }
+        }
+        // M3 invariants: zones sit in groups of their instrument and play registered
+        // samples; channels play existing instruments
+        for i in after.instruments.values() {
+            for z in i.zones.values() {
+                prop_assert!(i.groups.contains_key(&z.group), "zone {} lost its group", z.id);
+                if let SampleRef::Registry(s) = z.sample {
+                    prop_assert!(after.samples.contains_key(&s), "zone {} lost its sample", z.id);
+                }
+            }
+        }
+        for c in after.channels.values() {
+            if let InstrumentSpec::MultiSampler { instrument: Some(i), .. } = c.instrument {
+                prop_assert!(after.instruments.contains_key(&i), "channel {} lost its instrument", c.id);
             }
         }
 

@@ -3050,10 +3050,12 @@ dependencies = [
  "ph-core",
  "ph-node",
  "proptest",
+ "serde",
  "serde_json",
  "symphonia",
  "tempfile",
  "thiserror 2.0.21",
+ "toml 1.1.8+spec-1.1.0",
 ]
 
 [[package]]

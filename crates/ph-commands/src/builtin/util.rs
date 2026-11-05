@@ -103,6 +103,15 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
             ed.put(ObjectPath::Clip(*id), None)?;
         }
     }
+    // Haus Sampler zones go before the registry samples they may play
+    for inst in cur.instruments.values() {
+        for z in inst.zones.keys() {
+            let path = ObjectPath::Zone(inst.id, *z);
+            if get(target, path).is_none() {
+                ed.put(path, None)?;
+            }
+        }
+    }
     for id in cur.samples.keys() {
         if !target.samples.contains_key(id) {
             ed.put(ObjectPath::Sample(*id), None)?;
@@ -130,6 +139,37 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
     for id in cur.patterns.keys() {
         if !target.patterns.contains_key(id) {
             ed.put(ObjectPath::Pattern(*id), None)?;
+        }
+    }
+    // instruments the target lacks: routes scoped to leaving groups, the groups, then the
+    // instrument once no channel plays it (channels are already gone or changed below)
+    for inst in cur.instruments.values() {
+        let keep = target.instruments.get(&inst.id);
+        let gone = |g: &GroupId| keep.is_none_or(|t| !t.groups.contains_key(g));
+        if inst
+            .modulation
+            .iter()
+            .any(|r| r.group.as_ref().is_some_and(gone))
+        {
+            let mut h = inst.header();
+            h.modulation.retain(|r| !r.group.as_ref().is_some_and(gone));
+            ed.put(ObjectPath::Instrument(inst.id), Some(json!(h)))?;
+        }
+        for g in inst.groups.keys().filter(|g| gone(g)) {
+            ed.put(ObjectPath::Group(inst.id, *g), None)?;
+        }
+    }
+    // the target's instruments exist before the channels that play them; routes scoped to
+    // a group wait for the group
+    for inst in target.instruments.values() {
+        let mut h = inst.header();
+        h.modulation.retain(|r| r.group.is_none());
+        if !ed.project().instruments.contains_key(&inst.id) {
+            ed.put(ObjectPath::Instrument(inst.id), Some(json!(h)))?;
+        }
+        for g in inst.groups.keys() {
+            let path = ObjectPath::Group(inst.id, *g);
+            ed.put(path, get(target, path))?;
         }
     }
     for id in target.channels.keys() {
@@ -168,6 +208,19 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
     for id in target.samples.keys() {
         let path = ObjectPath::Sample(*id);
         ed.put(path, get(target, path))?;
+    }
+    for inst in target.instruments.values() {
+        let path = ObjectPath::Instrument(inst.id);
+        ed.put(path, get(target, path))?;
+        for z in inst.zones.keys() {
+            let path = ObjectPath::Zone(inst.id, *z);
+            ed.put(path, get(target, path))?;
+        }
+    }
+    for id in cur.instruments.keys() {
+        if !target.instruments.contains_key(id) {
+            ed.put(ObjectPath::Instrument(*id), None)?;
+        }
     }
     for id in target.clips.keys() {
         let path = ObjectPath::Clip(*id);

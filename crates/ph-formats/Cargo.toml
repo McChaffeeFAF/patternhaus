@@ -16,6 +16,8 @@ midly.workspace = true
 symphonia.workspace = true
 hound.workspace = true
 flacenc.workspace = true
+serde.workspace = true
+toml.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

@@ -182,9 +182,10 @@ pub struct Articulation {
     pub color: Option<Color>,
 }
 
-/// What selects an articulation.
+/// What selects an articulation. Saved as `{ "kind": "key", "key": 24 }` or
+/// `{ "kind": "cc", "controller": 32, "lo": 0.5, "hi": 1.0 }`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ArticulationTrigger {
     /// A keyswitch: playing `key` selects it (latching). The key itself makes no sound.
     Key { key: u8 },
@@ -206,9 +207,10 @@ pub struct ModRoute {
     pub group: Option<GroupId>,
 }
 
-/// A modulation source. Unipolar sources run 0..=1, bipolar ones -1..=1.
+/// A modulation source. Unipolar sources run 0..=1, bipolar ones -1..=1. Saved as
+/// `{ "kind": "velocity" }`, `{ "kind": "cc", "controller": 1 }`, ...
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ModSource {
     /// Note velocity, 0..=1.
     Velocity,
@@ -262,19 +264,55 @@ pub enum ModCurve {
     Switch,
 }
 
-/// Inclusive key range.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Inclusive key range. Saved as a pair: `[lo, hi]`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct KeyRange {
     pub lo: u8,
     pub hi: u8,
 }
 
-/// Inclusive MIDI velocity range, 0..=127.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Inclusive MIDI velocity range, 0..=127. Saved as a pair: `[lo, hi]`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct VelRange {
     pub lo: u8,
     pub hi: u8,
 }
+
+macro_rules! pair_range {
+    ($t:ident, $what:literal) => {
+        impl Serialize for $t {
+            fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                [self.lo, self.hi].serialize(s)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $t {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+                let [lo, hi] = <[u8; 2]>::deserialize(d)?;
+                Ok(Self { lo, hi })
+            }
+        }
+
+        impl JsonSchema for $t {
+            fn schema_name() -> std::borrow::Cow<'static, str> {
+                stringify!($t).into()
+            }
+
+            fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+                schemars::json_schema!({
+                    "type": "array",
+                    "description": concat!("Inclusive ", $what, " range [lo, hi], 0..=127"),
+                    "items": { "type": "integer", "minimum": 0, "maximum": 127 },
+                    "minItems": 2,
+                    "maxItems": 2
+                })
+            }
+        }
+    };
+}
+
+pair_range!(KeyRange, "key");
+pair_range!(VelRange, "MIDI velocity");
 
 impl KeyRange {
     pub const ALL: KeyRange = KeyRange { lo: 0, hi: 127 };
@@ -302,9 +340,10 @@ impl Default for VelRange {
     }
 }
 
-/// Where a zone's audio comes from.
+/// Where a zone's audio comes from. Saved as a bare value: a number is a registry sample
+/// id, a string a file path (`"sample": 3`, `"sample": "samples/C4.wav"`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum SampleRef {
     /// An entry of the project's sample registry (`sample/<id>`).
     Registry(SampleId),
@@ -446,8 +485,9 @@ pub struct Crossfade {
     pub curve: CrossfadeCurve,
 }
 
+/// Saved as `{ "kind": "velocity" }` or `{ "kind": "cc", "controller": 1 }`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CrossfadeSource {
     Velocity,
     Cc { controller: u8 },
