@@ -8,6 +8,11 @@
 //! - **dropping** sends commands as the human, never touching the project or the filesystem
 //!   itself: `sample.import`, `file.import_midi`, or `file.open` (or `file.import_flp` for an FL Studio project) (through the Save / Don't
 //!   save / Cancel question). A folder becomes a library folder, remembered in settings.
+//! - **Haus Sampler (M3/T5):** an instrument file (`.sfz`, `.sf2`, `.sf3`, `.dspreset`,
+//!   `.dsbundle`, `.exs`, ...) becomes a Haus Sampler channel through `sampler.import` (an
+//!   SF2/SF3 with several presets asks which one first). A folder of samples dropped **on the
+//!   channel rack** shows the auto-map preview, then imports the same way; elsewhere a folder
+//!   is still a library folder.
 //!
 //! The panels record where they were drawn this frame ([`DropZone`]); the zone under the pointer
 //! picks a channel row (replace its sample) over the rack (new channels). Some platforms do not
@@ -52,6 +57,8 @@ pub enum Item {
     Midi(PathBuf),
     /// An FL Studio project file (`.flp`): imported as a new project.
     Flp(PathBuf),
+    /// An instrument file (or `.dsbundle` folder) the Haus Sampler imports.
+    Instrument(PathBuf),
     /// A plain folder: becomes a library folder.
     Folder(PathBuf),
     /// A project folder (the path is the folder).
@@ -65,6 +72,9 @@ pub fn classify(path: &Path) -> Item {
         || path.display().to_string(),
         |n| n.to_string_lossy().into(),
     );
+    if crate::sampler_ui::is_instrument_file(path) && path.exists() {
+        return Item::Instrument(path.to_path_buf());
+    }
     if path.is_dir() {
         return if path.join("project.json").is_file() {
             Item::Project(path.to_path_buf())
@@ -104,6 +114,8 @@ pub struct Plan {
     pub audio: Vec<PathBuf>,
     pub midi: Vec<PathBuf>,
     pub flp: Vec<PathBuf>,
+    /// Instrument files for the Haus Sampler (M3/T5).
+    pub instruments: Vec<PathBuf>,
     pub folders: Vec<PathBuf>,
     pub projects: Vec<PathBuf>,
     pub skipped: Vec<(String, &'static str)>,
@@ -117,6 +129,7 @@ impl Plan {
                 Item::Audio(p) => plan.audio.push(p),
                 Item::Midi(p) => plan.midi.push(p),
                 Item::Flp(p) => plan.flp.push(p),
+                Item::Instrument(p) => plan.instruments.push(p),
                 Item::Folder(p) => plan.folders.push(p),
                 Item::Project(p) => plan.projects.push(p),
                 Item::Skip(n, why) => plan.skipped.push((n, why)),
@@ -155,6 +168,15 @@ fn audio_zone(z: DropZone) -> bool {
         z,
         DropZone::Rack | DropZone::RackRow(_) | DropZone::Playlist
     )
+}
+
+fn rack_zone(z: DropZone) -> bool {
+    matches!(z, DropZone::Rack | DropZone::RackRow(_))
+}
+
+/// A folder of samples dropped on the rack becomes a Haus Sampler instrument.
+fn sampler_folder(zone: Option<DropZone>, dir: &Path) -> bool {
+    zone.is_some_and(rack_zone) && crate::sampler_ui::has_samples(dir)
 }
 
 fn midi_zone(z: DropZone) -> bool {
@@ -245,13 +267,38 @@ pub fn describe(core: &AppCore, plan: &Plan, pos: Option<Pos2>) -> Option<DropHo
                 .or_else(|| first_zone(zones, DropZone::PianoRoll));
             rects.extend(rect);
         }
-        if !plan.folders.is_empty() {
-            let n = plan.folders.len();
+        if !plan.instruments.is_empty() {
+            let n = plan.instruments.len();
             parts.push(if n == 1 {
                 format!(
-                    "Drop to add {} to the library",
-                    folder_name(&plan.folders[0])
+                    "Drop to import {} as a Haus Sampler channel",
+                    folder_name(&plan.instruments[0])
                 )
+            } else {
+                format!("Drop to import {n} instruments as Haus Sampler channels")
+            });
+            rects.extend(
+                zone_at(zones, pos, rack_zone)
+                    .map(|(r, _)| r)
+                    .or_else(|| first_zone(zones, DropZone::Rack)),
+            );
+        }
+        let on_rack = zone_at(zones, pos, rack_zone);
+        let (mapped, folders): (Vec<&PathBuf>, Vec<&PathBuf>) = plan
+            .folders
+            .iter()
+            .partition(|f| sampler_folder(on_rack.map(|(_, z)| z), f));
+        if let Some(f) = mapped.first() {
+            parts.push(format!(
+                "Drop to map the samples in {} as a Haus Sampler instrument",
+                folder_name(f)
+            ));
+            rects.extend(on_rack.map(|(r, _)| r));
+        }
+        if !folders.is_empty() {
+            let n = folders.len();
+            parts.push(if n == 1 {
+                format!("Drop to add {} to the library", folder_name(folders[0]))
             } else {
                 format!("Drop to add {n} folders to the library")
             });
@@ -294,7 +341,8 @@ pub fn frame(core: &mut AppCore, ctx: &Context) {
     core.drop_hover = None;
     if !dropped.is_empty() {
         let plan = Plan::from_paths(&dropped);
-        let zone = zone_at(&core.drop_zones, pos, audio_zone).map(|(_, z)| z);
+        let zone =
+            zone_at(&core.drop_zones, pos, |z| audio_zone(z) || rack_zone(z)).map(|(_, z)| z);
         execute_at(core, plan, zone, pos);
         ctx.request_repaint();
     } else if !hovered.is_empty() {
@@ -440,8 +488,16 @@ pub fn execute_at(core: &mut AppCore, plan: Plan, zone: Option<DropZone>, pos: O
     for m in &plan.midi {
         core.send(mapping::import_midi(&m.to_string_lossy()));
     }
+    for i in &plan.instruments {
+        crate::sampler_ui::import_path(core, i, None);
+    }
     for f in &plan.folders {
-        core.add_library_folder(f);
+        if sampler_folder(zone, f) {
+            // the auto-map preview first; the import is its "Import" button
+            crate::sampler_ui::import_path(core, f, None);
+        } else {
+            core.add_library_folder(f);
+        }
     }
 }
 

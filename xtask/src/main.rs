@@ -86,6 +86,7 @@ const LAYERS: &[(&str, &[&str])] = &[
             "ph-control",
             "ph-formats",
             "ph-node",
+            "ph-sampler-formats",
         ],
     ),
     (
