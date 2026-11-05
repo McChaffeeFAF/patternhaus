@@ -144,4 +144,16 @@ Agent features have no FL counterpart (DESIGN §5); each row names the command o
 | Agents | Reference-track comparison: tonal balance per band, integrated and short-term loudness, stereo width and correlation, suggestions | `analyze { what: ["reference"], reference }` | 2026-10-27: ph-analysis `reference` known-answer tests; ph-control `analyze_compares_the_mix_with_a_reference` (generated audio; the reference is never copied) |
 | Agents | Preview mode: a batch as a proposal, ghost notes and clips, Accept or Reject, one undo step on accept, stale reported | `propose` / `proposal.submit`, `proposal.accept`, `proposal.reject`, `proposal.list`, `proposal.get`, `proposal_status`; UI strip, ghosts and Agents panel section | 2026-10-27: ph-commands `proposal_behaviour`, ph-control `a_proposal_previews_then_lands_...`, `a_rejected_proposal...`, `a_stale_proposal...`, ph-ui `tests/proposals.rs` (offscreen clicks). Owner check pending ([M2-agent](../manual-tests/M2-agent.md)) |
 
+## M3: agent features for the Haus Sampler (T7)
+
+Agent features have no FL counterpart (DESIGN §5); each row names the command or tool and the test that covers it.
+
+| Area | Feature | Wired | Behaves |
+|---|---|---|---|
+| Agents | Read a sampler instrument: playing guide (range, keyswitches, CCs, velocity layers, gaps) and the zone map with note names, paged for big libraries | `get_state { view: zones }` | 2026-11-05: ph-control `zones_view_summarises_groups_and_guides_the_player`, `zones_view_pages_big_libraries`; ph-cli `acceptance_m3` |
+| Agents | See the zone map, one panel per articulation, in the sampler window's colours | `snapshot { kind: zone_map }` | 2026-11-05: ph-analysis `zone_map_draws_zones_bands_and_keyswitches`; ph-control `an_agent_reads_sees_and_edits_a_haus_instrument`; ph-ui `zone_map_snapshots_use_the_default_theme_colours` |
+| Agents | Musical diffs for sampler edits, also in `while_you_worked` | the `changes` lines of every reply and event | 2026-11-05: ph-control `sampler_edits_read_like_a_session_log`, `an_agent_reads_sees_and_edits_a_haus_instrument` |
+| Agents | The import report over MCP | resource `patternhaus://instrument/<id>/report`, `get_state { view: report }` | 2026-11-05: ph-control `an_agent_reads_sees_and_edits_a_haus_instrument`; ph-cli `acceptance_m3` |
+| Channel rack | Removing a channel offers to remove its unused sampler instrument; purge unused instruments | `channel.remove { remove_instrument }`, `sampler.prune` | 2026-11-05: ph-commands `channel_remove_offers_to_remove_an_unused_instrument`, `sampler_prune_removes_unused_instruments_in_one_undo_step` |
+
 [notes]: ../formats/fl-behaviour-notes.md
