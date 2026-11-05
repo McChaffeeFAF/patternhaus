@@ -12,13 +12,14 @@
 //! |---|---|---|
 //! | `.sfz` | SFZ | M3/T3 |
 //! | `.sf2`, `.sf3` | SoundFont 2 (SF3: Ogg Vorbis samples) | M3/T4 |
-//! | `.dspreset` | DecentSampler | M3/T4 |
+//! | `.dspreset`, `.dsbundle` (folder), `.dslibrary` (refused: zip) | DecentSampler | M3/T4 |
 //! | `.exs` | EXS24 | M3/T4 |
 //! | `.nki`, `.nkm`, `.nkx`, `.nkc`, `.ncw` | Kontakt (unencrypted only) | M3/T6 |
 //!
-//! SFZ is implemented (M3/T3, [`Sfz`]); the others are stubs until their track
+//! SFZ (M3/T3, [`Sfz`]), SF2/SF3 ([`SoundFont`]), DecentSampler ([`DecentSampler`]) and EXS24
+//! ([`Exs`]) (M3/T4) are implemented; Kontakt is a stub until M3/T6
 //! ([`ImportError::Unavailable`]). [`automap`] maps a folder of samples by the note names in
-//! their file names (drop to create).
+//! their file names (drop to create). [`build`] holds the byte-level fixture writers.
 //!
 //! # What an import produces
 //!
@@ -27,8 +28,9 @@
 //!   folder). The caller (`sampler.import`, M3/T3) decides where they live: linked in place
 //!   (`folder` = the library folder, when every sample is a plain file there) or written into
 //!   the project (`instruments/<name>/samples/`).
-//! - [`ImportedSample::source`] says how to get the audio: a file on disk, or a byte range of
-//!   a container (SF2 sample data, Kontakt monoliths, NCW).
+//! - [`ImportedSample::source`] says how to get the audio: a file on disk, audio decoded
+//!   from inside the instrument file (SF2/SF3 samples, written out as WAV by the caller), a
+//!   synthesised sample, or a byte range of a container (Kontakt monoliths, NCW).
 //! - The report lists what was approximated, skipped or kept for later (scripts and UI data
 //!   are kept in `HausInstrument::extra` and reported as not run yet), and every opcode,
 //!   chunk or field the importer did not understand.

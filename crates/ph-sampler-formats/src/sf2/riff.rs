@@ -121,13 +121,12 @@ impl Sf2<'_> {
     }
 }
 
+/// A chunk: its id and data.
+type Chunk<'a> = ([u8; 4], &'a [u8]);
+
 /// Sub-chunks of a chunk body: (id, data). A size past the end is cut to the bytes left
 /// when `tolerant` (SF3 may omit the final pad, §9), else a fault.
-fn chunks<'a>(
-    body: &'a [u8],
-    tolerant: bool,
-    notes: &mut Notes,
-) -> Result<Vec<([u8; 4], &'a [u8])>, Fault> {
+fn chunks<'a>(body: &'a [u8], tolerant: bool, notes: &mut Notes) -> Result<Vec<Chunk<'a>>, Fault> {
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos + 8 <= body.len() {
@@ -180,7 +179,7 @@ fn records<T>(
     what: &str,
     f: impl Fn(&[u8]) -> T,
 ) -> Result<Vec<T>, Fault> {
-    if data.len() % size != 0 {
+    if !data.len().is_multiple_of(size) {
         return Err(format!(
             "{what} is {} bytes, not a multiple of its {size}-byte record",
             data.len()

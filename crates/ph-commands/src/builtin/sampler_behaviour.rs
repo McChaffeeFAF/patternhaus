@@ -370,10 +370,10 @@ fn sampler_report_describes_the_instrument() {
 #[test]
 fn sampler_import_of_later_formats_names_their_track() {
     let mut r = Rig::piano();
-    for (cmd, params, track) in [("sampler.import", json!({ "path": "C:/Lib/x.nki" }), "M3/T6")] {
-        match r.err(cmd, params) {
-            CmdError::Unavailable { track: t, .. } => assert_eq!(t, track, "{cmd}"),
-            e => panic!("{cmd}: {e}"),
+    for path in ["C:/Lib/x.nki", "C:/Lib/x.nkm"] {
+        match r.err("sampler.import", json!({ "path": path })) {
+            CmdError::Unavailable { track, .. } => assert_eq!(track, "M3/T6", "{path}"),
+            e => panic!("{path}: {e}"),
         }
     }
     let e = r.err("sampler.import", json!({ "path": "C:/x.txt" }));

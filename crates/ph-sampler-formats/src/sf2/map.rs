@@ -460,7 +460,11 @@ pub struct Mapped {
 pub fn map(sf: &Sf2<'_>, preset: usize, notes: &mut Notes) -> Mapped {
     let p = &sf.presets[preset];
     let pz = gens::zones(
-        &sf.pbag, p.bag, p.bag_end, &sf.pgen, &sf.pmod, true, &p.name, notes,
+        (&sf.pbag, &sf.pgen, &sf.pmod),
+        (p.bag, p.bag_end),
+        true,
+        &p.name,
+        notes,
     );
     let mut inst_zones: BTreeMap<usize, gens::Zones> = BTreeMap::new();
     let mut voices: Vec<Voice> = Vec::new();
@@ -470,7 +474,11 @@ pub fn map(sf: &Sf2<'_>, preset: usize, notes: &mut Notes) -> Mapped {
         let Some(ih) = sf.insts.get(ii) else { continue };
         let iz = inst_zones.entry(ii).or_insert_with(|| {
             gens::zones(
-                &sf.ibag, ih.bag, ih.bag_end, &sf.igen, &sf.imod, false, &ih.name, notes,
+                (&sf.ibag, &sf.igen, &sf.imod),
+                (ih.bag, ih.bag_end),
+                false,
+                &ih.name,
+                notes,
             )
         });
         let pkey = pl

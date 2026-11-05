@@ -157,11 +157,8 @@ pub fn check_indices(sf: &Sf2<'_>) -> Result<(), Fault> {
 
 /// The zones of bags `[from, to)` (§4.4). `preset` selects the preset-level rules.
 pub fn zones(
-    bags: &[Bag],
-    from: usize,
-    to: usize,
-    gens: &[Gen],
-    mods: &[ModRec],
+    lists: (&[Bag], &[Gen], &[ModRec]),
+    range: (usize, usize),
     preset: bool,
     owner: &str,
     notes: &mut Notes,
@@ -169,6 +166,8 @@ pub fn zones(
     let terminal = if preset { INSTRUMENT } else { SAMPLE_ID };
     let level = if preset { "preset" } else { "instrument" };
     let mut out = Zones::default();
+    let (bags, gens, mods) = lists;
+    let (from, to) = range;
     let bags = bags.get(from..to.min(bags.len())).unwrap_or(&[]);
     for (zi, b) in bags.iter().enumerate() {
         let mut z = ZoneGens::empty();
@@ -292,6 +291,8 @@ pub fn sum(
 
 // ------------------------------------------------------------------------- modulators
 
+// SPEC-GAP: sf2.md §8.4 #10: "initial pitch" has no generator number, so a file cannot
+// override default modulator 10 by naming it; it always applies (its amount sets the bend).
 /// Destination of the default pitch-wheel modulator: the voice's pitch summing node, which
 /// has no generator number (§8.4 #10). Files cannot name it (bit 15 means a link).
 pub const PITCH_DEST: u16 = 0xFFFF;

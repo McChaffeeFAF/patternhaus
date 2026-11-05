@@ -201,8 +201,7 @@ pub fn tone_stream(rate: u32, channels: u8, blocks: usize, bin: usize) -> Vec<u8
     page(&mut out, &[comment(), setup(1)], 0, 0, 1);
     let blocks = blocks.max(2);
     let audio: Vec<Vec<u8>> = (0..blocks).map(|_| audio_packet(channels, bin)).collect();
-    let mut seq = 2;
-    for (i, chunk) in audio.chunks(32).enumerate() {
+    for (seq, (i, chunk)) in (2u32..).zip(audio.chunks(32).enumerate()) {
         let last = (i + 1) * 32 >= blocks;
         let done = (i * 32 + chunk.len()) as u64;
         page(
@@ -212,7 +211,6 @@ pub fn tone_stream(rate: u32, channels: u8, blocks: usize, bin: usize) -> Vec<u8
             (done - 1) * HALF as u64,
             seq,
         );
-        seq += 1;
     }
     out
 }

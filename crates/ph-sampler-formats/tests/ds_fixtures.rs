@@ -720,7 +720,7 @@ fn ds_bundle_imports_its_first_preset_and_lists_the_others() {
     );
     assert!(i.instrument.extra["dspreset.library"].contains("haus.keys"));
     has_note(&i, "file:DSLibraryInfo.xml");
-    render_and_round_trip("dspreset", "F-DS-14", &i, &vec![(60, 0, 4, 0.8)]).unwrap();
+    render_and_round_trip("dspreset", "F-DS-14", &i, &[(60, 0, 4, 0.8)]).unwrap();
     // without the library file: the first preset at the root by name
     let plain = tmp.path().join("Plain.dsbundle");
     write_samples(&plain, &[s("x.wav")]);

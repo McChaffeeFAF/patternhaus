@@ -93,6 +93,8 @@ fn malformed(file: &str, reason: impl Into<String>) -> ImportError {
     }
 }
 
+// SPEC-GAP: dspreset.md §1 does not say which preset of a bundle to open; the first of the
+// library menu, else the first by name.
 /// A `.dsbundle` folder (§1): the first preset of `DSLibraryInfo.xml`'s menu, else the first
 /// `.dspreset` at the bundle's root by name; every preset is listed in the report.
 fn import_bundle(dir: &Path, file: &str) -> Result<Imported, ImportError> {
@@ -282,6 +284,7 @@ fn binding_target(param: &str) -> Option<(ModTarget, f64)> {
     })
 }
 
+// SPEC-GAP: dspreset.md §5.1 gives no default for translationOutputMin/Max; read as 0 and 1.
 /// The depth of a binding in the target's unit (approximate: §5.1, §5.4).
 fn binding_depth(b: &Element, target: ModTarget, scale: f64, amount: f64) -> Option<f64> {
     let lo = b.attr("translationOutputMin").and_then(num).unwrap_or(0.0);
