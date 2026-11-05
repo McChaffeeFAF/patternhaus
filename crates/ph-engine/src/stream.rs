@@ -365,7 +365,12 @@ impl Cache {
 
     /// Prefetch thread: loads every block a voice needs that is missing, nearest first.
     /// `l`/`r` are the thread's scratch buffers (at least one block long).
+    ///
+    /// The prefetch thread is the only writer of slots, so one snapshot of what each slot
+    /// holds stays true for the whole pass: lookups are hashed instead of scanning every
+    /// slot for every block (a sampler cache has thousands of slots, M3/T2).
     fn fill(&self, l: &mut [f32], r: &mut [f32]) {
+        use std::collections::{HashMap, HashSet};
         let mut needed: Vec<(u64, u64)> = Vec::new(); // (distance rank, key)
         for w in self.wants.iter() {
             let s = w.source.load(Acquire);
@@ -398,18 +403,31 @@ impl Cache {
                 }
             }
         }
+        if needed.is_empty() {
+            return;
+        }
         needed.sort_unstable();
-        let keys: Vec<u64> = needed.iter().map(|n| n.1).collect();
+        let keys: HashSet<u64> = needed.iter().map(|n| n.1).collect();
+        let mut held: HashMap<u64, usize> = HashMap::new();
+        let mut free: Vec<usize> = Vec::new();
+        for (i, slot) in self.slots.iter().enumerate() {
+            match slot.stable_key() {
+                Some(NONE) => free.push(i),
+                Some(k) if keys.contains(&k) => {
+                    held.insert(k, i);
+                }
+                Some(_) => free.push(i),
+                None => {}
+            }
+        }
+        // slots that hold nothing needed, taken in slot order
+        free.reverse();
+        let mut done: HashSet<u64> = HashSet::new();
         for &(_, k) in &needed {
-            if self.find(k).is_some() {
+            if held.contains_key(&k) || !done.insert(k) {
                 continue;
             }
-            // a slot holding nothing needed (or nothing at all)
-            let Some(slot) = self.slots.iter().find(|s| match s.stable_key() {
-                Some(NONE) => true,
-                Some(other) => !keys.contains(&other),
-                None => false,
-            }) else {
+            let Some(i) = free.pop() else {
                 return;
             };
             let source = (k >> 40) as usize;
@@ -421,8 +439,22 @@ impl Cache {
                 &mut l[..n],
                 &mut r[..n],
             );
-            slot.write(k, &l[..n], &r[..n]);
+            self.slots[i].write(k, &l[..n], &r[..n]);
         }
+    }
+}
+
+/// The Haus Sampler reads its streamed samples through the same cache (M3/T2): one cache per
+/// sampler node, one want per voice slot.
+impl ph_sampler::StreamSource for Cache {
+    fn want(&self, voice: usize, source: usize, frame: u64, reverse: bool) {
+        Cache::want(self, voice, source, frame, reverse)
+    }
+    fn release(&self, voice: usize) {
+        Cache::release(self, voice)
+    }
+    fn read(&self, source: usize, start: i64, out: [&mut [f32]; 2]) -> bool {
+        Cache::read(self, source, start, out)
     }
 }
 

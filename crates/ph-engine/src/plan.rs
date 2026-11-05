@@ -560,10 +560,17 @@ fn instrument_identity(spec: &InstrumentSpec, project: &Project) -> Option<Strin
 
 /// Builds a built-in instrument for a channel: the Haus Sampler from the project's
 /// instrument model, everything else through `ph_instruments`. Off the audio thread.
+///
+/// A Haus Sampler streams its long samples through a cache from `audio` (the plan's
+/// streaming context: policy, prefetch thread, underrun counter). Without one (warnings
+/// only) it reads just the heads and plays nothing past them. Its groups' effect chains are
+/// built here from the built-in effects (`ph-sampler` cannot depend on `ph-effects`: see
+/// `ph_sampler::effects`).
 pub(crate) fn create_instrument(
     project: &Project,
     spec: &InstrumentSpec,
     assets: &dyn AssetResolver,
+    audio: Option<&mut AudioCtx>,
 ) -> Result<(Box<dyn ph_node::Processor>, Vec<String>), String> {
     match spec {
         InstrumentSpec::MultiSampler {
@@ -571,7 +578,37 @@ pub(crate) fn create_instrument(
             params,
             ..
         } => {
-            let (mut p, warnings) = ph_sampler::create(project, *id, assets)?;
+            let (mut p, mut warnings) = match audio {
+                Some(a) => ph_sampler::create_streamed(project, *id, assets, &mut |s, v| {
+                    Some(a.sampler_cache(s, v) as Arc<dyn ph_sampler::StreamSource>)
+                })?,
+                None => ph_sampler::create_streamed(project, *id, assets, &mut |_, _| None)?,
+            };
+            let chains: Vec<(usize, Vec<ph_core::GroupEffect>)> = p
+                .plan()
+                .groups
+                .iter()
+                .enumerate()
+                .filter(|(_, g)| !g.effects.is_empty())
+                .map(|(i, g)| (i, g.effects.clone()))
+                .collect();
+            for (gi, effects) in chains {
+                let mut chain = Vec::new();
+                for (k, fx) in effects.iter().enumerate().filter(|(_, f)| !f.bypass) {
+                    let spec = ph_core::EffectSpec::Builtin {
+                        name: fx.name.clone(),
+                        params: fx.params.clone(),
+                    };
+                    match ph_effects::create(&spec) {
+                        Ok(e) => chain.push((e, fx.mix)),
+                        Err(e) => warnings.push(format!(
+                            "group {} effect {k}: {e}; it is skipped",
+                            p.plan().groups[gi].id
+                        )),
+                    }
+                }
+                p.set_group_effects(gi, chain);
+            }
             for (key, value) in params {
                 let pid = ph_node::Processor::descriptor(&p)
                     .param_id(key)
@@ -977,12 +1014,14 @@ pub(crate) fn compile(
                                 p
                             })
                         }
-                        None => create_instrument(project, &ch.instrument, assets).ok().map(
-                            |(mut p, _)| {
-                                p.activate(&info(seed(1, ch.id.0 as u64, 0)));
-                                p
-                            },
-                        ),
+                        None => {
+                            create_instrument(project, &ch.instrument, assets, Some(&mut *audio))
+                                .ok()
+                                .map(|(mut p, _)| {
+                                    p.activate(&info(seed(1, ch.id.0 as u64, 0)));
+                                    p
+                                })
+                        }
                     };
                     let desc = proc.as_ref().map(|p| Arc::new(p.descriptor().clone()));
                     (Some(Box::new(new_channel_state(proc, n, gain))), desc)
