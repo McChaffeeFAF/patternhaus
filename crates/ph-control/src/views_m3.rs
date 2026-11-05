@@ -92,6 +92,38 @@ fn instrument(p: &Project, i: &HausInstrument) -> Value {
     })
 }
 
+/// Adds the playing guide to every plugin instrument of a `plugins` view that was added from
+/// the plugin catalogue (M3/T9): the project keeps a copy beside the state,
+/// `plugins/<file>.catalogue.toml`, read here from `project_dir`.
+pub fn attach_guides(view: &mut Value, p: &Project, project_dir: &std::path::Path) {
+    let Some(rows) = view["plugins"].as_array_mut() else {
+        return;
+    };
+    for row in rows {
+        let Some(c) = row["channel"].as_u64() else {
+            continue;
+        };
+        let Ok(ch) = p.channel(ph_core::ChannelId(c as u32)) else {
+            continue;
+        };
+        let ph_core::InstrumentSpec::Plugin { state: Some(s), .. } = &ch.instrument else {
+            continue;
+        };
+        let rel = ph_commands::catalogue::project_guide_ref(s);
+        let Ok(text) = std::fs::read_to_string(project_dir.join(&rel)) else {
+            continue;
+        };
+        match ph_commands::catalogue::ProjectGuide::from_toml(&text) {
+            Ok(g) => {
+                row["catalogue_entry"] = json!(g.entry);
+                row["guide_text"] = json!(ph_commands::catalogue::guide_text(&g.guide));
+                row["guide"] = json!(g.guide);
+            }
+            Err(e) => row["guide_error"] = json!(format!("{rel}: {e}")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,37 +165,5 @@ mod tests {
         assert_eq!(zones_view(&p, &json!({ "instrument": 0 })).unwrap(), v);
         assert!(zones_view(&p, &json!({ "instrument": 4 })).is_err());
         assert!(zones_view(&p, &json!({ "instrument": "x" })).is_err());
-    }
-}
-
-/// Adds the playing guide to every plugin instrument of a `plugins` view that was added from
-/// the plugin catalogue (M3/T9): the project keeps a copy beside the state,
-/// `plugins/<file>.catalogue.toml`, read here from `project_dir`.
-pub fn attach_guides(view: &mut Value, p: &Project, project_dir: &std::path::Path) {
-    let Some(rows) = view["plugins"].as_array_mut() else {
-        return;
-    };
-    for row in rows {
-        let Some(c) = row["channel"].as_u64() else {
-            continue;
-        };
-        let Ok(ch) = p.channel(ph_core::ChannelId(c as u32)) else {
-            continue;
-        };
-        let ph_core::InstrumentSpec::Plugin { state: Some(s), .. } = &ch.instrument else {
-            continue;
-        };
-        let rel = ph_commands::catalogue::project_guide_ref(s);
-        let Ok(text) = std::fs::read_to_string(project_dir.join(&rel)) else {
-            continue;
-        };
-        match ph_commands::catalogue::ProjectGuide::from_toml(&text) {
-            Ok(g) => {
-                row["catalogue_entry"] = json!(g.entry);
-                row["guide_text"] = json!(ph_commands::catalogue::guide_text(&g.guide));
-                row["guide"] = json!(g.guide);
-            }
-            Err(e) => row["guide_error"] = json!(format!("{rel}: {e}")),
-        }
     }
 }

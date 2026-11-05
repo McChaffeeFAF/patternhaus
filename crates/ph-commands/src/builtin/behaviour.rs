@@ -1618,6 +1618,7 @@ fn every_command_has_a_behaviour_test() {
         include_str!("editor_behaviour.rs"),
         include_str!("proposal_behaviour.rs"),
         include_str!("sampler_behaviour.rs"),
+        include_str!("catalogue_behaviour.rs"),
     ]
     .join("\n");
     let untested: Vec<_> = Registry::with_builtins()

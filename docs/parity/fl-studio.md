@@ -73,6 +73,7 @@ Sources for the *Behaves* column:
 | Plugins | Open the plugin's own editor | `plugin.open_editor` `plugin.close_editor`; embedded in the floating window on Windows, floating elsewhere | 2026-10-13: the editor request reaches the UI (`ph-control` plugin tests). Embedding with your plugins: owner check pending (OC-25) |
 | Plugins | Plugin state saved with the project | `file.save` writes `plugins/<name>.state` (component + controller state for VST3) | 2026-10-13: test synth state survives save and reopen (`ph-control` plugin tests) |
 | Plugins | A crashing plugin does not take the session down | crash guard (SEH / signals) in `ph-plugin-host`; the node goes silent, `plugin_fault` event, status *isolate* | differs: FL runs bridged plugins out of process; Patternhaus isolates crashed plugins (out-of-process loading is M4) |
+| Plugins | Plugin database: save a plugin set up as a preset to the browser and reuse it in any project | `catalogue.save` `catalogue.list` `catalogue.search` `catalogue.get` `catalogue.add_to_channel` `catalogue.update_guide` `catalogue.rename` `catalogue.remove`; browser Catalogue tab, "Save to catalogue…" on plugin channels (M3/T9, `docs/formats/catalogue.md`) | differs: per-user folder of `entry.toml` + opaque state instead of `.fst` files; adds a playing guide (range, keyswitches, CCs) for agents and `catalogue.probe`. 2026-11-05: test CLAP and VST3 synths (`ph-control` catalogue tests); Kontakt: owner check (`docs/manual-tests/M3-catalogue.md`) |
 
 ## M2: Make a Song
 
