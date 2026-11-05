@@ -187,6 +187,7 @@ impl HausSampler {
     }
 
     /// Starts the zones of `trigger` for one note. Real-time.
+    #[allow(clippy::too_many_arguments)]
     fn start_note(
         &mut self,
         note_id: u32,
