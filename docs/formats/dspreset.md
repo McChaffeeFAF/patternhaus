@@ -272,15 +272,15 @@ Every effect also takes `enabled` (default true) and `tags`.
 
 | Type | Attributes (range, default) | M3 mapping [PH] |
 |---|---|---|
-| `lowpass` (also `lowpass_4pl`), `bandpass`, `highpass` | `frequency` 0–22000 Hz (22000), `resonance` 0.001–5 (0.7) | Haus filter, 2-pole; supported |
+| `lowpass` (also `lowpass_4pl`), `bandpass`, `highpass` | `frequency` 0–22000 Hz (22000), `resonance` 0.001–5 (0.7) | Haus filter, 2-pole; supported. The guide gives all three one table, so a band-pass or high-pass without `frequency` sits at 22000 Hz (20000 Hz, the built-in filter's top) and passes almost nothing: kept, and reported (`effect:<type>:frequency`) |
 | `lowpass_1pl` | `frequency` (22000) | 1-pole; supported |
 | `notch` | `frequency` 60–22000 (10000), `Q` 0.01–18 (0.7) | supported |
 | `peak` | `frequency` (10000), `Q` (0.7), `gain` linear 0.0001–10 or dB −80–20 with `gainUnit="decibels"` (1.0) | supported |
 | `low_shelf` / `high_shelf` (1.34.0) | `frequency` (200 / 5000), `q` (0.7), `gain`, `gainUnit` | supported |
 | `gain` | `level` dB −100–24 (about −6) or linear 0–8 with `levelUnit="linear"` | supported |
 | `compressor` | `threshold` −60–0 dB (−12), `ratio` 1–20 (4), `attack` 0.1–200 ms (5), `release` 5–2000 ms (100), `inputGain`, `outputGain` ±24 dB (0), `autoBypass` (false) | built-in compressor; approximated |
-| `reverb` | `roomSize` 0–1 (0.7), `damping` 0–1 (0.3), `wetLevel` 0–1 (0) | built-in reverb; approximated |
-| `delay` | `delayTimeFormat` `seconds`/`musical_time`, `delayTime` 0–20 s (0.7), `feedback` 0–1 (0.2), `stereoOffset` ±10 (0), `feedbackCutoff` 20–22000 Hz (22000 = off), `wetLevel` 0–1 (0.5) | built-in delay; approximated |
+| `reverb` | `roomSize` 0–1 (0.7), `damping` 0–1 (0.3), `wetLevel` 0–1 (0) | built-in reverb; approximated. `wetLevel` is "the volume of reverb signal" [S], a send level over the full dry signal (unlike the wet/dry `mix` of chorus, phaser, convolution and bit crusher): the slot mixes at `w/(1+w)` and an `eq` slot after it adds `20·log10(1+w)` dB, giving `dry + w·wet` |
+| `delay` | `delayTimeFormat` `seconds`/`musical_time`, `delayTime` 0–20 s (0.7), `feedback` 0–1 (0.2), `stereoOffset` ±10 (0), `feedbackCutoff` 20–22000 Hz (22000 = off), `wetLevel` 0–1 (0.5) | built-in delay with free times (`sync` off), `feedbackCutoff` as its high cut, no low cut; approximated. `wetLevel` ("the volume of the delay signal" [S]) is a send level, mapped as for `reverb` |
 | `chorus` | `mix` 0–1 (0.5), `modDepth` 0–1 (0.2), `modRate` 0–10 Hz (0.2) | `ph.fx.chorus`; approximated |
 | `phaser` | `mix`, `modDepth`, `modRate`, `centerFrequency` 0–22000 (400), `feedback` −1–1 (0.7) | `ph.fx.phaser`; approximated |
 | `convolution` | `mix` 0–1 (0.5), `irFile` (required; WAV/AIFF) | `ph.fx.convolution` with the IR copied into the instrument; supported |

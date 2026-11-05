@@ -466,7 +466,7 @@ fn fixtures() -> Vec<Fixture> {
     <group name="Wet" rootNote="60" loNote="60" hiNote="72" output1Target="BUS_1"><sample path="b.wav"/></group>
   </groups>
   <effects>
-    <effect type="highpass" frequency="40"/><effect type="bandpass"/><effect type="lowpass_1pl"/><effect type="notch" Q="2"/>
+    <effect type="highpass" frequency="40"/><effect type="bandpass" frequency="400"/><effect type="lowpass_1pl"/><effect type="notch" Q="2"/>
     <effect type="peak" frequency="1000" gain="6" gainUnit="decibels"/><effect type="low_shelf" gain="0.5"/><effect type="high_shelf"/>
     <effect type="compressor"/><effect type="reverb" wetLevel="0.2"/><effect type="delay" delayTimeFormat="musical_time" delayTime="0.5"/>
     <effect type="chorus"/><effect type="phaser"/><effect type="convolution" irFile="ir/room.wav"/><effect type="stereo_simulator"/>
@@ -503,7 +503,9 @@ fn fixtures() -> Vec<Fixture> {
                         "eq",
                         "compressor",
                         "reverb",
+                        "eq",
                         "delay",
+                        "eq",
                         "chorus",
                         "phaser",
                         "convolution",
@@ -511,8 +513,27 @@ fn fixtures() -> Vec<Fixture> {
                         "bitcrush"
                     ]
                 );
+                // wetLevel is a send level over the full dry signal: the slot crossfades
+                // at w / (1 + w) and a make-up eq restores the dry to unity
+                let send = |k: usize, w: f64| {
+                    let (fx, makeup) = (&dry.effects[k], &dry.effects[k + 1]);
+                    assert!(close(fx.mix, w / (1.0 + w)), "{} mix {}", fx.name, fx.mix);
+                    assert!(close(
+                        makeup.params["output"] as f32,
+                        20.0 * (1.0 + w).log10()
+                    ));
+                    assert_eq!(makeup.params["b2_on"], 0.0);
+                };
+                send(9, 0.2);
+                send(11, 0.5);
+                let delay = &dry.effects[11];
+                assert_eq!(delay.params["sync"], 0.0, "free delay times");
+                assert_eq!(delay.params["time_l"], 250.0, "an eighth at 120 BPM");
+                assert_eq!(dry.effects[2].params["cutoff"], 400.0);
+                assert_eq!(dry.effects[3].params["cutoff"], 20_000.0, "22000 at the top");
                 let wet = group(i, zone_of(i, "b.wav"));
                 assert_eq!(wet.effects[0].name, "reverb", "the bus's effects first");
+                assert!(close(wet.effects[0].mix, 1.0 / 3.0));
                 assert!(close(zone_of(i, "b.wav").volume_db, -6.0));
                 for e in [
                     "effect:pitch_shift",
@@ -674,6 +695,27 @@ fn run(f: &Fixture) -> Result<(), String> {
         format!("{}: check failed: {msg}", f.id)
     })?;
     render_and_round_trip("dspreset", f.id, &imported, &f.phrase)
+}
+
+/// A high-pass or band-pass without a frequency takes the guide's 22000 Hz, which passes
+/// almost nothing: kept, and said in the report. A low-pass there is simply open.
+#[test]
+fn ds_filters_without_a_frequency_follow_the_guide_and_are_reported() {
+    let preset = r#"<DecentSampler><groups><group><sample path="a.wav" rootNote="60"/></group></groups>
+  <effects><effect type="bandpass"/><effect type="highpass"/><effect type="lowpass"/></effects></DecentSampler>"#;
+    let tmp = tempfile::tempdir().unwrap();
+    write_samples(tmp.path(), &[s("a.wav")]);
+    let p = tmp.path().join("f.dspreset");
+    std::fs::write(&p, preset).unwrap();
+    let i = DecentSampler.import(ImportInput::Path(&p)).unwrap();
+    let g = i.instrument.groups.values().next().unwrap();
+    for (n, mode) in [(0, 2.0), (1, 1.0), (2, 0.0)] {
+        assert_eq!(g.effects[n].params["mode"], mode);
+        assert_eq!(g.effects[n].params["cutoff"], 20_000.0);
+    }
+    has_note(&i, "effect:bandpass:frequency");
+    has_note(&i, "effect:highpass:frequency");
+    lacks_note(&i, "effect:lowpass:frequency");
 }
 
 #[test]

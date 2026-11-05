@@ -357,11 +357,49 @@ fn bound_groups(b: &Element, groups: &[&Element]) -> Option<Vec<usize>> {
 
 // ------------------------------------------------------------------------- effects
 
-/// One `<effect>` to a built-in effect, a volume change, or nothing (reported).
+/// One `<effect>` to built-in effects (usually one; a send-level effect adds its make-up
+/// slot), a volume change, or nothing (reported).
 enum Fx {
     Effect(GroupEffect),
+    Send(GroupEffect, GroupEffect),
     Gain(f64),
     None,
+}
+
+/// A DecentSampler `wetLevel`: the guide calls it "the volume of the delay signal" /
+/// "of reverb signal" (unlike the wet/dry `mix` of chorus, phaser, convolution and bit
+/// crusher), so the dry signal stays at full level and the effect is added at `w`. Our
+/// slots crossfade, `(1 - m)·dry + m·wet`; a slot at `m = w / (1 + w)` followed by
+/// `20·log10(1 + w)` dB of make-up gives exactly `dry + w·wet` (both effects are linear).
+/// Returns the slot's mix and the make-up slot (none at `w = 0`).
+fn send_level(w: f64, bypass: bool) -> (f64, Option<GroupEffect>) {
+    let w = w.clamp(0.0, 1.0);
+    if w <= 0.0 {
+        return (0.0, None);
+    }
+    let params = [
+        ("b1_on", 0.0),
+        ("b2_on", 0.0),
+        ("b3_on", 0.0),
+        ("b4_on", 0.0),
+        ("output", 20.0 * (1.0 + w).log10()),
+    ];
+    (
+        w / (1.0 + w),
+        Some(GroupEffect {
+            name: "eq".into(),
+            params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+            bypass,
+            mix: 1.0,
+        }),
+    )
+}
+
+fn with_makeup(fx: Fx, makeup: Option<GroupEffect>) -> Fx {
+    match (fx, makeup) {
+        (Fx::Effect(g), Some(m)) => Fx::Send(g, m),
+        (fx, _) => fx,
+    }
 }
 
 fn effect(e: &Element, notes: &mut Notes) -> Fx {
@@ -389,13 +427,21 @@ fn effect(e: &Element, notes: &mut Notes) -> Fx {
                 _ => 0.0,
             };
             if t == "lowpass_1pl" || t == "lowpass_4pl" {
-                notes.approx(what, "played by the built-in filter's 12 dB/oct low-pass");
+                notes.approx(&what, "played by the built-in filter's 12 dB/oct low-pass");
             }
             let res = if t == "notch" {
                 f("Q", 0.7) / 18.0
             } else {
                 f("resonance", 0.7) / 5.0
             };
+            if matches!(t, "highpass" | "bandpass") && e.attr("frequency").is_none() {
+                // the guide's one filter table gives every type 22000 Hz; for these two
+                // that passes almost nothing, here as in DecentSampler, so say so
+                notes.approx(
+                    format!("{what}:frequency"),
+                    "no frequency: the guide's default 22000 Hz (played at the built-in filter's 20000 Hz top) passes almost nothing below it",
+                );
+            }
             let def = if t == "notch" { 10_000.0 } else { 22_000.0 };
             mk(
                 "filter",
@@ -466,37 +512,52 @@ fn effect(e: &Element, notes: &mut Notes) -> Fx {
             )
         }
         "reverb" => {
-            notes.approx(what, "played by the built-in reverb");
-            mk(
+            notes.approx(
+                what,
+                "played by the built-in reverb; wetLevel is the reverb's level over the full dry signal",
+            );
+            let (mix, makeup) = send_level(f("wetLevel", 0.0), bypass);
+            let fx = mk(
                 "reverb",
                 vec![
                     ("size", f("roomSize", 0.7).clamp(0.0, 1.0)),
                     ("damping", f("damping", 0.3).clamp(0.0, 1.0)),
                     ("mix", 1.0),
                 ],
-                f("wetLevel", 0.0),
-            )
+                mix,
+            );
+            with_makeup(fx, makeup)
         }
         "delay" => {
             notes.approx(
                 what,
-                "played by the built-in delay (musical times at 120 BPM)",
+                "played by the built-in delay (musical times at 120 BPM); wetLevel is the echo's level over the full dry signal",
             );
             let mut t = f("delayTime", 0.7);
             if e.attr("delayTimeFormat") == Some("musical_time") {
                 t *= 60.0 / BEATS_BPM;
             }
             let ms = (t * 1000.0).clamp(1.0, 2000.0);
-            mk(
+            let (mix, makeup) = send_level(f("wetLevel", 0.5), bypass);
+            // free times (the built-in delay syncs to divisions by default); the guide's
+            // feedbackCutoff (22000 = off) is the high cut, and nothing is cut below
+            let fx = mk(
                 "delay",
                 vec![
+                    ("sync", 0.0),
                     ("time_l", ms),
                     ("time_r", ms),
                     ("feedback", f("feedback", 0.2).clamp(0.0, 1.0)),
+                    ("low_cut", 20.0),
+                    (
+                        "high_cut",
+                        f("feedbackCutoff", 22_000.0).clamp(1000.0, 20_000.0),
+                    ),
                     ("mix", 1.0),
                 ],
-                f("wetLevel", 0.5),
-            )
+                mix,
+            );
+            with_makeup(fx, makeup)
         }
         "chorus" => {
             notes.approx(what, "played by the built-in chorus");
@@ -562,6 +623,7 @@ fn chain(e: Option<&Element>, notes: &mut Notes) -> (Vec<GroupEffect>, f64) {
         for x in e.children_named("effect") {
             match effect(x, notes) {
                 Fx::Effect(g) => fx.push(g),
+                Fx::Send(g, makeup) => fx.extend([g, makeup]),
                 Fx::Gain(db) => {
                     if x.attr("enabled").and_then(boolean) != Some(false) {
                         gain += db;
