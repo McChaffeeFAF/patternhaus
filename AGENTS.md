@@ -207,7 +207,7 @@ Drum samples come from `tools/soundgen` (`cargo run -p soundgen -- render` regen
 ## Local layout (owner machine)
 
 Everything for this project lives under the repo folder; `local/` is git-ignored.
-- `target/`: the one shared build folder. Agents working in worktrees set `CARGO_TARGET_DIR` to the repo's `target/` instead of making their own (`cargo clean` when it grows).
+- `target/`: the build folder for the main checkout. **Worktrees must not share it**: Cargo names workspace crates by their path relative to the workspace, so two worktrees building at once overwrite each other's artifacts and tests silently link the other branch's code (seen in M3). Each worktree sets `CARGO_TARGET_DIR` to `target/wt/<name>` and deletes that folder when the worktree is removed. Run `cargo clean` when `target/` grows.
 - `local/wt/<name>`: git worktrees for parallel tracks.
 - `local/app/`: the owner's runnable copy (`Patternhaus.bat`, `ph-app.exe`, `patternhaus-cli.exe`, `ph-plugin-scan.exe`).
 - `local/projects/`: the owner's test projects. `local/reports/`: local-only reports, such as the plugin scan. Never commit either.
