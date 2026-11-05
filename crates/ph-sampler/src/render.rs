@@ -113,7 +113,12 @@ pub fn crossfade(c: &Crossfade, x: f32) -> f32 {
 
 /// The product of a zone's crossfades over velocity (`velocity`) or over controllers
 /// (`cc`). `which` = `Some(true)`: velocity ones only; `Some(false)`: controller ones only.
-pub fn crossfade_gain(xf: &[Crossfade], velocity: f32, cc: &[f32; 128], which: Option<bool>) -> f32 {
+pub fn crossfade_gain(
+    xf: &[Crossfade],
+    velocity: f32,
+    cc: &[f32; 128],
+    which: Option<bool>,
+) -> f32 {
     let mut g = 1.0;
     for c in xf {
         let (x, is_vel) = match c.source {
@@ -539,7 +544,10 @@ pub fn render_voice(
                 }
                 let fl = |j: i64| at(&bl, j - first, n);
                 let fr = |j: i64| at(&br, j - first, n);
-                (si.interpolate(pos, v.rate, fl), si.interpolate(pos, v.rate, fr))
+                (
+                    si.interpolate(pos, v.rate, fl),
+                    si.interpolate(pos, v.rate, fr),
+                )
             }
         };
         if let Some((mode, two)) = filter {

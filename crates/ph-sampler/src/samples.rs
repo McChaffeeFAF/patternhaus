@@ -174,9 +174,7 @@ pub fn load_samples_streamed(
         };
         let slot = by_ref.entry(reference.clone()).or_insert_with(|| {
             let (latest, whole) = need.get(&reference).copied().unwrap_or((0, true));
-            if !whole
-                && let Some(Ok(mut s)) = assets.stream(&reference)
-            {
+            if !whole && let Some(Ok(mut s)) = assets.stream(&reference) {
                 let frames = s.frames();
                 let head = (latest + preload).min(frames);
                 if head < frames {

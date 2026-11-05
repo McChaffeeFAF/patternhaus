@@ -635,8 +635,8 @@ impl Processor for HausSampler {
                 )
             })
             .collect();
-        let streamed = self.samples.streams.is_some()
-            && self.samples.samples.iter().any(|s| !s.complete);
+        let streamed =
+            self.samples.streams.is_some() && self.samples.samples.iter().any(|s| !s.complete);
         self.win = if streamed {
             vec![0.0; self.pool.voices.len() * 2 * WINDOW].into_boxed_slice()
         } else {
