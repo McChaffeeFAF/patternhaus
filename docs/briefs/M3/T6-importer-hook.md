@@ -2,15 +2,14 @@
 
 **Owner decision (2026-11-05):** some formats stay out of the public repository. The public repo gets a generic, documented **importer hook** so separately built importers can add formats. Work in the worktree `local/wt/m3-t6`, branch `m3/t6-hook`.
 
-Use `CARGO_TARGET_DIR=E:patternhaus	argetwtm3-t6`, your own target dir. Never use the shared `target/`.
+Use `CARGO_TARGET_DIR=E:\patternhaus\target\wt\m3-t6`, your own target dir. Never use the shared `target/`.
 
 **Read first:**
 - `AGENTS.md`;
 - `docs/milestones/M3.md` (defaults, criterion 3, D phase);
 - `crates/ph-sampler-formats/src/lib.rs` (the `Importer` trait, registry, `importer_for`, `extensions`) and `stubs.rs`;
 - `crates/ph-commands/src/builtin/sampler_files.rs`;
-- `crates/ph-app/src/main.rs` and `crates/ph-cli/src/main.rs`;
-- the private spec `E:\patternhaus\local\kontakt\docs\nki.md` (for part B only).
+- `crates/ph-app/src/main.rs` and `crates/ph-cli/src/main.rs`.
 
 ## Scope
 1. **Runtime registration** in `ph-sampler-formats`, e.g. `register_importer(Box<dyn Importer>)` or a registry value passed through the host. Pick the design that fits the code: avoid global mutable state if the host/session already carries a context, and document the choice. Registered importers:
