@@ -204,6 +204,8 @@ impl Builder<'_> {
                 Level::Ignored
             }
             other => {
+                // SPEC-GAP: §3.1 does not say what happens to opcodes under an unknown
+                // header; the header is reported and its opcodes are ignored.
                 self.notes.unknown(format!("header:<{other}>"));
                 Level::Ignored
             }

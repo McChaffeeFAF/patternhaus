@@ -240,6 +240,9 @@ pub fn leftover(name: &str) -> Leftover {
             return Skip("LFO features the sampler does not have");
         }
     }
+    if name.starts_with("eg") && name[2..].starts_with(|c: char| c.is_ascii_digit()) {
+        return Skip("flex envelopes (the sampler has no multi-point envelopes yet)");
+    }
     if name.starts_with("hint_") {
         return Skip("player hints");
     }

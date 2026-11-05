@@ -202,6 +202,8 @@ fn include(
         notes.skip(what, "no folder to read included files from");
         return;
     };
+    // SPEC-GAP: §2.2 names no "library root"; the main file's folder is used, so an include
+    // may reach into sub-folders but never above it.
     let Some(path) = confined(root, rel) else {
         notes.skip(
             what,

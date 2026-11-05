@@ -706,6 +706,7 @@ impl Mapper<'_> {
                 );
                 return None;
             }
+            // SPEC-GAP: §5 does not say what an `end` past the file means; it is cut to the file.
             let e = (end as u64 + 1).min(info.frames);
             if e <= start {
                 o.notes
@@ -1409,6 +1410,8 @@ fn crossfade(
     if ilo <= 0.0 && ihi <= 0.0 && olo >= 127.0 && ohi >= 127.0 {
         return None;
     }
+    // SPEC-GAP: §6.1 does not say what to do with overlapping or reversed ranges; they are
+    // put in order (in_lo <= in_hi <= out_lo <= out_hi) and reported.
     let a = ilo.min(ihi);
     let b = ihi.max(a);
     let c = olo.max(b);

@@ -105,6 +105,8 @@ pub enum SampleSource {
 
 /// A synthetic sample (SFZ built-in generators, `docs/formats/sfz.md` §3.4).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+// SPEC-GAP: §3.4 does not say what `*sine` sounds like (level, length, pitch at the root);
+// a looped half-scale sine tuned so the zone's root key plays its own pitch.
 pub enum Generated {
     /// A looped sine: [`Generated::SINE_HZ`] at [`Generated::RATE`], one second, whole-file
     /// loop. Zones playing it are tuned so their root key sounds at its own pitch.
