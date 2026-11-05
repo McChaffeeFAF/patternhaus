@@ -73,6 +73,10 @@ jobs:
         run: |
           cargo test -p ph-cli --test acceptance_m2 -- --nocapture
           cargo test -p ph-engine --lib m2_oracle
+      - name: M3 acceptance (criterion 1) and the sampler oracle
+        run: |
+          cargo test -p ph-cli --test acceptance_m3 -- --nocapture
+          cargo test -p ph-engine --lib m3_oracle
       - name: golden renders, oracle and round trip (criteria 4, 6, 8)
         run: cargo xtask golden
       - run: cargo test --workspace

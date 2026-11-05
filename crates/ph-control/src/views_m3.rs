@@ -154,13 +154,17 @@ fn layer_text(l: &[(u8, u8)]) -> Vec<String> {
     l.iter().map(|(a, b)| format!("{a}-{b}")).collect()
 }
 
-/// Keys of the instrument's playable `range` that a group's attack zones miss, per velocity
-/// layer: `vel 81-127: no zone on C5-C6`.
-fn group_gaps(i: &HausInstrument, g: ph_core::GroupId, range: Option<(u8, u8)>) -> Vec<String> {
-    let Some((lo, hi)) = range else {
+/// Keys inside a group's own key span that one of its velocity layers misses (a layer that
+/// stops short of the others): `vel 81-127: no zone on C5-C6`. Kits have none: their keys are
+/// separate sounds.
+fn group_gaps(i: &HausInstrument, g: ph_core::GroupId) -> Vec<String> {
+    let att: Vec<&Zone> = attack(i).filter(|z| z.group == g).collect();
+    let Some((lo, hi)) = span_of(att.iter().copied()) else {
         return Vec::new();
     };
-    let att: Vec<&Zone> = attack(i).filter(|z| z.group == g).collect();
+    if is_kit(i) {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     for (a, b) in layers(att.iter().copied()) {
         let miss = gaps(
@@ -180,6 +184,20 @@ fn group_gaps(i: &HausInstrument, g: ph_core::GroupId, range: Option<(u8, u8)>) 
         }
     }
     out
+}
+
+/// A group as a player knows it: its name, with the articulations it plays.
+fn group_label(i: &HausInstrument, g: &Group) -> String {
+    let arts: Vec<&str> = g
+        .articulations
+        .iter()
+        .filter_map(|a| i.articulation(*a).map(|x| x.name.as_str()))
+        .collect();
+    if arts.is_empty() {
+        g.name.clone()
+    } else {
+        format!("{} ({})", g.name, arts.join(", "))
+    }
 }
 
 fn target_name(t: ModTarget) -> &'static str {
@@ -320,9 +338,10 @@ pub fn guide(p: &Project, i: &HausInstrument) -> PlayingGuide {
         .groups
         .values()
         .flat_map(|g| {
-            group_gaps(i, g.id, range)
+            let label = group_label(i, g);
+            group_gaps(i, g.id)
                 .into_iter()
-                .map(move |t| format!("{} {t}", g.name))
+                .map(move |t| format!("{label} {t}"))
         })
         .collect();
     if !holes.is_empty() {
@@ -389,7 +408,7 @@ impl Page {
 /// `guide_text`, and `groups`, each with its `id`, `name`, `output`, `polyphony`,
 /// `round_robin`, `articulations` (ids) and `articulation_names`, `zone_count`, `keys_text`,
 /// `layers` (velocity ranges), `rr` (round-robin positions), `release_zones`, `gaps` (keys of
-/// the instrument's range the group's attack zones miss, per velocity layer) and its `zones`,
+/// the group's own span that one of its velocity layers misses) and its `zones`,
 /// compact: `{ id, keys: [lo, hi], velocity: [lo, hi], root, sample, rr?, release?, text }`
 /// (`sample` is a registry id or a path relative to the folder; `rr` the round-robin position;
 /// `release` true for release-trigger zones; `text` like `C4-D4 vel 81-127 c4_f.wav`).
@@ -486,7 +505,7 @@ fn instrument(p: &Project, i: &HausInstrument, page: &mut Page) -> Value {
                 zones.push(v);
             }
             let ls = layers(att.iter().copied());
-            let gap_text = group_gaps(i, g.id, range);
+            let gap_text = group_gaps(i, g.id);
             let rr: BTreeSet<u32> = all.iter().filter_map(|z| z.round_robin).collect();
             let mut v = json!({
                 "id": g.id,
@@ -580,7 +599,7 @@ pub fn articulation_colour(i: &HausInstrument, a: ArticulationId) -> u32 {
 
 /// The `snapshot { kind: zone_map }` image of one instrument, and its caption.
 pub fn zone_map_png(p: &Project, i: &HausInstrument, width: u32) -> (Vec<u8>, String) {
-    use ph_analysis::image::{ZoneBox, ZoneMapSpec, zone_map};
+    use ph_analysis::image::{ZoneBox, ZoneMapSpec, ZonePanel, zone_map};
     type Stack = (ph_core::GroupId, u8, u8, u8, u8, bool);
     let key = |z: &Zone| -> Stack {
         (
@@ -599,36 +618,64 @@ pub fn zone_map_png(p: &Project, i: &HausInstrument, width: u32) -> (Vec<u8>, St
     for s in stacks.values_mut() {
         s.sort_by_key(|z| (z.round_robin, z.id));
     }
-    let zones: Vec<ZoneBox> = i
-        .zones
-        .values()
-        .map(|z| {
-            let label = stem(&sample_label(p, &z.sample)).to_string();
-            let (band, label) = match z.round_robin {
-                Some(pos) => {
-                    let s = &stacks[&key(z)];
-                    let at = s.iter().position(|o| o.id == z.id).unwrap_or(0);
-                    (
-                        (at as u32, s.len() as u32),
-                        format!("RR {} {label}", pos + 1),
-                    )
-                }
-                None => ((0, 1), label),
-            };
-            ZoneBox {
-                keys: (z.keys.lo, z.keys.hi),
-                velocity: (z.velocity.lo, z.velocity.hi),
-                color: group_colour(i, z.group),
-                release: z.trigger == ZoneTrigger::Release,
-                band,
-                label,
+    let boxed = |z: &Zone| {
+        let label = stem(&sample_label(p, &z.sample)).to_string();
+        let (band, label) = match z.round_robin {
+            Some(pos) => {
+                let s = &stacks[&key(z)];
+                let at = s.iter().position(|o| o.id == z.id).unwrap_or(0);
+                (
+                    (at as u32, s.len() as u32),
+                    format!("RR {} {label}", pos + 1),
+                )
             }
-        })
-        .collect();
+            None => ((0, 1), label),
+        };
+        ZoneBox {
+            keys: (z.keys.lo, z.keys.hi),
+            velocity: (z.velocity.lo, z.velocity.hi),
+            color: group_colour(i, z.group),
+            release: z.trigger == ZoneTrigger::Release,
+            band,
+            label,
+        }
+    };
+    // one panel per articulation (the zones that sound under it), so they never hide each
+    // other; groups in no articulation play in every panel
+    let panels: Vec<ZonePanel> = if i.articulations.is_empty() {
+        vec![ZonePanel {
+            title: "all zones".into(),
+            zones: i.zones.values().map(boxed).collect(),
+        }]
+    } else {
+        i.articulations
+            .iter()
+            .map(|a| {
+                let gs = groups_playing(i, a.id);
+                ZonePanel {
+                    title: format!(
+                        "{} ({})",
+                        a.name,
+                        match a.trigger {
+                            ArticulationTrigger::Key { key } => format!("key {}", note_name(key)),
+                            ArticulationTrigger::Cc { controller, lo, hi } =>
+                                format!("CC{controller} {lo:.2}-{hi:.2}"),
+                        }
+                    ),
+                    zones: i
+                        .zones
+                        .values()
+                        .filter(|z| gs.contains(&z.group))
+                        .map(boxed)
+                        .collect(),
+                }
+            })
+            .collect()
+    };
     let legend: Vec<(String, u32)> = i
         .groups
         .values()
-        .map(|g| (g.name.clone(), group_colour(i, g.id)))
+        .map(|g| (group_label(i, g), group_colour(i, g.id)))
         .collect();
     let keyswitches: Vec<(u8, String, u32)> = i
         .articulations
@@ -648,7 +695,7 @@ pub fn zone_map_png(p: &Project, i: &HausInstrument, width: u32) -> (Vec<u8>, St
             i.zones.len(),
             range.map_or(String::new(), |(a, b)| key_span(a, b))
         ),
-        zones: &zones,
+        panels: &panels,
         legend: &legend,
         keyswitches: &keyswitches,
         width,
@@ -687,6 +734,9 @@ pub fn zone_map_png(p: &Project, i: &HausInstrument, width: u32) -> (Vec<u8>, St
                 .collect::<Vec<_>>()
                 .join(", "),
         );
+    }
+    if !i.articulations.is_empty() {
+        caption.push_str("; one panel per articulation");
     }
     caption.push_str("; stacked bands are round robins, outlines release zones");
     (png, caption)
@@ -887,7 +937,7 @@ mod tests {
         assert!(!guide.mono && !guide.legato);
         for part in [
             "starts as Sustain",
-            "gaps: Staccato vel 81-127: no zone on C5-C6",
+            "gaps: Staccato (Staccato) vel 81-127: no zone on C5-C6",
             "round robins: up to 2 takes per note",
             "release samples sound on note-off",
         ] {

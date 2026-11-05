@@ -45,6 +45,12 @@ pub use host::{EngineHost, default_projects_dir};
 pub use jsonrpc::serve_jsonrpc;
 pub use mcp::PatternhausServer;
 
+/// The zone-map colours the `zone_map` snapshot uses, which match the sampler window's
+/// (`ph-ui` tests that they do).
+pub mod zone_colours {
+    pub use crate::views_m3::{OBJECT_COLOURS, articulation_colour, group_colour};
+}
+
 use ph_commands::{Caller, Registry, Request, Session, SessionHandle, UiRequest};
 use ph_core::Project;
 use ph_engine::assets::FileResolver;
