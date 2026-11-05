@@ -149,6 +149,67 @@ pub struct ProjectGuide {
     pub guide: PlayingGuide,
 }
 
+impl ProjectGuide {
+    /// Reads a guide copy (`plugins/<file>.catalogue.toml`).
+    pub fn from_toml(text: &str) -> Result<Self, String> {
+        toml::from_str(text).map_err(|e| e.to_string())
+    }
+}
+
+/// `C4` for 60.
+pub fn note_name(key: u8) -> String {
+    const N: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    format!("{}{}", N[key as usize % 12], key as i32 / 12 - 1)
+}
+
+/// The guide in a sentence or two, for agents.
+pub fn guide_text(g: &PlayingGuide) -> String {
+    let mut parts = Vec::new();
+    match g.range {
+        Some([lo, hi]) => parts.push(format!(
+            "plays {}-{} ({lo}-{hi})",
+            note_name(lo),
+            note_name(hi)
+        )),
+        None => parts.push("range not set".into()),
+    }
+    if g.mono {
+        parts.push("mono".into());
+    }
+    if g.legato {
+        parts.push("legato (overlap notes)".into());
+    }
+    if !g.keyswitches.is_empty() {
+        parts.push(format!(
+            "keyswitches {}",
+            g.keyswitches
+                .iter()
+                .map(|k| format!("{} ({}) {}", note_name(k.key), k.key, k.articulation))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !g.ccs.is_empty() {
+        parts.push(format!(
+            "CCs {}",
+            g.ccs
+                .iter()
+                .map(|c| format!("CC{} {}", c.cc, c.meaning))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !g.velocity.is_empty() {
+        parts.push(format!("velocity: {}", g.velocity));
+    }
+    if !g.notes.is_empty() {
+        parts.push(g.notes.clone());
+    }
+    parts.join("; ")
+}
+
 /// Where a project's guide copy lives for a state reference (`plugins/x.state` →
 /// `plugins/x.catalogue.toml`).
 pub fn project_guide_ref(state_ref: &str) -> String {

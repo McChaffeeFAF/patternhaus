@@ -172,14 +172,6 @@ fn row(host: &dyn Host, id: &str, e: &CatalogueEntry) -> Value {
     v
 }
 
-/// `C4` for 60.
-pub(crate) fn note_name(key: u8) -> String {
-    const N: [&str; 12] = [
-        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-    ];
-    format!("{}{}", N[key as usize % 12], key as i32 / 12 - 1)
-}
-
 fn check_guide(g: &PlayingGuide) -> CmdResult<()> {
     if let Some([lo, hi]) = g.range
         && (lo > hi || hi > 127)
@@ -310,52 +302,6 @@ fn full(host: &dyn Host, id: &str, e: &CatalogueEntry) -> Value {
     v["guide"] = json!(e.guide);
     v["guide_text"] = json!(guide_text(&e.guide));
     v
-}
-
-/// The guide in a sentence or two, for agents.
-pub(crate) fn guide_text(g: &PlayingGuide) -> String {
-    let mut parts = Vec::new();
-    match g.range {
-        Some([lo, hi]) => parts.push(format!(
-            "plays {}-{} ({lo}-{hi})",
-            note_name(lo),
-            note_name(hi)
-        )),
-        None => parts.push("range not set".into()),
-    }
-    if g.mono {
-        parts.push("mono".into());
-    }
-    if g.legato {
-        parts.push("legato (overlap notes)".into());
-    }
-    if !g.keyswitches.is_empty() {
-        parts.push(format!(
-            "keyswitches {}",
-            g.keyswitches
-                .iter()
-                .map(|k| format!("{} ({}) {}", note_name(k.key), k.key, k.articulation))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    if !g.ccs.is_empty() {
-        parts.push(format!(
-            "CCs {}",
-            g.ccs
-                .iter()
-                .map(|c| format!("CC{} {}", c.cc, c.meaning))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    if !g.velocity.is_empty() {
-        parts.push(format!("velocity: {}", g.velocity));
-    }
-    if !g.notes.is_empty() {
-        parts.push(g.notes.clone());
-    }
-    parts.join("; ")
 }
 
 fn get(ctx: &mut CommandCtx<'_>, p: EntryRef) -> CmdResult<CommandOutput> {
@@ -633,19 +579,26 @@ fn probe(ctx: &mut CommandCtx<'_>, p: Probe) -> CmdResult<CommandOutput> {
         .copied()
         .filter(|k| !report.sounding.contains(k))
         .collect();
-    let keyswitches: Vec<Value> = report
-        .keyswitches
+    // a keyswitch is silent itself and changes the sound of the note after it; a silent
+    // candidate that changed nothing may select the articulation already playing (listen)
+    let silent_ks = |changes: bool| -> Vec<&KeyswitchProbe> {
+        report
+            .keyswitches
+            .iter()
+            .filter(|k| !k.sounds && k.after.sounds && k.changes_sound == changes)
+            .collect()
+    };
+    let keyswitches: Vec<Value> = silent_ks(true)
         .iter()
-        .filter(|k| !k.sounds && k.after.sounds)
         .enumerate()
         .map(|(i, k)| {
             json!({
                 "key": k.key,
                 "articulation": format!("articulation {} (name it)", i + 1),
-                "changes_sound": k.changes_sound,
             })
         })
         .collect();
+    let unconfirmed: Vec<u8> = silent_ks(false).iter().map(|k| k.key).collect();
     let range_text = report
         .range
         .map(|[lo, hi]| format!("{}-{} ({lo}-{hi})", note_name(lo), note_name(hi)));
@@ -665,6 +618,7 @@ fn probe(ctx: &mut CommandCtx<'_>, p: Probe) -> CmdResult<CommandOutput> {
                 "range_text": range_text,
                 "silent_keys": silent_runs,
                 "keyswitches": keyswitches,
+                "silent_candidates_without_change": unconfirmed,
             },
             "next": "this is a proposal: check it (render a few notes and listen), name the articulations, then save it with catalogue.update_guide",
             "test_key": test_key,

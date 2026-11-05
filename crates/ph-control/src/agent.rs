@@ -262,7 +262,7 @@ impl Agent {
             ),
             tool(
                 "get_state",
-                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances), zones (Haus Sampler zone maps: groups, key and velocity ranges, roots, round robins, articulations; args instrument), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
+                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances; channels added from the plugin catalogue show their playing guide: range, keyswitches, CCs), catalogue (the plugin instrument catalogue: saved instruments with plugin status), zones (Haus Sampler zone maps: groups, key and velocity ranges, roots, round robins, articulations; args instrument), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
                 json!({ "type": "object", "properties": {
                     "view": { "type": "string" }, "args": { "type": "object" } } }),
                 true,
@@ -671,7 +671,20 @@ impl Agent {
             "overview" => Ok(views::overview(&p, &warnings)),
             "audio" => Ok(crate::views_m2::audio_view(&p)),
             "automation" => Ok(crate::views_m2::automation_view(&p)),
-            "plugins" => Ok(crate::views_m2::plugins_view(&p)),
+            "plugins" => {
+                let mut v = crate::views_m2::plugins_view(&p);
+                let dir = self.studio.engine.plugin_env().map_or_else(
+                    || self.studio.config.project_dir.clone(),
+                    |e| e.project_dir(),
+                );
+                crate::views_m3::attach_guides(&mut v, &p, &dir);
+                Ok(v)
+            }
+            "catalogue" => self
+                .studio
+                .execute(caller, Request::new("catalogue.list", json!({})))
+                .map(|d| d.result)
+                .map_err(|e| err_text(&e)),
             "zones" => crate::views_m3::zones_view(&p, &a),
             "proposals" => self.proposals_view(),
             "notes" => views::notes_view(&p, &a),
@@ -733,7 +746,7 @@ impl Agent {
                 }
             }
             other => Err(format!(
-                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, audio, automation, plugins, zones, proposals, transport, session, ui, events, warnings, raw"
+                "unknown view {other:?}: overview, notes, pattern, sections, mixer, channels, audio, automation, plugins, catalogue, zones, proposals, transport, session, ui, events, warnings, raw"
             )),
         };
         match r {

@@ -208,6 +208,7 @@ impl Backend {
             grant,
             plugins: ph_control::default_plugin_config(),
         })?;
+        studio.set_catalogue_dir(ph_control::default_catalogue_dir());
         Ok(Backend::Local {
             agent,
             _studio: studio,
@@ -525,6 +526,7 @@ async fn run(cmd: Cmd) -> Result<bool, String> {
                     grant,
                     plugins: ph_control::default_plugin_config(),
                 })?;
+                studio.set_catalogue_dir(ph_control::default_catalogue_dir());
                 eprintln!(
                     "patternhaus: headless MCP on stdio, project {}",
                     project_dir(&common).display()

@@ -424,10 +424,11 @@ fn catalogue_probe_proposes_range_silent_keys_and_keyswitches() {
     assert_eq!(v["proposal"]["silent_keys"], json!([[30, 47], [73, 80]]));
     assert_eq!(
         v["proposal"]["keyswitches"],
-        json!([
-            { "key": 36, "articulation": "articulation 1 (name it)", "changes_sound": true },
-            { "key": 37, "articulation": "articulation 2 (name it)", "changes_sound": false },
-        ])
+        json!([{ "key": 36, "articulation": "articulation 1 (name it)" }])
+    );
+    assert_eq!(
+        v["proposal"]["silent_candidates_without_change"],
+        json!([37])
     );
     assert_eq!(v["test_key"], 60, "the middle of the guide's range");
     assert!(
