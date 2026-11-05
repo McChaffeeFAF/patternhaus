@@ -8,7 +8,9 @@
 //! touching anyone else's.
 
 use crate::{ImportError, ImportInput, Imported, Importer, importers};
-use ph_core::{HausInstrument, SampleRef, validate_group, validate_instrument_header, validate_zone};
+use ph_core::{
+    HausInstrument, SampleRef, validate_group, validate_instrument_header, validate_zone,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -20,9 +22,7 @@ pub enum RegisterError {
     BadFormat(String),
     #[error("the {format} importer declares no extensions")]
     NoExtensions { format: String },
-    #[error(
-        "the {format} importer's extension {extension:?} must be lower case, without the dot"
-    )]
+    #[error("the {format} importer's extension {extension:?} must be lower case, without the dot")]
     BadExtension { format: String, extension: String },
     #[error("an importer with the format id {0} is already registered")]
     DuplicateFormat(String),
@@ -189,14 +189,17 @@ impl Importers {
 /// Runs one importer the way the host does: a panic (a bug: importers must never panic) is
 /// caught and becomes an error naming the format, and an accepted result must pass
 /// [`check_imported`].
-pub fn import_with(importer: &dyn Importer, input: ImportInput<'_>) -> Result<Imported, ImportError> {
+pub fn import_with(
+    importer: &dyn Importer,
+    input: ImportInput<'_>,
+) -> Result<Imported, ImportError> {
     let file = input.name();
     let format = importer.format();
     let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| importer.import(input)))
         .map_err(|_| ImportError::Unsupported {
-            file: file.clone(),
-            reason: format!("the {format} importer failed unexpectedly (a bug in that importer)"),
-        })??;
+        file: file.clone(),
+        reason: format!("the {format} importer failed unexpectedly (a bug in that importer)"),
+    })??;
     check_imported(&out).map_err(|reason| ImportError::Unsupported {
         file,
         reason: format!("the {format} importer produced an invalid instrument: {reason}"),
@@ -279,9 +282,16 @@ mod tests {
         set.register(fake("toy", &["toy", "toyz"])).unwrap();
         assert_eq!(set.formats(), ["sfz", "sf2", "dspreset", "exs", "toy"]);
         assert!(set.extensions().ends_with(&["exs", "toy", "toyz"]));
-        assert_eq!(set.importer_for(Path::new("a/B.TOYZ")).unwrap().format(), "toy");
+        assert_eq!(
+            set.importer_for(Path::new("a/B.TOYZ")).unwrap().format(),
+            "toy"
+        );
         // the built-in set is untouched: no global state
-        assert!(Importers::builtin().importer_for(Path::new("a.toy")).is_none());
+        assert!(
+            Importers::builtin()
+                .importer_for(Path::new("a.toy"))
+                .is_none()
+        );
         assert_eq!(format!("{:?}", Importers::empty()), "[]");
     }
 
@@ -338,7 +348,10 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(e.to_string().contains("bad importer failed unexpectedly"), "{e}");
+        assert!(
+            e.to_string().contains("bad importer failed unexpectedly"),
+            "{e}"
+        );
         let ok = import_with(
             &fake("toy", &["toy"]),
             ImportInput::Bytes {

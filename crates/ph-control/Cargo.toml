@@ -14,6 +14,7 @@ ph-node.workspace = true
 ph-commands.workspace = true
 ph-engine.workspace = true
 ph-formats.workspace = true
+ph-sampler-formats.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -1035,18 +1035,25 @@ fn sampler_import_reads_a_registered_format_and_cuts_its_container_samples() {
     let mut r = FsRig::new();
     // not known until registered
     let file = r.h.lib.join("tone.box");
-    let pcm: Vec<i16> = (0..4800).map(|i| ((i % 100) * 300 - 15000) as i16).collect();
+    let pcm: Vec<i16> = (0..4800)
+        .map(|i| ((i % 100) * 300 - 15000) as i16)
+        .collect();
     let mut bytes = b"BOX1".to_vec();
     bytes.extend(pcm.iter().flat_map(|v| v.to_le_bytes()));
     std::fs::write(&file, &bytes).unwrap();
     let path = file.to_string_lossy().to_string();
-    let e = r.try_run("sampler.import", json!({ "path": path })).unwrap_err();
+    let e = r
+        .try_run("sampler.import", json!({ "path": path }))
+        .unwrap_err();
     assert!(e.to_string().contains("not an instrument format"), "{e}");
 
     r.h.importers.register(BoxImporter).unwrap();
     let out = r.run("sampler.import", json!({ "path": path }));
     assert_eq!(out["report"]["format"], "box");
-    assert_eq!(out["collected"], true, "container samples are always collected");
+    assert_eq!(
+        out["collected"], true,
+        "container samples are always collected"
+    );
     let folder = r.inst(0).folder.clone().unwrap();
     let wav = r.h.project.join(&folder).join("samples").join("tone.wav");
     let d = ph_formats::decode::decode_file(&wav).unwrap();

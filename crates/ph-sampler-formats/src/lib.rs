@@ -58,8 +58,8 @@ pub mod sfz;
 
 pub use dspreset::DecentSampler;
 pub use exs::Exs;
-pub use sf2::{PresetChoice, SoundFont};
 pub use registry::{Importers, RegisterError, check_imported, import_with};
+pub use sf2::{PresetChoice, SoundFont};
 pub use sfz::Sfz;
 
 /// A float WAV file holding `audio` (for [`SampleSource::Audio`]).
@@ -349,7 +349,15 @@ mod tests {
         let set = Importers::builtin();
         assert_eq!(
             set.extensions(),
-            ["sfz", "sf2", "sf3", "dspreset", "dsbundle", "dslibrary", "exs"]
+            [
+                "sfz",
+                "sf2",
+                "sf3",
+                "dspreset",
+                "dsbundle",
+                "dslibrary",
+                "exs"
+            ]
         );
         for (ext, format) in [
             ("piano.SFZ", "sfz"),

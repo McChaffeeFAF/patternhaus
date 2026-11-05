@@ -31,6 +31,8 @@ pub struct EngineHost {
     note_target: Option<NoteCapture>,
     /// The plugin catalogue folder (M3/T9), shared with [`crate::Studio::set_catalogue_dir`].
     catalogue: Arc<RwLock<Option<PathBuf>>>,
+    /// The session's instrument importers (the importer hook, M3/T6).
+    importers: ph_sampler_formats::Importers,
 }
 
 impl EngineHost {
@@ -54,7 +56,14 @@ impl EngineHost {
             midi: None,
             note_target: None,
             catalogue: Arc::new(RwLock::new(None)),
+            importers: ph_sampler_formats::Importers::builtin(),
         }
+    }
+
+    /// The instrument importers `sampler.import` uses (default: the built-ins).
+    pub fn with_importers(mut self, importers: ph_sampler_formats::Importers) -> Self {
+        self.importers = importers;
+        self
     }
 
     /// Shares the catalogue folder setting (see `Studio::set_catalogue_dir`).
@@ -815,6 +824,10 @@ impl Host for EngineHost {
     fn plugin_editor(&mut self, target: PluginTarget, open: bool) -> CmdResult<bool> {
         let _ = self.ui.send(UiRequest::PluginEditor { target, open });
         Ok(self.ui_attached.load(Ordering::Relaxed))
+    }
+
+    fn importers(&self) -> ph_sampler_formats::Importers {
+        self.importers.clone()
     }
 
     fn catalogue_dir(&self) -> Option<PathBuf> {

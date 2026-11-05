@@ -1,0 +1,598 @@
+//! `patternhaus-cli`: the shell and MCP front end of Patternhaus (DESIGN §5).
+//!
+//! ```text
+//! patternhaus-cli run pattern.add --params '{"name":"Beat"}'
+//! patternhaus-cli script build.json
+//! patternhaus-cli render --project ./song --name mix
+//! patternhaus-cli analyze --project ./song --what loudness,key
+//! patternhaus-cli mcp --headless --project ./song      # MCP over stdio
+//! patternhaus-cli mcp --connect                        # proxy to the running app
+//! patternhaus-cli plugin-scan --report report.md       # scan installed plugins
+//! ```
+//!
+//! Commands start a headless studio (silent audio) on `--project`, or talk to a running app
+//! with `--connect`. Anything printed on stdout by `mcp` is MCP protocol; messages go to
+//! stderr.
+//!
+//! The binary is a thin `main` over [`run`]. A separately built binary can register more
+//! instrument importers (the importer hook, M3/T6, `docs/formats/importer-hook.md`) and run
+//! the same CLI:
+//!
+//! ```no_run
+//! fn main() -> std::process::ExitCode {
+//!     let importers = ph_cli::Importers::builtin();
+//!     // importers.register(MyImporter).expect("a format of its own");
+//!     ph_cli::run(ph_cli::Options { importers })
+//! }
+//! ```
+
+use clap::{Args, Parser, Subcommand};
+use ph_control::{
+    AudioMode, HeadlessOptions, default_endpoint, parse_grant, proxy_stdio, serve_stdio,
+    start_headless,
+};
+pub use ph_sampler_formats::Importers;
+use serde_json::{Value, json};
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+#[derive(Parser)]
+#[command(
+    name = "patternhaus-cli",
+    version,
+    about = "Drive Patternhaus from a shell or an MCP client"
+)]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Args, Clone)]
+struct Common {
+    /// Project folder (opened if it holds a project.json). Default: the current folder when it
+    /// holds a project, else ./patternhaus-project.
+    #[arg(long, global = true)]
+    project: Option<PathBuf>,
+    /// Factory assets folder (default: found next to the executable or in the source tree).
+    #[arg(long, global = true)]
+    assets: Option<PathBuf>,
+    /// Use the real audio device instead of the silent simulated one.
+    #[arg(long, global = true)]
+    audio: bool,
+    /// Scopes for headless clients: read, compose, mix, full (comma separated).
+    #[arg(long, global = true, default_value = "full")]
+    grant: String,
+    /// Talk to a running Patternhaus app instead of starting a headless studio.
+    #[arg(long, global = true)]
+    connect: bool,
+    /// Endpoint of the running app (default: the per-user pipe or socket).
+    #[arg(long, global = true)]
+    endpoint: Option<String>,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Run one command: `run note.add --params '{...}'`.
+    Run {
+        command: String,
+        /// Parameters as a JSON object.
+        #[arg(long, default_value = "{}")]
+        params: String,
+        /// Confirm a destructive command.
+        #[arg(long)]
+        confirm: bool,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Run a JSON script: a list of {command, params, confirm} (or {requests, as_one_undo}).
+    Script {
+        file: PathBuf,
+        /// Make every request its own undo step (default: the whole script is one step).
+        #[arg(long)]
+        separate: bool,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Render the song to a file and print a quick analysis.
+    Render {
+        #[arg(long, default_value = "render")]
+        name: String,
+        #[arg(long, default_value = "wav")]
+        format: String,
+        #[arg(long)]
+        bit_depth: Option<u32>,
+        #[arg(long)]
+        from_bar: Option<u32>,
+        #[arg(long)]
+        to_bar: Option<u32>,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Print analysis numbers (loudness, spectrum, health, onsets, key, chords, clashes, masking).
+    Analyze {
+        /// Comma separated; default is the standard set, `all` for everything.
+        #[arg(long)]
+        what: Option<String>,
+        #[arg(long)]
+        from_bar: Option<u32>,
+        #[arg(long)]
+        to_bar: Option<u32>,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Write a PNG snapshot: waveform, spectrogram, piano_roll or playlist.
+    Snapshot {
+        kind: String,
+        /// Output PNG file.
+        #[arg(long)]
+        out: PathBuf,
+        #[arg(long)]
+        pattern: Option<String>,
+        #[arg(long)]
+        from_bar: Option<u32>,
+        #[arg(long)]
+        to_bar: Option<u32>,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// List every command.
+    Commands {
+        #[arg(long, default_value = "")]
+        filter: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Scan installed CLAP and VST3 plugins (each file in a helper process, one at a time, with
+    /// a timeout), update the plugin cache, and print counts or write a compatibility report.
+    PluginScan {
+        /// Folders or plugin files to scan; default: the standard plugin folders.
+        paths: Vec<PathBuf>,
+        /// Write a markdown compatibility report here. It lists the plugins installed on this
+        /// machine: keep it local (never commit it).
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// The scan cache file (default: the per-user plugin cache the app uses).
+        #[arg(long)]
+        cache: Option<PathBuf>,
+        /// Seconds one file may take before it is killed and blocked.
+        #[arg(long, default_value = "30")]
+        timeout: u64,
+        /// Rescan every file, even those the cache says did not change.
+        #[arg(long)]
+        fresh: bool,
+    },
+    /// Serve MCP over stdio. `--headless` starts its own studio, `--connect` attaches to the
+    /// running app; with neither, attach if an app is running, else go headless.
+    Mcp {
+        #[arg(long)]
+        headless: bool,
+        #[command(flatten)]
+        common: Common,
+    },
+}
+
+fn range(from: Option<u32>, to: Option<u32>) -> Value {
+    match (from, to) {
+        (Some(a), Some(b)) => json!({ "from_bar": a, "to_bar": b }),
+        (Some(a), None) => json!({ "from_bar": a, "to_bar": 100000 }),
+        (None, Some(b)) => json!({ "from_bar": 1, "to_bar": b }),
+        _ => Value::Null,
+    }
+}
+
+fn project_dir(c: &Common) -> PathBuf {
+    c.project.clone().unwrap_or_else(|| {
+        if PathBuf::from("project.json").exists() {
+            PathBuf::from(".")
+        } else {
+            PathBuf::from("patternhaus-project")
+        }
+    })
+}
+
+fn endpoint(c: &Common) -> String {
+    c.endpoint.clone().unwrap_or_else(default_endpoint)
+}
+
+/// Where tool calls go.
+enum Backend {
+    Local {
+        agent: std::sync::Arc<ph_control::Agent>,
+        _studio: ph_control::Studio,
+    },
+    Remote(String),
+}
+
+impl Backend {
+    fn open(c: &Common, importers: &Importers) -> Result<Backend, String> {
+        if c.connect {
+            return Ok(Backend::Remote(endpoint(c)));
+        }
+        let grant = parse_grant(&c.grant)?;
+        let (studio, agent) = start_headless(HeadlessOptions {
+            project_dir: project_dir(c),
+            assets_dir: c.assets.clone(),
+            audio: if c.audio {
+                AudioMode::Device
+            } else {
+                AudioMode::Silent
+            },
+            projects_dir: ph_control::default_projects_dir(),
+            grant,
+            plugins: ph_control::default_plugin_config(),
+            importers: importers.clone(),
+        })?;
+        studio.set_catalogue_dir(ph_control::default_catalogue_dir());
+        Ok(Backend::Local {
+            agent,
+            _studio: studio,
+        })
+    }
+
+    async fn call(&self, tool: &str, args: Value) -> Result<Value, String> {
+        match self {
+            Backend::Local { agent, .. } => {
+                let (agent, tool) = (agent.clone(), tool.to_string());
+                tokio::task::spawn_blocking(move || {
+                    agent.call("patternhaus-cli", &tool, args).to_json()
+                })
+                .await
+                .map_err(|e| e.to_string())
+            }
+            Backend::Remote(ep) => remote_call(ep, tool, args).await,
+        }
+    }
+}
+
+/// One JSON-RPC request to a running app.
+async fn remote_call(endpoint: &str, tool: &str, args: Value) -> Result<Value, String> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let (r, mut w) = ph_control::connect(endpoint).await?;
+    let mut r = BufReader::new(r);
+    let hello = json!({ "jsonrpc": "2.0", "id": 0, "method": "rpc.hello", "params": { "client": "patternhaus-cli" } });
+    let req = json!({ "jsonrpc": "2.0", "id": 1, "method": tool, "params": args });
+    w.write_all(format!("{hello}\n{req}\n").as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    w.flush().await.map_err(|e| e.to_string())?;
+    for _ in 0..2 {
+        let mut line = String::new();
+        r.read_line(&mut line).await.map_err(|e| e.to_string())?;
+        let v: Value = serde_json::from_str(line.trim()).map_err(|e| e.to_string())?;
+        if v["id"] == json!(1) {
+            return match v.get("error") {
+                Some(e) => Err(e["message"].as_str().unwrap_or("error").to_string()),
+                None => Ok(v["result"].clone()),
+            };
+        }
+    }
+    Err("no response from the app".into())
+}
+
+/// Prints a tool result; returns whether it was an error. Images go to `image_out`.
+fn print_result(res: &Value, image_out: Option<&PathBuf>) -> bool {
+    use base64::Engine as _;
+    let is_error = res["isError"].as_bool().unwrap_or(false);
+    if let Some(blocks) = res["content"].as_array() {
+        let mut printed = false;
+        for b in blocks {
+            match b["type"].as_str() {
+                Some("text") => {
+                    let t = b["text"].as_str().unwrap_or_default();
+                    match serde_json::from_str::<Value>(t) {
+                        Ok(v) => {
+                            println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default())
+                        }
+                        Err(_) => println!("{t}"),
+                    }
+                    printed = true;
+                }
+                Some("image") => {
+                    let data = b["data"].as_str().unwrap_or_default();
+                    match (
+                        image_out,
+                        base64::engine::general_purpose::STANDARD.decode(data),
+                    ) {
+                        (Some(p), Ok(bytes)) => match std::fs::write(p, &bytes) {
+                            Ok(()) => println!("wrote {} ({} bytes)", p.display(), bytes.len()),
+                            Err(e) => eprintln!("could not write {}: {e}", p.display()),
+                        },
+                        (None, Ok(bytes)) => {
+                            println!("(image, {} bytes; use --out to save it)", bytes.len())
+                        }
+                        (_, Err(e)) => eprintln!("bad image data: {e}"),
+                    }
+                }
+                _ => {}
+            }
+        }
+        if !printed && !is_error {
+            println!("ok");
+        }
+    } else {
+        println!("{}", serde_json::to_string_pretty(res).unwrap_or_default());
+    }
+    is_error
+}
+
+fn script_commands(text: &str) -> Result<(Vec<Value>, bool), String> {
+    let v: Value = serde_json::from_str(text).map_err(|e| format!("script is not JSON: {e}"))?;
+    let (list, one) = match &v {
+        Value::Array(a) => (a.clone(), true),
+        Value::Object(o) => (
+            o.get("requests")
+                .or_else(|| o.get("commands"))
+                .and_then(Value::as_array)
+                .cloned()
+                .ok_or("script object needs a `requests` array")?,
+            o.get("as_one_undo")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+        ),
+        _ => return Err("script must be an array of requests".into()),
+    };
+    let cmds = list
+        .into_iter()
+        .map(|r| {
+            let id = r["command"].as_str().or_else(|| r["id"].as_str()).ok_or("each request needs a `command`")?;
+            Ok(json!({ "id": id, "params": r.get("params").cloned().unwrap_or(json!({})), "confirm": r["confirm"].as_bool().unwrap_or(false) }))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok((cmds, one))
+}
+
+/// `plugin-scan`: no studio, just the plugin host and its cache.
+fn plugin_scan(
+    paths: Vec<PathBuf>,
+    report: Option<PathBuf>,
+    cache: Option<PathBuf>,
+    timeout: u64,
+    fresh: bool,
+) -> Result<bool, String> {
+    use ph_engine::plugins::{PluginHost, PluginKind, PluginStatus};
+    let mut config = ph_control::default_plugin_config();
+    if cache.is_some() {
+        config.cache_file = cache;
+    }
+    config.timeout = Some(std::time::Duration::from_secs(timeout.max(1)));
+    let host = PluginHost::new(config);
+    if fresh {
+        host.forget_files();
+    }
+    let started = std::time::Instant::now();
+    let r = host.scan(&paths, |p| {
+        eprintln!(
+            "[{}/{}] {}{}",
+            p.index + 1,
+            p.total,
+            p.path.display(),
+            if p.cached { " (cached)" } else { "" }
+        );
+    })?;
+    let list = host.list();
+    let count =
+        |f: ph_engine::plugins::PluginFormat, st: Option<PluginStatus>, inst: Option<bool>| {
+            list.iter()
+                .filter(|p| p.info.format == f)
+                .filter(|p| st.is_none_or(|s| p.status == s))
+                .filter(|p| inst.is_none_or(|i| (p.info.kind == PluginKind::Instrument) == i))
+                .count()
+        };
+    let mut summary = json!({ "seconds": started.elapsed().as_secs_f64().round() });
+    for (name, f) in [
+        ("clap", ph_engine::plugins::PluginFormat::Clap),
+        ("vst3", ph_engine::plugins::PluginFormat::Vst3),
+    ] {
+        summary[name] = json!({
+            "plugins": count(f, None, None),
+            "ok": count(f, Some(PluginStatus::Ok), None),
+            "isolate": count(f, Some(PluginStatus::Isolate), None),
+            "blocked": count(f, Some(PluginStatus::Blocked), None),
+            "instruments": count(f, None, Some(true)),
+            "effects": count(f, None, Some(false)),
+        });
+    }
+    summary["files_failed"] = json!(r.failed.len());
+    if let Some(path) = report {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        std::fs::write(&path, host.report_markdown())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        summary["report"] = json!(path.display().to_string());
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&summary).unwrap_or_default()
+    );
+    Ok(false)
+}
+
+async fn dispatch(cmd: Cmd, importers: &Importers) -> Result<bool, String> {
+    match cmd {
+        Cmd::PluginScan {
+            paths,
+            report,
+            cache,
+            timeout,
+            fresh,
+        } => plugin_scan(paths, report, cache, timeout, fresh),
+        Cmd::Run {
+            command,
+            params,
+            confirm,
+            common,
+        } => {
+            let params: Value =
+                serde_json::from_str(&params).map_err(|e| format!("--params is not JSON: {e}"))?;
+            let b = Backend::open(&common, importers)?;
+            let r = b
+                .call(
+                    "run",
+                    json!({ "id": command, "params": params, "confirm": confirm }),
+                )
+                .await?;
+            Ok(print_result(&r, None))
+        }
+        Cmd::Script {
+            file,
+            separate,
+            common,
+        } => {
+            let text =
+                std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            let (cmds, one) = script_commands(&text)?;
+            let b = Backend::open(&common, importers)?;
+            let r = b
+                .call(
+                    "run_batch",
+                    json!({ "commands": cmds, "as_one_undo": one && !separate }),
+                )
+                .await?;
+            Ok(print_result(&r, None))
+        }
+        Cmd::Render {
+            name,
+            format,
+            bit_depth,
+            from_bar,
+            to_bar,
+            common,
+        } => {
+            let b = Backend::open(&common, importers)?;
+            let mut args =
+                json!({ "name": name, "format": format, "range": range(from_bar, to_bar) });
+            if let Some(d) = bit_depth {
+                args["bit_depth"] = json!(d);
+            }
+            let r = b.call("render", args).await?;
+            Ok(print_result(&r, None))
+        }
+        Cmd::Analyze {
+            what,
+            from_bar,
+            to_bar,
+            common,
+        } => {
+            let b = Backend::open(&common, importers)?;
+            let what: Vec<&str> = what
+                .as_deref()
+                .map(|w| w.split(',').collect())
+                .unwrap_or_default();
+            let r = b
+                .call(
+                    "analyze",
+                    json!({ "what": what, "range": range(from_bar, to_bar) }),
+                )
+                .await?;
+            Ok(print_result(&r, None))
+        }
+        Cmd::Snapshot {
+            kind,
+            out,
+            pattern,
+            from_bar,
+            to_bar,
+            common,
+        } => {
+            let b = Backend::open(&common, importers)?;
+            let mut args = json!({ "kind": kind, "range": range(from_bar, to_bar) });
+            if let Some(p) = pattern {
+                args["pattern"] = json!(p);
+            }
+            let r = b.call("snapshot", args).await?;
+            Ok(print_result(&r, Some(&out)))
+        }
+        Cmd::Commands { filter, common } => {
+            let b = Backend::open(&common, importers)?;
+            let r = b.call("list_commands", json!({ "filter": filter })).await?;
+            if let Some(lines) = r["value"]["commands"].as_array() {
+                for l in lines {
+                    println!("{}", l.as_str().unwrap_or_default());
+                }
+                Ok(false)
+            } else {
+                Ok(print_result(&r, None))
+            }
+        }
+        Cmd::Mcp { headless, common } => {
+            let ep = endpoint(&common);
+            let attach = if common.connect {
+                true
+            } else if headless {
+                false
+            } else {
+                ph_control::connect(&ep).await.is_ok()
+            };
+            if attach {
+                proxy_stdio(&ep).await?;
+            } else {
+                let grant = parse_grant(&common.grant)?;
+                let (studio, agent) = start_headless(HeadlessOptions {
+                    project_dir: project_dir(&common),
+                    assets_dir: common.assets.clone(),
+                    audio: if common.audio {
+                        AudioMode::Device
+                    } else {
+                        AudioMode::Silent
+                    },
+                    projects_dir: ph_control::default_projects_dir(),
+                    grant,
+                    plugins: ph_control::default_plugin_config(),
+                    importers: importers.clone(),
+                })?;
+                studio.set_catalogue_dir(ph_control::default_catalogue_dir());
+                eprintln!(
+                    "patternhaus: headless MCP on stdio, project {}",
+                    project_dir(&common).display()
+                );
+                serve_stdio(agent).await?;
+                drop(studio);
+            }
+            Ok(false)
+        }
+    }
+}
+
+/// What a front end built on this crate brings to the CLI.
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+    /// The instrument importers headless sessions use (default: the built-ins). With
+    /// `--connect` the running app's own importers apply.
+    pub importers: Importers,
+}
+
+/// Runs the CLI on this process's arguments: the whole of `patternhaus-cli`.
+pub fn run(options: Options) -> ExitCode {
+    run_from(options, std::env::args_os())
+}
+
+/// [`run`] on the given arguments (the first is the program name).
+pub fn run_from<I, T>(options: Options, args: I) -> ExitCode
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let cli = match Cli::try_parse_from(args) {
+        Ok(c) => c,
+        Err(e) => e.exit(),
+    };
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    match rt.block_on(dispatch(cli.cmd, &options.importers)) {
+        Ok(false) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::from(1),
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
