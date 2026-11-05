@@ -368,14 +368,8 @@ fn sampler_report_describes_the_instrument() {
 }
 
 #[test]
-fn sampler_import_of_later_formats_names_their_track() {
+fn sampler_import_refuses_files_no_importer_reads() {
     let mut r = Rig::piano();
-    for path in ["C:/Lib/x.nki", "C:/Lib/x.nkm"] {
-        match r.err("sampler.import", json!({ "path": path })) {
-            CmdError::Unavailable { track, .. } => assert_eq!(track, "M3/T6", "{path}"),
-            e => panic!("{path}: {e}"),
-        }
-    }
     let e = r.err("sampler.import", json!({ "path": "C:/x.txt" }));
     assert!(e.to_string().contains("not an instrument format"), "{e}");
     // schemas refuse unknown parameters
@@ -394,6 +388,8 @@ struct FsHost {
     inner: NullHost,
     project: std::path::PathBuf,
     lib: std::path::PathBuf,
+    /// The session's importers (the importer hook, M3/T6).
+    importers: ph_sampler_formats::Importers,
 }
 
 impl Host for FsHost {
@@ -425,6 +421,9 @@ impl Host for FsHost {
     }
     fn ui(&mut self, _: UiRequest) -> CmdResult<()> {
         Ok(())
+    }
+    fn importers(&self) -> ph_sampler_formats::Importers {
+        self.importers.clone()
     }
 }
 
@@ -484,6 +483,7 @@ impl FsRig {
                 inner: NullHost::default(),
                 project,
                 lib,
+                importers: Default::default(),
             },
             who: Caller::human(),
             _dir: dir,
@@ -942,4 +942,147 @@ fn sampler_edits_survive_project_new_and_undo() {
     let mut expected = before.clone();
     expected.next_ids = r.p().next_ids.clone(); // ids are never freed
     assert_eq!(r.p(), &expected);
+}
+
+// ------------------------------------------------------------------------- importer hook (M3/T6)
+
+/// A made-up container format for the hook: `BOX1` then mono 16-bit PCM at 48 kHz, played
+/// as one zone over the whole keyboard (root C4). Files starting `LOCK` are "protected" and
+/// refused; `LATER` stands for a format this build leaves out.
+struct BoxImporter;
+
+impl ph_sampler_formats::Importer for BoxImporter {
+    fn format(&self) -> &'static str {
+        "box"
+    }
+    fn extensions(&self) -> &'static [&'static str] {
+        &["box"]
+    }
+    fn version(&self) -> u32 {
+        1
+    }
+    fn import(
+        &self,
+        input: ph_sampler_formats::ImportInput<'_>,
+    ) -> Result<ph_sampler_formats::Imported, ph_sampler_formats::ImportError> {
+        use ph_sampler_formats::*;
+        let ImportInput::Path(path) = input else {
+            return Err(ImportError::Unsupported {
+                file: input.name(),
+                reason: "box files are read from disk".into(),
+            });
+        };
+        let bytes = std::fs::read(path).map_err(|e| ImportError::Io {
+            path: input.name(),
+            message: e.to_string(),
+        })?;
+        if bytes.starts_with(b"LOCK") {
+            return Err(ImportError::Encrypted {
+                format: "Box".into(),
+                file: input.name(),
+                detail: "it carries a licence lock".into(),
+            });
+        }
+        if bytes.starts_with(b"LATER") {
+            return Err(ImportError::Unavailable {
+                format: "Box v2".into(),
+                track: "a later box importer".into(),
+            });
+        }
+        let mut inst = HausInstrument::new("Boxed");
+        let mut g = Group::new("Main");
+        g.id = GroupId(0);
+        inst.groups.insert(g.id, g);
+        let mut z = Zone::new(
+            GroupId(0),
+            SampleRef::File("samples/tone.wav".into()),
+            KeyRange { lo: 0, hi: 127 },
+            60,
+        );
+        z.id = ZoneId(0);
+        inst.zones.insert(z.id, z);
+        inst.source = Some(InstrumentSource {
+            format: "box".into(),
+            file: input.name(),
+            importer_version: 1,
+        });
+        Ok(Imported {
+            instrument: inst,
+            samples: vec![ImportedSample {
+                name: "samples/tone.wav".into(),
+                source: SampleSource::Chunk {
+                    container: path.to_path_buf(),
+                    offset: 4,
+                    length: bytes.len() as u64 - 4,
+                    encoding: SampleEncoding::Pcm16Le,
+                    sample_rate: 48_000,
+                    channels: 1,
+                },
+            }],
+            report: ImportReport {
+                format: "box".into(),
+                file: input.name(),
+                groups: 1,
+                zones: 1,
+                ..Default::default()
+            },
+        })
+    }
+}
+
+#[test]
+fn sampler_import_reads_a_registered_format_and_cuts_its_container_samples() {
+    let mut r = FsRig::new();
+    // not known until registered
+    let file = r.h.lib.join("tone.box");
+    let pcm: Vec<i16> = (0..4800)
+        .map(|i| ((i % 100) * 300 - 15000) as i16)
+        .collect();
+    let mut bytes = b"BOX1".to_vec();
+    bytes.extend(pcm.iter().flat_map(|v| v.to_le_bytes()));
+    std::fs::write(&file, &bytes).unwrap();
+    let path = file.to_string_lossy().to_string();
+    let e = r
+        .try_run("sampler.import", json!({ "path": path }))
+        .unwrap_err();
+    assert!(e.to_string().contains("not an instrument format"), "{e}");
+
+    r.h.importers.register(BoxImporter).unwrap();
+    let out = r.run("sampler.import", json!({ "path": path }));
+    assert_eq!(out["report"]["format"], "box");
+    assert_eq!(
+        out["collected"], true,
+        "container samples are always collected"
+    );
+    let folder = r.inst(0).folder.clone().unwrap();
+    let wav = r.h.project.join(&folder).join("samples").join("tone.wav");
+    let d = ph_formats::decode::decode_file(&wav).unwrap();
+    assert_eq!(d.frames(), 4800);
+    assert_eq!(d.sample_rate, 48_000.0);
+    for (i, v) in pcm.iter().enumerate().step_by(97) {
+        assert_eq!(d.channels[0][i], *v as f32 / 32768.0, "frame {i}");
+    }
+
+    // a protection signal is refused in plain words, nothing is added
+    std::fs::write(r.h.lib.join("locked.box"), b"LOCKxxxx").unwrap();
+    let e = r
+        .try_run(
+            "sampler.import",
+            json!({ "path": r.h.lib.join("locked.box").to_string_lossy() }),
+        )
+        .unwrap_err();
+    assert!(
+        e.to_string()
+            .contains("encrypted or licence-locked Box instrument (it carries a licence lock)"),
+        "{e}"
+    );
+    std::fs::write(r.h.lib.join("later.box"), b"LATER").unwrap();
+    match r.try_run(
+        "sampler.import",
+        json!({ "path": r.h.lib.join("later.box").to_string_lossy() }),
+    ) {
+        Err(CmdError::Unavailable { track, .. }) => assert_eq!(track, "a later box importer"),
+        other => panic!("{:?}", other.map(|o| o.result)),
+    }
+    assert_eq!(r.s.project().instruments.len(), 1);
 }

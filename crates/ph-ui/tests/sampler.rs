@@ -105,12 +105,16 @@ fn gpu_available() -> bool {
 /// robins, a release zone over the middle, two groups and two keyswitched articulations. The
 /// sampler window is open and nothing else but the rack.
 fn start_with(w: f32, hgt: f32, gpu: bool) -> Rig {
+    start_full(w, hgt, gpu, ph_sampler_formats::Importers::builtin())
+}
+
+fn start_full(w: f32, hgt: f32, gpu: bool, importers: ph_sampler_formats::Importers) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("samples")).unwrap();
     for (n, f) in ["a", "b", "c", "d", "e", "f"].iter().zip(1..) {
         std::fs::write(dir.path().join(format!("samples/{n}.wav")), wav(f as f32)).unwrap();
     }
-    let st = studio(dir.path(), Project::empty("Sampler test"));
+    let st = studio_with(dir.path(), Project::empty("Sampler test"), importers);
     let ctx = egui::Context::default();
     let app = PhApp::new(
         &ctx,
@@ -743,13 +747,85 @@ fn the_browser_lists_instrument_files_and_imports_them() {
     };
     assert_eq!(Path::new(path), sfz);
     // the preview renders a few notes offline, outside the project
-    let audio = ph_ui::sampler_ui::preview_audio(&sfz).expect("preview renders");
+    let audio = ph_ui::sampler_ui::preview_audio(&sfz, &r.app().core.studio.importers().clone())
+        .expect("preview renders");
     let peak = audio.channels[0].iter().fold(0f32, |m, v| m.max(v.abs()));
     assert!(peak > 0.01, "the preview is not silent: {peak}");
     let before = r.sampler_channels().len();
     r.app().core.add_channel_from(&node.name, &node.kind);
     r.settle();
     assert_eq!(r.sampler_channels().len(), before + 1);
+}
+
+#[test]
+fn a_registered_importer_lists_in_the_browser_and_imports_on_drop() {
+    // the importer hook (M3/T6): `.phtxt` is not built in; this session registers it
+    use ph_sampler_formats::build::phtxt::{EXAMPLE, PhTxt};
+    let mut importers = ph_sampler_formats::Importers::builtin();
+    importers.register(PhTxt).unwrap();
+    let mut r = start_full(1600.0, 1000.0, false, importers);
+    r.file("Toy/samples/low.wav", &wav(1.0));
+    r.file("Toy/samples/high.wav", &wav(2.0));
+    let toy = r.file("Toy/toy.phtxt", EXAMPLE.as_bytes());
+    assert!(
+        r.app()
+            .core
+            .studio
+            .importers()
+            .extensions()
+            .contains(&"phtxt")
+    );
+
+    // the browser lists it as an instrument, and its preview plays
+    let toy_dir = r.drops.path().join("Toy");
+    r.app().core.browser.add_library(&toy_dir);
+    let lib = r.app().core.browser.library.clone();
+    let node = lib[0]
+        .1
+        .iter()
+        .find(|n| n.name == "toy.phtxt")
+        .expect("listed");
+    assert!(
+        matches!(&node.kind, ph_ui::browser_model::Kind::Instrument { path } if Path::new(path) == toy),
+        "{:?}",
+        node.kind
+    );
+    let importers = r.app().core.studio.importers().clone();
+    let audio = ph_ui::sampler_ui::preview_audio(&toy, &importers).expect("preview renders");
+    assert!(audio.channels[0].iter().any(|v| v.abs() > 0.01));
+
+    // dropped on the rack, it becomes a Haus Sampler channel through sampler.import
+    let pos = r.rack_point();
+    let text = r.hover(&[&toy], pos);
+    assert!(text.contains("Haus Sampler"), "{text}");
+    let before = r.sampler_channels().len();
+    r.drop_at(&[&toy], pos);
+    r.settle();
+    assert_eq!(r.sampler_channels().len(), before + 1);
+    let (_, inst) = *r.sampler_channels().last().unwrap();
+    let i = &r.app().core.project.instruments[&inst];
+    assert_eq!(i.name, "Toy Keys");
+    assert_eq!(i.source.as_ref().unwrap().format, "phtxt");
+    assert_eq!(i.zones.len(), 2);
+}
+
+#[test]
+fn without_the_importer_the_format_is_neither_listed_nor_dropped() {
+    let mut r = start();
+    r.file("Toy/samples/low.wav", &wav(1.0));
+    let toy = r.file(
+        "Toy/toy.phtxt",
+        ph_sampler_formats::build::phtxt::EXAMPLE.as_bytes(),
+    );
+    let toy_dir = r.drops.path().join("Toy");
+    r.app().core.browser.add_library(&toy_dir);
+    let lib = r.app().core.browser.library.clone();
+    assert!(lib[0].1.iter().all(|n| n.name != "toy.phtxt"));
+    let before = r.sampler_channels().len();
+    let pos = r.rack_point();
+    r.drop_at(&[&toy], pos);
+    r.settle();
+    assert_eq!(r.sampler_channels().len(), before);
 }
 
 // ---- save and collect -------------------------------------------------------------------------

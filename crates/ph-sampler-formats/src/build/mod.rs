@@ -3,6 +3,7 @@
 //! fixture tests, the fuzz seeds and the command tests. Nothing here reads a real library.
 
 pub mod exs;
+pub mod phtxt;
 pub mod sf2;
 pub mod vorbis;
 

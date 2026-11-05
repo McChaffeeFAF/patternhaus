@@ -2539,8 +2539,8 @@ impl LoadForm {
 
 /// Whether a path is something the sampler imports: an instrument file (or a `.dsbundle`
 /// folder) by its extension.
-pub fn is_instrument_file(path: &Path) -> bool {
-    ph_sampler_formats::importer_for(path).is_some()
+pub fn is_instrument_file(path: &Path, importers: &ph_sampler_formats::Importers) -> bool {
+    importers.importer_for(path).is_some()
 }
 
 /// Whether a folder directly holds audio files the auto-mapper picks up.
@@ -2562,7 +2562,7 @@ pub fn has_samples(dir: &Path) -> bool {
 /// samples shows the auto-map preview first.
 pub fn import_path(core: &mut AppCore, path: &Path, channel: Option<ChannelId>) {
     let s = path.to_string_lossy().into_owned();
-    if path.is_dir() && !is_instrument_file(path) {
+    if path.is_dir() && !is_instrument_file(path, core.studio.importers()) {
         core.dialog = Some(Dialog::SamplerFolder(folder_preview(path)));
         return;
     }
@@ -2793,11 +2793,14 @@ pub fn preview_keys(inst: &HausInstrument) -> Vec<u8> {
 /// Renders a few notes of an instrument file for the browser's preview, offline and outside
 /// the project: the file is imported into a throw-away project (samples inside the file are
 /// written to a temporary folder first) and rendered.
-pub fn preview_audio(path: &Path) -> Result<ph_node::SampleData, String> {
-    let imported = if path.is_dir() && !is_instrument_file(path) {
+pub fn preview_audio(
+    path: &Path,
+    importers: &ph_sampler_formats::Importers,
+) -> Result<ph_node::SampleData, String> {
+    let imported = if path.is_dir() && !is_instrument_file(path, importers) {
         ph_sampler_formats::automap::map_folder(path)
     } else {
-        ph_sampler_formats::import_path(path)
+        importers.import_path(path)
     }
     .map_err(|e| e.to_string())?;
     static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

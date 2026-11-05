@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "patternhaus-cli"
 path = "src/main.rs"
@@ -15,6 +18,7 @@ path = "src/main.rs"
 ph-commands.workspace = true
 ph-control.workspace = true
 ph-engine.workspace = true
+ph-sampler-formats.workspace = true
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 serde_json.workspace = true
@@ -22,6 +26,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io
 
 [dev-dependencies]
 ph-analysis.workspace = true
+ph-core.workspace = true
 ph-engine.workspace = true
 ph-formats.workspace = true
 ph-node.workspace = true

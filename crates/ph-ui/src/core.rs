@@ -424,6 +424,7 @@ impl AppCore {
         let dispatch = Dispatcher::new(studio.session.clone());
         let paths_for_waves = paths.clone();
         let ctx_for_waves = ctx.clone();
+        let importers = studio.importers().clone();
         let mut core = AppCore {
             ctx,
             studio,
@@ -443,7 +444,7 @@ impl AppCore {
             playlist: PlaylistState::default(),
             rack: RackState::default(),
             mixer_ui: MixerUi::default(),
-            browser: BrowserState::new(&paths),
+            browser: BrowserState::new(&paths, importers),
             inspector: InspectorState::default(),
             typing: TypingState::default(),
             touches: HashMap::new(),
@@ -1054,9 +1055,10 @@ impl AppCore {
                     });
                 }
             }
-            Kind::Instrument { path } => self
-                .link
-                .audition(Audition::InstrumentFile(PathBuf::from(path))),
+            Kind::Instrument { path } => self.link.audition(Audition::InstrumentFile(
+                PathBuf::from(path),
+                self.studio.importers().clone(),
+            )),
             Kind::Folder | Kind::Catalogue { .. } => {}
         }
     }

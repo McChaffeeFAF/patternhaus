@@ -6,8 +6,8 @@
 //! `group_remove`, `zone_add`, `zone_move`, `zone_set`, `zone_remove`, `keyswitch_set`,
 //! `modulation_set`, `report`. M3/T3: `load`, `save_native`, `collect` and `import` for SFZ
 //! and sample folders (in `sampler_files.rs`); M3/T4: `import` of SF2/SF3, DecentSampler and
-//! EXS24 (the `preset` parameter picks an SF2 preset); `import` of Kontakt names its track
-//! (T6) until it lands.
+//! EXS24 (the `preset` parameter picks an SF2 preset); M3/T6: `import` also reads the formats
+//! of importers registered through the importer hook (`Host::importers`).
 
 use super::util::*;
 use crate::*;
@@ -111,7 +111,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "sampler.import",
-        "Import an SFZ, SF2/SF3, DecentSampler, EXS24 or unencrypted Kontakt instrument onto a channel, with an import report.",
+        "Import an SFZ, SF2/SF3, DecentSampler or EXS24 instrument (or a format an installed importer adds) onto a channel, with an import report.",
         Scope::Full,
         MUTATES,
         import,
@@ -800,8 +800,8 @@ pub(crate) struct Load {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Import {
-    /// An instrument file (.sfz, .sf2, .sf3, .dspreset, .exs, ...) or a folder of samples
-    /// to map by the note names in their file names. Inside the project or an allowed
+    /// An instrument file (.sfz, .sf2, .sf3, .dspreset, .exs, or a format an installed
+    /// importer adds) or a folder of samples to map by the note names in their file names. Inside the project or an allowed
     /// library folder.
     pub path: String,
     /// Put it on this channel instead of adding one.

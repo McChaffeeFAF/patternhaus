@@ -74,6 +74,8 @@ const LAYERS: &[(&str, &[&str])] = &[
             "ph-engine",
             "ph-formats",
             "ph-node",
+            // the importer hook's `Importers` set (M3/T6)
+            "ph-sampler-formats",
         ],
     ),
     (
@@ -99,6 +101,8 @@ const LAYERS: &[(&str, &[&str])] = &[
             "ph-formats",
             "ph-analysis",
             "ph-node",
+            // the importer hook's `Importers` set (M3/T6)
+            "ph-sampler-formats",
         ],
     ),
     ("ph-app", &["*"]),

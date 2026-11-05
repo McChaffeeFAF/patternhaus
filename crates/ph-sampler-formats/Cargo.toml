@@ -1,6 +1,6 @@
 [package]
 name = "ph-sampler-formats"
-description = "Patternhaus Haus Sampler importers: SFZ, SF2/SF3, DecentSampler, EXS24, unencrypted Kontakt (clean room)."
+description = "Patternhaus Haus Sampler importers: SFZ, SF2/SF3, DecentSampler, EXS24 (clean room), and the importer hook for formats built elsewhere."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

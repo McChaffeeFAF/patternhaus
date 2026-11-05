@@ -67,7 +67,7 @@ What this means for each operation:
 | **collect into project** (`sampler.collect`, M3/T3) | Copies every file the instrument plays into `<project>/instruments/<name>/samples/` (`(2)`, `(3)` on clashes), rewrites the zone paths if needed and sets `folder` to `instruments/<name>`, as one undoable edit. After that the project no longer needs the library. Registry samples already live in the project and are left alone. |
 | **save as native** (`sampler.save_native`, M3/T3) | Writes an instrument folder: `instrument.toml` plus copies of every sample in `samples/` (registry samples included, converted to `File` paths in the written file only). The project is not changed. |
 | **load native** (`sampler.load`, M3/T3) | Reads an instrument folder into `Project.instruments` (fresh ids), linked (`folder` = the folder) or, with `collect: true`, collected. |
-| **import** (`sampler.import`, M3/T3–T6) | An importer turns an SFZ/SF2/... file into a `HausInstrument` plus a sample list; linked when every sample is a plain file in the library, otherwise (samples inside a container: SF2, monoliths, NCW; generated SFZ `*sine`/`*silence`) written into the project as collected, with `import-report.md` beside it. `collect: true` always collects. A **folder of samples** is mapped by the note names in the file names (rule: `ph_sampler_formats::automap`). **SF2/SF3 (M3/T4):** a SoundFont has no sample files, so its samples (cut out of `smpl`, 24-bit with `sm24`, SF3 Ogg Vorbis decoded, stereo pairs joined) are written as 32-bit float WAV files into `instruments/<name>/samples/` (`SampleSource::Audio`); SF2 imports are always collected, and `preset` picks the preset (`bank:program` or a name). A `.dsbundle` folder is an instrument (its first preset), not a folder of samples. |
+| **import** (`sampler.import`, M3/T3–T6) | An importer turns an SFZ/SF2/... file into a `HausInstrument` plus a sample list; linked when every sample is a plain file in the library, otherwise (samples inside a container: SF2, or a byte range an importer names; generated SFZ `*sine`/`*silence`) written into the project as collected, with `import-report.md` beside it. `collect: true` always collects. A **folder of samples** is mapped by the note names in the file names (rule: `ph_sampler_formats::automap`). **SF2/SF3 (M3/T4):** a SoundFont has no sample files, so its samples (cut out of `smpl`, 24-bit with `sm24`, SF3 Ogg Vorbis decoded, stereo pairs joined) are written as 32-bit float WAV files into `instruments/<name>/samples/` (`SampleSource::Audio`); SF2 imports are always collected, and `preset` picks the preset (`bank:program` or a name). A `.dsbundle` folder is an instrument (its first preset), not a folder of samples. |
 
 Removing a channel leaves its instrument in `Project.instruments` (harmless, undo-safe);
 `sampler.remove` for unused instruments is left to M3/T7.
@@ -129,7 +129,7 @@ readers; writers never produce them.
 
 | key | type | meaning |
 |---|---|---|
-| `format` | string | `native`, `sfz`, `sf2`, `sf3`, `dspreset`, `exs`, `nki`, `nkm`, ... |
+| `format` | string | `native`, `sfz`, `sf2`, `sf3`, `dspreset`, `exs`, or the format id of an importer registered through the importer hook ([importer-hook.md](importer-hook.md)) |
 | `file` | string | the file it was imported from, as given to the importer |
 | `importer_version` | integer | version of the importer that read it |
 
