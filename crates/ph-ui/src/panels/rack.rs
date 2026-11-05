@@ -460,6 +460,16 @@ fn channel_menu(
                 .push((WindowId::Instrument(ch.id), PanelAction::Open));
             ui.close();
         }
+        // a hosted plugin instrument set up in its own editor can be kept for any project
+        if matches!(ch.instrument, ph_core::InstrumentSpec::Plugin { .. })
+            && crate::catalogue_ui::available(core)
+            && menu_item(ui, "Save to catalogue…", "").clicked()
+        {
+            core.dialog = Some(crate::core::Dialog::CatalogueSave(
+                crate::catalogue_ui::SaveForm::new(ch.id, &ch.name),
+            ));
+            ui.close();
+        }
         ui.separator();
         if crate::widgets::menu_item_tinted(ui, "Delete", core.theme.colors.clip).clicked() {
             *removed = Some(ch.id);

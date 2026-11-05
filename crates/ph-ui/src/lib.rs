@@ -10,6 +10,7 @@ pub mod auto_editor;
 pub mod automation;
 pub mod brand;
 pub mod browser_model;
+pub mod catalogue_ui;
 pub mod core;
 pub mod demo_agent;
 pub mod dispatch;
