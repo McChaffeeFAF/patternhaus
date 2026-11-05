@@ -3,12 +3,14 @@
 //! suite. Every outcome must be an error or an instrument that passes the model's checks;
 //! none may panic. While an importer is a stub the targets only prove the wiring; each track
 //! adds its generated fixtures as seeds (`fuzz_<format>_mutated`) when it lands. SFZ (M3/T3)
-//! seeds `fuzz_sfz_mutated` with `sfz_seeds`.
+//! seeds `fuzz_sfz_mutated` with `sfz_seeds`; SF2/SF3 (M3/T4) seeds `fuzz_sf2_mutated` with
+//! `sf2_seeds` (F-SF2-12).
 
 use ph_core::{HausInstrument, validate_group, validate_instrument_header, validate_zone};
 use ph_sampler_formats::*;
 use proptest::prelude::*;
 
+mod sf2_seeds;
 mod sfz_seeds;
 
 /// An accepted import must be a valid instrument whose zones play only listed samples.
@@ -59,6 +61,23 @@ fn sample_dir() -> &'static std::path::Path {
         d
     })
     .path()
+}
+
+/// Applies byte edits: replace, insert, cut.
+fn mutate(bytes: &mut Vec<u8>, edits: &[(u32, u8, u8)]) {
+    for &(at, b, op) in edits {
+        let at = at as usize % (bytes.len() + 1);
+        match op {
+            0 if at < bytes.len() => bytes[at] = b,
+            1 => bytes.insert(at, b),
+            _ => bytes.truncate(at.max(1)),
+        }
+    }
+}
+
+fn sf2_seeds() -> &'static [Vec<u8>] {
+    static S: std::sync::OnceLock<Vec<Vec<u8>>> = std::sync::OnceLock::new();
+    S.get_or_init(sf2_seeds::all)
 }
 
 /// Bytes that start with something format-shaped, so the parser gets past its first check.
@@ -114,6 +133,19 @@ proptest! {
         prop_assert!(run(&SoundFont, "fuzz.sf2", &body).is_ok());
         let riff = with_prefix(b"RIFF\x00\x10\x00\x00sfbkLIST", &body);
         prop_assert!(run(&SoundFont, "fuzz.sf2", &riff).is_ok());
+    }
+
+    /// The SF2 seeds (F-SF2-12 and well-formed files), mutated: bytes replaced, inserted
+    /// and cut.
+    #[test]
+    fn fuzz_sf2_mutated(
+        seed in 0usize..14,
+        edits in proptest::collection::vec((any::<u32>(), any::<u8>(), 0u8..3), 0..16),
+    ) {
+        let seeds = sf2_seeds();
+        let mut bytes = seeds[seed % seeds.len()].clone();
+        mutate(&mut bytes, &edits);
+        prop_assert!(run(&SoundFont, "fuzz.sf2", &bytes).is_ok());
     }
 
     #[test]

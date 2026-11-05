@@ -373,11 +373,6 @@ fn sampler_import_of_later_formats_names_their_track() {
     for (cmd, params, track) in [
         (
             "sampler.import",
-            json!({ "path": "C:/Lib/kit.SF2" }),
-            "M3/T4",
-        ),
-        (
-            "sampler.import",
             json!({ "path": "C:/Lib/x.dspreset" }),
             "M3/T4",
         ),
@@ -646,6 +641,88 @@ fn sampler_save_native_is_byte_stable_and_load_reopens_it() {
     ));
     r.s.undo(&Author::Human).unwrap().unwrap();
     assert!(r.s.project().instrument(InstrumentId(2)).is_err());
+}
+
+/// `lib/kit.sf2`: a drum kit (bank 128) and a bass preset (bank 0, program 33).
+fn sf2_library(r: &FsRig) -> std::path::PathBuf {
+    use ph_sampler_formats::build::{Sf2Builder, Sf2Sample, Sf2Zone, tagged_tone};
+    let mut b = Sf2Builder::new();
+    let tone = |n: u32| {
+        Sf2Sample::from_f32(
+            &format!("t{n}"),
+            &tagged_tone(n, 200.0 + 50.0 * n as f64, 3000, 44_100),
+            44_100,
+            60,
+        )
+    };
+    let kick = b.add_sample(tone(1));
+    let hat = b.add_sample(tone(2));
+    let kit = b.add_instrument(
+        "Kit",
+        vec![
+            Sf2Zone::new().keys(36, 36).sample(kick),
+            Sf2Zone::new().keys(42, 42).set(57, 1).sample(hat),
+        ],
+    );
+    b.add_preset("Kit", 128, 0, vec![Sf2Zone::new().instrument(kit)]);
+    let bass = b.add_instrument("Bass", vec![Sf2Zone::new().sample(kick)]);
+    b.add_preset("Bass", 0, 33, vec![Sf2Zone::new().instrument(bass)]);
+    let path = r.h.lib.join("kit.sf2");
+    std::fs::write(&path, b.build()).unwrap();
+    path
+}
+
+#[test]
+fn sampler_import_collects_an_sf2_preset_and_lists_the_others() {
+    let mut r = FsRig::new();
+    let sf2 = sf2_library(&r);
+    let p = sf2.to_string_lossy().into_owned();
+    // default: the first preset by bank, then program
+    let out = r.run("sampler.import", json!({ "path": p }));
+    assert_eq!(out["report"]["format"], "sf2");
+    assert_eq!(
+        out["collected"], true,
+        "SoundFont samples are always written out"
+    );
+    assert_eq!(r.inst(0).name, "Bass");
+    let presets = out["report"]["presets"].as_array().unwrap();
+    assert_eq!(presets.len(), 2);
+    assert_eq!(
+        presets[1],
+        json!({ "bank": 0, "program": 33, "name": "Bass", "imported": true })
+    );
+    // the kit by bank:program; samples written as WAV beside the report
+    let out = r.run("sampler.import", json!({ "path": p, "preset": "128:0" }));
+    assert_eq!(
+        (out["zones"].as_u64(), out["copied"].as_u64()),
+        (Some(2), Some(2))
+    );
+    let inst = r.inst(1).clone();
+    assert_eq!(inst.name, "Kit");
+    let folder = r.h.project.join(inst.folder.as_deref().unwrap());
+    assert!(folder.join("import-report.md").is_file());
+    for z in inst.zones.values() {
+        let SampleRef::File(f) = &z.sample else {
+            panic!()
+        };
+        let wav = ph_formats::decode::decode_file(&folder.join(f)).unwrap();
+        assert_eq!((wav.frames(), wav.sample_rate), (3000, 44_100.0), "{f}");
+    }
+    // by name; an unknown preset and a preset for another format are refused
+    r.run("sampler.import", json!({ "path": p, "preset": "kit" }));
+    assert_eq!(r.inst(2).name, "Kit");
+    let e = r
+        .try_run("sampler.import", json!({ "path": p, "preset": "9:9" }))
+        .unwrap_err();
+    assert!(e.to_string().contains("128:0 Kit"), "{e}");
+    let sfz = r.sfz_library();
+    let e = r
+        .try_run(
+            "sampler.import",
+            json!({ "path": sfz.to_string_lossy(), "preset": "0:0" }),
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("SF2/SF3 files only"), "{e}");
 }
 
 #[test]

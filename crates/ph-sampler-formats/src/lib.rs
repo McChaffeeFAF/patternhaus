@@ -253,6 +253,18 @@ impl ImportReport {
                 }
             }
         }
+        if !self.presets.is_empty() {
+            s.push_str("\n## Presets in the file\n\n");
+            for p in &self.presets {
+                s.push_str(&format!(
+                    "- {:03}:{:03} {}{}\n",
+                    p.bank,
+                    p.program,
+                    p.name,
+                    if p.imported { " (imported)" } else { "" }
+                ));
+            }
+        }
         if !self.unknown.is_empty() {
             s.push_str("\n## Not understood\n\n");
             for (what, n) in &self.unknown {

@@ -152,8 +152,26 @@ fn chunks<'a>(
         };
         out.push((id, &body[start..end]));
         pos = end + (size & 1);
+        // SF3 writers may leave out the pad byte after an odd `smpl`/`sdta` (§9): when the
+        // padded position does not start a chunk but the unpadded one does, use it.
+        if size & 1 == 1 && !plausible_id(body, pos) && plausible_id(body, end) {
+            notes.approx(
+                format!("chunk:{}", String::from_utf8_lossy(&id)),
+                "an odd-sized chunk without its pad byte (SF3) was accepted",
+            );
+            pos = end;
+        }
     }
     Ok(out)
+}
+
+/// Four printable ASCII bytes followed by a size: what a chunk header looks like.
+fn plausible_id(body: &[u8], at: usize) -> bool {
+    body.get(at..at + 8).is_some_and(|b| {
+        b[..4]
+            .iter()
+            .all(|c| c.is_ascii_alphanumeric() || *c == b' ')
+    })
 }
 
 fn records<T>(
