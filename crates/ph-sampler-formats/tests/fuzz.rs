@@ -1,12 +1,15 @@
 //! Fuzz targets, one per importer, in the style of the FLP fuzzers (`ph-formats`
 //! `flp::tests`): bounded proptests over random bytes that run in CI with the normal test
 //! suite. Every outcome must be an error or an instrument that passes the model's checks;
-//! none may panic. While an importer is a stub (M3/T0) the targets only prove the wiring;
-//! each track adds its generated fixtures as seeds (`fuzz_<format>_mutated`) when it lands.
+//! none may panic. While an importer is a stub the targets only prove the wiring; each track
+//! adds its generated fixtures as seeds (`fuzz_<format>_mutated`) when it lands. SFZ (M3/T3)
+//! seeds `fuzz_sfz_mutated` with `sfz_seeds`.
 
 use ph_core::{HausInstrument, validate_group, validate_instrument_header, validate_zone};
 use ph_sampler_formats::*;
 use proptest::prelude::*;
+
+mod sfz_seeds;
 
 /// An accepted import must be a valid instrument whose zones play only listed samples.
 fn check(out: &Imported) -> Result<(), String> {
@@ -36,6 +39,28 @@ fn run(importer: &dyn Importer, name: &str, bytes: &[u8]) -> Result<(), String> 
     }
 }
 
+/// A folder with the samples the SFZ seeds play (`a.wav`, `s/a.wav`), made once.
+fn sample_dir() -> &'static std::path::Path {
+    static DIR: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let d = tempfile::tempdir().unwrap();
+        let tone: Vec<f32> = (0..2000).map(|i| (i as f32 * 0.03).sin() * 0.5).collect();
+        for p in ["a.wav", "s/a.wav"] {
+            let path = d.path().join(p);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            ph_formats::encode::write_wav(
+                &path,
+                &[&tone],
+                48_000,
+                ph_formats::encode::WavFormat::Pcm16,
+            )
+            .unwrap();
+        }
+        d
+    })
+    .path()
+}
+
 /// Bytes that start with something format-shaped, so the parser gets past its first check.
 fn with_prefix(prefix: &[u8], body: &[u8]) -> Vec<u8> {
     let mut v = prefix.to_vec();
@@ -51,6 +76,37 @@ proptest! {
         prop_assert!(run(&Sfz, "fuzz.sfz", &body).is_ok());
         let text = with_prefix(b"<region> sample=a.wav lokey=", &body);
         prop_assert!(run(&Sfz, "fuzz.sfz", &text).is_ok());
+    }
+
+    /// The SFZ seeds (malformed fixtures and well-formed shapes), mutated: bytes replaced,
+    /// inserted and cut.
+    #[test]
+    fn fuzz_sfz_mutated(
+        seed in 0usize..(sfz_seeds::MALFORMED.len() + sfz_seeds::VALID.len()),
+        edits in proptest::collection::vec((any::<u16>(), any::<u8>(), 0u8..3), 0..12),
+    ) {
+        let text = sfz_seeds::MALFORMED
+            .iter()
+            .chain(sfz_seeds::VALID)
+            .nth(seed)
+            .unwrap();
+        let mut bytes = text.as_bytes().to_vec();
+        for (at, b, op) in edits {
+            let at = at as usize % (bytes.len() + 1);
+            match op {
+                0 if at < bytes.len() => bytes[at] = b,
+                1 => bytes.insert(at, b),
+                _ => bytes.truncate(at.max(1)),
+            }
+        }
+        prop_assert!(run(&Sfz, "fuzz.sfz", &bytes).is_ok());
+        // with a folder holding the samples, so mapping runs on every mutation
+        let dir = sample_dir();
+        let path = dir.join("fuzz.sfz");
+        std::fs::write(&path, &bytes).unwrap();
+        if let Ok(out) = Sfz.import(ImportInput::Path(&path)) {
+            prop_assert!(check(&out).is_ok(), "{:?}", check(&out));
+        }
     }
 
     #[test]

@@ -25,60 +25,78 @@ Fixture ids are defined in each spec's last section; the shared rules are in
 
 ## SFZ ([spec](../formats/sfz.md))
 
+Filled by M3/T3 (2026-11-05). Fixtures and their checks: `crates/ph-sampler-formats/tests/sfz_fixtures.rs`
+(`sfz_fixtures_import_render_and_round_trip`: model checks, render reference in
+`tests/golden/sfz/`, native round trip renders bit-identically), lexer and preprocessor unit
+tests in `src/sfz/lex.rs` and `src/sfz/opcodes.rs`, fuzzing in `tests/fuzz.rs`
+(`fuzz_sfz`, `fuzz_sfz_mutated`). Fixtures F-SFZ-03, 07, 08, 09, 10, 11, 13, 14 and 16 were
+*pending T2* (their sound needed M3/T2's DSP). Since M3/T2 (2026-11-05) their references are
+regenerated with the real engine and each also has a **sound check** on the render
+(`tests/sfz_sound/mod.rs`, run by the same test): the layer mix each velocity hears through its
+crossfade gains (03), the CC layer and crossfade at controller 0 (07), loops sounding past the
+sample's end while held, the sustain loop's exit, one-shot and reverse (08), the DAHDSR stages
+and the pitch envelope's bend (09), the amplitude, square-volume and pitch LFOs (10), low-,
+high-, band-pass and notch on a 220 Hz tone (11), the hi-hat choke and the voice-limited group
+(13), unity CC curves at controller 0 (14), and the group chains' reverb and delay tails (16).
+"Model gap" means the Haus Sampler model (`ph_core::sampler`) has nothing to map the
+opcode onto; the importer reports it, and a model change is needed to support it.
+
 | Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
 |---|---|---|---|---|---|---|
-| Lexer: comments, whitespace, values with spaces, CRLF | §1 | must | | | | F-SFZ-15 |
-| `#define` substitution (longest name first) | §2.1 | must | | | | F-SFZ-12 |
-| `#include` (main-file-relative, nesting, cycle check) | §2.2 | must | | | | F-SFZ-12 |
-| Headers `<control> <global> <master> <group> <region>` and inheritance resets | §3.1–3.2 | must | | | | F-SFZ-02 |
-| `<curve>` and built-in curves 0–6 | §3.5 | must | | | | F-SFZ-14 |
-| `<effect>` blocks | §12 | approx (reverb, delay, comp, eq, filter, phaser, disto) / data (others) | | | | F-SFZ-16 |
-| `<midi>`, `<sample>` headers | §3.1 | skip | | | | F-SFZ-15 |
-| Note names, `note_offset`, `octave_offset`, `sw_*_offset` | §3.3 | must | | | | F-SFZ-12 |
-| Sample paths, `default_path`, case-insensitive fallback | §3.4 | must | | | | F-SFZ-12, F-SFZ-15 |
-| Built-in samples `*sine`, `*silence` / others | §3.4 | must / skip | | | | F-SFZ-15 |
-| Key and velocity mapping, `key=` expansion, channel range | §4.1 | must | | | | F-SFZ-01 |
-| Triggers `attack`, `release`, `release_key`, `first`, `legato` | §4.2 | must | | | | F-SFZ-05 |
-| `rt_decay` | §4.2 | must | | | | F-SFZ-05 |
-| Round robin `seq_length` / `seq_position` | §4.3 | must | | | | F-SFZ-04 |
-| Random `lorand` / `hirand` (seeded) | §4.3 | must | | | | F-SFZ-04 |
-| Keyswitches `sw_lokey/hikey/last/lolast/hilast/down/up/previous/default/label` | §4.4 | must | | | | F-SFZ-06 |
-| `sw_vel` | §4.4 | skip | | | | |
-| CC conditions `loccN/hiccN`, HD CCs, bend, channel aftertouch | §4.5 | must | | | | F-SFZ-07 |
-| Poly aftertouch, program, bpm, timer conditions | §4.5 | skip | | | | |
-| `set_ccN`, sustain opcodes | §4.5 | must | | | | F-SFZ-07 |
-| CC-triggered regions `on_loccN/on_hiccN` | §4.6 | must | | | | F-SFZ-07 |
-| Extended CCs 128, 129, 131, 133, 135, 136 | §4.7 | must | | | | |
-| `offset`, `offset_random`, `offset_onccN`, `end` | §5 | must | | | | F-SFZ-08 |
-| `delay`, `delay_random` | §5 | must | | | | |
-| `direction=reverse` | §5 | must | | | | F-SFZ-08 |
-| `count`, sync/beats opcodes, `sample_fadeout` | §5 | approx / skip | | | | |
-| Loop modes, `loop_start/end`, file loop default, ARIA whole-sample rule | §5.1 | must | | | | F-SFZ-08 |
-| `loop_type` (alternate, backward), `loop_crossfade` | §5.1 | must | | | | F-SFZ-08 |
-| `volume`, `amplitude`, `pan`, `width`, `position`, `output` | §6 | must | | | | F-SFZ-01 |
-| Velocity curve: `amp_veltrack`, `amp_velcurve_N`, `amp_random`, `amp_keytrack` | §6 | must | | | | F-SFZ-03 |
-| CC gain/pan/amplitude modulation with `_curveccN` | §6 | must | | | | F-SFZ-14 |
-| `_smoothccN`, `_stepccN` | §6 | skip | | | | |
-| Crossfades key / velocity / CC with `gain` and `power` curves | §6.1 | must | | | | F-SFZ-03, F-SFZ-07 |
-| Pitch: keycenter, keytrack, tune, transpose, veltrack, random, bend range | §7 | must | | | | F-SFZ-01 |
-| `pitch_onccN` | §7 | must | | | | |
-| `ampeg_*` DAHDSR and `vel2*` | §8.1 | must | | | | F-SFZ-09 |
-| `ampeg_*ccN`, shape opcodes | §8.1 | skip / approx | | | | |
-| `fileg_*`, `pitcheg_*` | §8.2 | must | | | | F-SFZ-09 |
-| `egN_*` flex envelopes | §8.3 | approx | | | | |
-| `amplfo_*`, `fillfo_*`, `pitchlfo_*` | §9.1 | must | | | | F-SFZ-10 |
-| `lfoN_*` waves 0–7, targets pitch/volume/amplitude/pan/cutoff/resonance, `_onccN` | §9.2 | must | | | | F-SFZ-10 |
-| LFO waves 12–13, LFO-to-LFO, sub-oscillators | §9.2 | skip | | | | |
-| Filter 1 and 2: `cutoff`, `resonance`, v1 types, tracking, random, CC | §10 | must | | | | F-SFZ-11 |
-| v2/ARIA filter types (4p, 6p, sv, shelves) | §10 | approx | | | | F-SFZ-11 |
-| `comb`, `pink`, `apf_1p` | §10 | skip | | | | |
-| `eqN_*` | §10 | approx | | | | |
-| `group` / `off_by` / `off_mode` / `off_time` | §11 | must | | | | F-SFZ-13 |
-| `polyphony`, `note_polyphony` | §11 | must | | | | F-SFZ-13 |
-| Labels (`label_ccN`, `*_label`) | §13 | data | | | | |
-| Opcode aliases | §14 | must | | | | F-SFZ-15 |
-| Unknown opcodes listed in the report with counts | §15 | must | | | | F-SFZ-15 |
-| Acceptance instrument (criterion 1) | §18 | must | | | | F-SFZ-17 |
+| Lexer: comments, whitespace, values with spaces, CRLF | §1 | must | 2026-11-05 | | | F-SFZ-15; `lex::tests::comments_line_endings_and_spaced_values` |
+| `#define` substitution (longest name first) | §2.1 | must | 2026-11-05 | | | F-SFZ-12; `lex::tests::defines_longest_first_and_in_stream_order` |
+| `#include` (main-file-relative, nesting, cycle check) | §2.2 | must | 2026-11-05 (paths may not leave the main file's folder) | | | F-SFZ-12; `lex::tests::includes_are_confined_and_cycles_stop` |
+| Headers `<control> <global> <master> <group> <region>` and inheritance resets | §3.1–3.2 | must | 2026-11-05 | | | F-SFZ-02 |
+| `<curve>` and built-in curves 0–6 | §3.5 | must | curves parsed and interpolated; built-ins 0, 4, 5 exact | other built-ins and custom curves: nearest of linear, x², √x (reported) | | F-SFZ-14 (sound checked at controller 0 only) |
+| `<effect>` blocks | §12 | approx (reverb, delay, comp, eq, filter, phaser, disto) / data (others) | | main-bus effects on every group, `fxN` effects on the groups that send to them (mix = `effectN`), built-in defaults; every block kept in `extra["sfz.effects"]` | other types and aux buses (reported, kept as data) | F-SFZ-16 (sound checked) |
+| `<midi>`, `<sample>` headers | §3.1 | skip | | | reported | F-SFZ-15 |
+| Note names, `note_offset`, `octave_offset`, `sw_*_offset` | §3.3 | must | 2026-11-05 | | | F-SFZ-12; `opcodes::tests::note_names` |
+| Sample paths, `default_path`, case-insensitive fallback | §3.4 | must | 2026-11-05 (case fixed per path component, reported) | | | F-SFZ-12, F-SFZ-15 |
+| Built-in samples `*sine`, `*silence` / others | §3.4 | must / skip | `*sine` (looped 375 Hz table, tuned to the root), `*silence` | | other generators (reported, regions skipped) | F-SFZ-15 |
+| Key and velocity mapping, `key=` expansion, channel range | §4.1 | must | 2026-11-05 (regions not on channel 1 skipped and reported) | | `lokey=-1` regions (controller-triggered only) | F-SFZ-01 |
+| Triggers `attack`, `release`, `release_key`, `first`, `legato` | §4.2 | must | `attack`, `release`, `release_key` (release regions one-shot) | `first`, `legato` played as attack (model gap) | | F-SFZ-05 |
+| `rt_decay` | §4.2 | must | 2026-11-05 | | `rt_dead` accepted, ignored (reported) | F-SFZ-05 |
+| Round robin `seq_length` / `seq_position` | §4.3 | must | 2026-11-05 (zone positions; the group's sequential cycle) | | | F-SFZ-04 |
+| Random `lorand` / `hirand` (seeded) | §4.3 | must | | the group's seeded random round robin (equal chances, never the same twice; reported) | with a sequence in the same region (reported) | F-SFZ-04 |
+| Keyswitches `sw_lokey/hikey/last/lolast/hilast/down/up/previous/default/label` | §4.4 | must | `sw_last`, `sw_lolast`/`sw_hilast`, `sw_default`, `sw_label`, `sw_lokey`/`sw_hikey` (articulations) | no `sw_default`: the first articulation plays first (reported) | `sw_down`, `sw_up`, `sw_previous` (model gap, reported) | F-SFZ-06, F-SFZ-17 |
+| `sw_vel` | §4.4 | skip | | | reported | `opcodes::leftover` |
+| CC conditions `loccN/hiccN`, HD CCs, bend, channel aftertouch | §4.5 | must | `loccN`/`hiccN`, `lohdccN`/`hihdccN` (CC 0–127) | | bend and aftertouch conditions, extended-CC conditions (model gap, reported) | F-SFZ-07 |
+| Poly aftertouch, program, bpm, timer conditions | §4.5 | skip | | | reported | `opcodes::leftover` |
+| `set_ccN`, sustain opcodes | §4.5 | must | | `set_ccN`/`set_hdccN` kept in `extra["sfz.control"]` (model gap: no initial controller values) | `sustain_sw=off`, `sustain_cc`, `sustain_lo` (model gap, reported) | F-SFZ-07 |
+| CC-triggered regions `on_loccN/on_hiccN` | §4.6 | must | | | regions skipped and reported (model gap: zones trigger from notes only) | `region` mapper |
+| Extended CCs 128, 129, 131, 133, 135, 136 | §4.7 | must | as modulation sources: 128 bend, 129 aftertouch, 130 poly pressure, 131 velocity, 135 random | 133 (key) and 136 (bipolar random) through the nearest source (reported) | others (reported) | `cc_source` |
+| `offset`, `offset_random`, `offset_onccN`, `end` | §5 | must | 2026-11-05 (`end` inclusive; `end=0`/`-1` regions skipped) | | | F-SFZ-08 (sound checked) |
+| `delay`, `delay_random` | §5 | must | | `delay` added to the amp envelope's delay (reported) | `delay_random` (model gap, reported) | `region` mapper |
+| `direction=reverse` | §5 | must | 2026-11-05 | | | F-SFZ-08 (sound checked) |
+| `count`, sync/beats opcodes, `sample_fadeout` | §5 | approx / skip | | `count` as one-shot | sync/beats, `sample_fadeout` (reported) | |
+| Loop modes, `loop_start/end`, file loop default, ARIA whole-sample rule | §5.1 | must | 2026-11-05 (`smpl` loop default; `loop_sustain` = loop exits at note-off) | loops reaching outside the played range are cut to fit (reported) | | F-SFZ-08 (sound checked) |
+| `loop_type` (alternate, backward), `loop_crossfade` | §5.1 | must | `alternate` (ping-pong), `loop_crossfade` (seconds to frames) | `backward` as forward (reported) | | F-SFZ-08 (sound checked) |
+| `volume`, `amplitude`, `pan`, `width`, `position`, `output` | §6 | must | `volume`, `amplitude`, per-level volumes/amplitudes (summed in dB), `pan`, `output` (0–15) | | `width`, `position` (model gap, reported) | F-SFZ-01, F-SFZ-02 |
+| Velocity curve: `amp_veltrack`, `amp_velcurve_N`, `amp_random`, `amp_keytrack` | §6 | must | `amp_random`, `amp_keytrack` (+ `amp_keycenter`) as modulation routes | `amp_veltrack`, `amp_velcurve_N`: the sampler's own velocity response (reported) | | F-SFZ-03 (sound checked) |
+| CC gain/pan/amplitude modulation with `_curveccN` | §6 | must | `gain_onccN`, `pan_onccN` with `_curveccN` | | `amplitude_onccN` (model gap: no linear-gain route, reported) | F-SFZ-14 (sound checked at controller 0 only) |
+| `_smoothccN`, `_stepccN` | §6 | skip | | | reported | `opcodes::leftover` |
+| Crossfades key / velocity / CC with `gain` and `power` curves | §6.1 | must | velocity and CC (0–127) crossfades, both curves | overlapping ranges put in order (reported) | key crossfades (model gap, reported) | F-SFZ-03, F-SFZ-07 (sound checked; 07 at controller 0: `set_cc1` is a model gap) |
+| Pitch: keycenter, keytrack, tune, transpose, veltrack, random, bend range | §7 | must | all (keytrack ≠ 100 and veltrack/random as routes; bend range instrument-wide) | regions with different bend ranges share the first (reported) | | F-SFZ-01 |
+| `pitch_onccN` | §7 | must | 2026-11-05 (route) | | | `region` mapper |
+| `ampeg_*` DAHDSR and `vel2*` | §8.1 | must | DAHDSR (group amp envelope) | | `vel2*`, `ampeg_start` (model gap, reported) | F-SFZ-09 (sound checked) |
+| `ampeg_*ccN`, shape opcodes | §8.1 | skip / approx | | | reported | `opcodes::leftover` |
+| `fileg_*`, `pitcheg_*` | §8.2 | must | `fileg_*` (filter envelope + `env_depth`) | `pitcheg_*` through the group's second envelope when the filter does not use it (reported) | `pitcheg_*` when `fileg_*` is set; `*_vel2depth` (reported) | F-SFZ-09 (sound checked) |
+| `egN_*` flex envelopes | §8.3 | approx | | | reported (model gap: no multi-point envelope) | `opcodes::leftover` |
+| `amplfo_*`, `fillfo_*`, `pitchlfo_*` | §9.1 | must | `_freq`, `_delay`, `_fade`, `_depth` (group LFO + route) | | controller/aftertouch forms (reported) | F-SFZ-10 (sound checked) |
+| `lfoN_*` waves 0–7, targets pitch/volume/amplitude/pan/cutoff/resonance, `_onccN` | §9.2 | must | waves 0, 1, 3, 6, 7, 12; targets pitch, volume, pan, cutoff, resonance | pulse waves 2, 4, 5 as square (reported) | `lfoN_amplitude`, `lfoN_phase`, `_onccN` depth (model gap, reported); more than 4 LFOs per group | F-SFZ-10 (sound checked) |
+| LFO waves 12–13, LFO-to-LFO, sub-oscillators | §9.2 | skip | wave 12 (sample and hold) | wave 13 and others as sine (reported) | LFO-to-LFO, sub-oscillators (reported) | F-SFZ-10 |
+| Filter 1 and 2: `cutoff`, `resonance`, v1 types, tracking, random, CC | §10 | must | filter 1: cutoff, resonance, `lpf_2p`/`hpf_2p`/`bpf_2p`/`brf_2p`, `fil_keytrack` + `fil_keycenter`, `fil_veltrack`, `fil_random`, `cutoff_onccN`, `resonance_onccN` | `_1p` types at 12 dB/oct (reported) | filter 2 (model gap: one filter per group, reported) | F-SFZ-11 (sound checked) |
+| v2/ARIA filter types (4p, 6p, sv, shelves) | §10 | approx | `lpf_4p`, `hpf_4p`, `_sv` types | `_6p` at 24 dB/oct (reported) | `pkf_2p`, `lsh`, `hsh`, `peq` (filter bypassed, reported) | F-SFZ-11 (sound checked) |
+| `comb`, `pink`, `apf_1p` | §10 | skip | | | filter bypassed, reported | `region` mapper |
+| `eqN_*` | §10 | approx | | | reported (not yet mapped to a group EQ) | `opcodes::leftover` |
+| `group` / `off_by` / `off_mode` / `off_time` | §11 | must | | exclusive groups share a Haus group limited to one voice (reported); `off_mode`/`off_time` read, the engine's stealing fade applies | | F-SFZ-13 (sound checked) |
+| `polyphony`, `note_polyphony` | §11 | must | `polyphony` (group voice limit) | | `note_polyphony` (model gap, reported) | F-SFZ-13 |
+| Labels (`label_ccN`, `*_label`) | §13 | data | `group_label`/`master_label`/`global_label` name groups, `sw_label` names articulations; `label_ccN` kept in `extra["sfz.control"]` | | `region_label`, `md5`, `image` reported as kept, not stored | F-SFZ-02, F-SFZ-06 |
+| Opcode aliases | §14 | must | 2026-11-05 | | | F-SFZ-15; `opcodes::tests::aliases` |
+| Unknown opcodes listed in the report with counts | §15 | must | 2026-11-05 (report `unknown` and `import_notes`) | | | F-SFZ-15 |
+| Acceptance instrument (criterion 1) | §18 | must | 2026-11-05 | | | F-SFZ-17 |
+| Malformed input never panics | §15 | must | 2026-11-05 | | | `malformed_fixtures_never_panic`, `fuzz_sfz`, `fuzz_sfz_mutated` |
+| Drop to create: a folder of samples auto-mapped by note names | M3 T3/T5 | must | 2026-11-05 (rule in `ph_sampler_formats::automap`) | | files without a note name (reported) | `automap::tests`, `sampler_import_maps_a_folder_of_samples_by_note_names` |
 
 ## SF2 / SF3 ([spec](../formats/sf2.md))
 
