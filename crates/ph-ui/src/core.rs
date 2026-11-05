@@ -166,6 +166,14 @@ pub enum Dialog {
     CatalogueGuide(crate::catalogue_ui::GuideForm),
     /// View > Customise toolbar: show, hide and reorder the toolbar's items.
     Toolbar,
+    /// A folder of samples dropped on the rack: the auto-map preview before the import (M3/T5).
+    SamplerFolder(crate::sampler_ui::FolderForm),
+    /// An SF2/SF3 with several presets: which one to import (M3/T5).
+    SamplerPreset(crate::sampler_ui::PresetForm),
+    /// "Save as Haus instrument…" (M3/T5).
+    SamplerSave(crate::sampler_ui::SaveForm),
+    /// "Load Haus instrument…" (M3/T5).
+    SamplerLoad(crate::sampler_ui::LoadForm),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -345,6 +353,8 @@ pub struct AppCore {
     pub midi: crate::midi::MidiUi,
     /// The recorder popup and its settings (M2/T8).
     pub rec: crate::recorder::RecorderUi,
+    /// The Haus Sampler windows' view state, by instrument (M3/T5).
+    pub sampler: HashMap<ph_core::InstrumentId, crate::sampler_ui::SamplerView>,
 }
 
 /// A window's scroll area, as last drawn.
@@ -497,6 +507,7 @@ impl AppCore {
             auto_last_pos: 0,
             midi: Default::default(),
             rec: Default::default(),
+            sampler: HashMap::new(),
         };
         core.fix_selection();
         Ok(core)
@@ -870,6 +881,14 @@ impl AppCore {
                 ) {
                     self.on_editor_reply(&d.request, &ex);
                 }
+                if d.request.command.starts_with("sampler.") {
+                    crate::sampler_ui::on_reply(
+                        self,
+                        &d.request.command,
+                        &ex.result,
+                        ex.summary.as_deref(),
+                    );
+                }
                 if d.request.command == "file.export_audio" {
                     let path = d.request.params["path"].as_str().unwrap_or("");
                     self.toast(ToastKind::Info, format!("Exported {path}"));
@@ -1001,6 +1020,10 @@ impl AppCore {
             self.send(crate::catalogue_ui::add_request(entry));
             return;
         }
+        if let Kind::Instrument { path } = kind {
+            crate::sampler_ui::import_path(self, std::path::Path::new(path), None);
+            return;
+        }
         if let Some(inst) = crate::browser_model::instrument_for(kind) {
             self.add_channel(&crate::browser_model::channel_name(name), &inst);
         }
@@ -1031,6 +1054,9 @@ impl AppCore {
                     });
                 }
             }
+            Kind::Instrument { path } => self
+                .link
+                .audition(Audition::InstrumentFile(PathBuf::from(path))),
             Kind::Folder | Kind::Catalogue { .. } => {}
         }
     }

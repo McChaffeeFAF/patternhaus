@@ -353,6 +353,7 @@ fn tree_row(
         Kind::Sample { .. } => Icon::Sample,
         Kind::Preset { .. } => Icon::Preset,
         Kind::Catalogue { .. } => Icon::Plugin,
+        Kind::Instrument { .. } => Icon::Keys,
     };
     icon.paint(
         p,
@@ -362,6 +363,7 @@ fn tree_row(
             Kind::Sample { .. } => c.accent,
             Kind::Preset { .. } => c.agent,
             Kind::Catalogue { .. } => c.accent,
+            Kind::Instrument { .. } => c.ok,
         },
     );
     x += 22.0;
@@ -383,12 +385,16 @@ fn tree_row(
         Kind::Catalogue { .. } => {
             "click to read its playing guide, double-click or drag to the rack to add; right-click edits the guide"
         }
+        Kind::Instrument { .. } => {
+            "click to hear a few notes, double-click or drag to the rack to import it as a Haus Sampler"
+        }
     };
     let kind_name = match &n.kind {
         Kind::Folder => "Folder",
         Kind::Sample { .. } => "Sample",
         Kind::Preset { .. } => "Preset",
         Kind::Catalogue { .. } => "Catalogue instrument",
+        Kind::Instrument { .. } => "Sampler instrument",
     };
     let resp = resp.hint(&n.name, kind_name, gestures);
     if n.is_folder() {

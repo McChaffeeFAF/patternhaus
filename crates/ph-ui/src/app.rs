@@ -242,7 +242,11 @@ impl PhApp {
             match a {
                 PanelAction::Open => {
                     if self.object_exists(w) {
+                        let first = self.ws.get(w).is_none();
                         self.ws.show(w);
+                        if first {
+                            self.size_new_window(w);
+                        }
                     }
                 }
                 PanelAction::Close => self.ws.hide(w),
@@ -255,6 +259,26 @@ impl PhApp {
         }
         if std::mem::take(&mut self.core.close_focused_requested) {
             self.ws.close_front_object();
+        }
+    }
+
+    /// A new Haus Sampler window starts big enough for its zone map and tabs.
+    fn size_new_window(&mut self, w: WindowId) {
+        let WindowId::Instrument(c) = w else {
+            return;
+        };
+        if !matches!(
+            self.core.project.channels.get(&c).map(|ch| &ch.instrument),
+            Some(ph_core::InstrumentSpec::MultiSampler { .. })
+        ) {
+            return;
+        }
+        if let Some(st) = self.ws.get(w).copied() {
+            let mut r = st.rect;
+            r.w = r.w.max(880.0);
+            r.h = r.h.max(640.0);
+            self.ws
+                .drag_resize(w, crate::workspace::Edges::new(false, true, false, true), r);
         }
     }
 
@@ -1091,6 +1115,34 @@ impl PhApp {
             Dialog::CatalogueGuide(mut form) => {
                 if crate::catalogue_ui::guide_dialog(ctx, &mut self.core, &mut form) {
                     new_state = Some(Dialog::CatalogueGuide(form));
+                } else {
+                    close = true;
+                }
+            }
+            Dialog::SamplerFolder(mut form) => {
+                if crate::sampler_ui::folder_dialog(ctx, &mut self.core, &mut form) {
+                    new_state = Some(Dialog::SamplerFolder(form));
+                } else {
+                    close = true;
+                }
+            }
+            Dialog::SamplerPreset(mut form) => {
+                if crate::sampler_ui::preset_dialog(ctx, &mut self.core, &mut form) {
+                    new_state = Some(Dialog::SamplerPreset(form));
+                } else {
+                    close = true;
+                }
+            }
+            Dialog::SamplerSave(mut form) => {
+                if crate::sampler_ui::save_dialog(ctx, &mut self.core, &mut form) {
+                    new_state = Some(Dialog::SamplerSave(form));
+                } else {
+                    close = true;
+                }
+            }
+            Dialog::SamplerLoad(mut form) => {
+                if crate::sampler_ui::load_dialog(ctx, &mut self.core, &mut form) {
+                    new_state = Some(Dialog::SamplerLoad(form));
                 } else {
                     close = true;
                 }

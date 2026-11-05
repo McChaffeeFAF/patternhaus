@@ -23,6 +23,11 @@ pub enum Kind {
     Catalogue {
         entry: String,
     },
+    /// An instrument file the Haus Sampler imports (`.sfz`, `.sf2`, `.sf3`, `.dspreset`,
+    /// `.dsbundle`, `.exs`, ...), by its absolute path (M3/T5).
+    Instrument {
+        path: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,6 +68,11 @@ pub enum RefStyle {
     RelativeTo(PathBuf),
     /// Absolute path (library folders).
     Absolute,
+}
+
+/// An instrument file (or `.dsbundle` folder) by its extension.
+fn is_instrument(p: &Path) -> bool {
+    ph_sampler_formats::importer_for(p).is_some()
 }
 
 fn is_audio(p: &Path) -> bool {
@@ -108,7 +118,18 @@ fn scan_dir(dir: &Path, root: &Path, style: &RefStyle, depth: usize) -> Vec<Node
             .file_stem()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_default();
-        if p.is_dir() {
+        if is_instrument(&p) {
+            out.push(Node {
+                name: p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                kind: Kind::Instrument {
+                    path: p.to_string_lossy().into_owned(),
+                },
+                children: Vec::new(),
+            });
+        } else if p.is_dir() {
             if depth == 0
                 || p.file_name()
                     .is_some_and(|n| n.to_string_lossy().starts_with('.'))
@@ -182,7 +203,7 @@ pub fn instrument_for(kind: &Kind) -> Option<InstrumentSpec> {
             preset: Some(name.clone()),
             params: Default::default(),
         }),
-        Kind::Folder | Kind::Catalogue { .. } => None,
+        Kind::Folder | Kind::Catalogue { .. } | Kind::Instrument { .. } => None,
     }
 }
 
@@ -240,6 +261,35 @@ mod tests {
         let abs = scan(dir.path(), &RefStyle::Absolute, 4);
         assert!(abs[0].children[0].samples()[0].1.ends_with("samples/a.wav"));
         assert!(!abs[0].children[0].samples()[0].1.contains('\\'));
+    }
+
+    #[test]
+    fn instrument_files_are_listed_by_their_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("lib/Piano.dsbundle")).unwrap();
+        std::fs::write(dir.path().join("lib/piano.sfz"), b"<region>").unwrap();
+        std::fs::write(dir.path().join("lib/kit.SF2"), b"x").unwrap();
+        std::fs::write(dir.path().join("lib/readme.txt"), b"x").unwrap();
+        let tree = scan(dir.path(), &RefStyle::Absolute, 4);
+        let lib = &tree[0];
+        let kinds: Vec<(&str, bool)> = lib
+            .children
+            .iter()
+            .map(|n| (n.name.as_str(), matches!(n.kind, Kind::Instrument { .. })))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("Piano.dsbundle", true),
+                ("kit.SF2", true),
+                ("piano.sfz", true)
+            ]
+        );
+        let Kind::Instrument { path } = &lib.children[2].kind else {
+            unreachable!()
+        };
+        assert!(Path::new(path).is_absolute());
+        assert_eq!(instrument_for(&lib.children[2].kind), None);
     }
 
     #[test]
