@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn stubs_name_their_track_and_unknown_files_are_refused() {
-        for (file, track) in [("a.dspreset", "M3/T4"), ("a.nki", "M3/T6")] {
+        for (file, track) in [("a.nki", "M3/T6"), ("a.nkm", "M3/T6")] {
             match import_path(Path::new(file)) {
                 Err(ImportError::Unavailable { track: t, .. }) => assert_eq!(t, track),
                 other => panic!("{file}: {other:?}"),
