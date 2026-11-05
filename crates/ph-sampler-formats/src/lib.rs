@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 mod assemble;
 pub mod automap;
 pub mod build;
+pub mod dspreset;
 pub mod exs;
 mod notes;
 pub mod probe;
@@ -46,10 +47,11 @@ pub mod sf2;
 pub mod sfz;
 mod stubs;
 
+pub use dspreset::DecentSampler;
 pub use exs::Exs;
 pub use sf2::{PresetChoice, SoundFont};
 pub use sfz::Sfz;
-pub use stubs::{DecentSampler, Kontakt};
+pub use stubs::Kontakt;
 
 /// A float WAV file holding `audio` (for [`SampleSource::Audio`]).
 pub fn audio_wav(audio: &ph_node::SampleData) -> Result<Vec<u8>, String> {
@@ -363,7 +365,18 @@ mod tests {
         assert_eq!(
             all,
             [
-                "sfz", "sf2", "sf3", "dspreset", "exs", "nki", "nkm", "nkx", "nkc", "ncw"
+                "sfz",
+                "sf2",
+                "sf3",
+                "dspreset",
+                "dsbundle",
+                "dslibrary",
+                "exs",
+                "nki",
+                "nkm",
+                "nkx",
+                "nkc",
+                "ncw"
             ]
         );
         for (ext, format) in [
