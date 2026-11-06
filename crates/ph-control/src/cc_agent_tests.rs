@@ -110,7 +110,7 @@ fn the_diff_the_views_and_the_snapshot_show_controller_lanes() {
     .unwrap();
     assert_eq!(
         out["changes"],
-        json!(["CC11 Expression on Strings in Verse, bars 1-2: ramp 0.2→0.8"]),
+        json!(["CC11 Expression on Strings in Verse, bar 1: ramp 0.2→0.8"]),
         "{out}"
     );
     let out = call(

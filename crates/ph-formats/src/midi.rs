@@ -7,7 +7,8 @@ use crate::{FormatError, FormatResult};
 use midly::num::{u4, u7, u15, u24, u28};
 use midly::{Format, Header, MetaMessage, MidiMessage, Smf, Timing, TrackEvent, TrackEventKind};
 use ph_core::{
-    ChannelId, Edit, InstrumentSpec, NoteSpec, PPQ, PatternId, Project, Tick, TimeSignature,
+    AutomationPoint, CcPointSpec, ChannelId, Controller, CurveKind, Edit, InstrumentSpec, NoteSpec,
+    PPQ, PatternId, Project, Tick, TimeSignature, value_at,
 };
 use std::collections::BTreeMap;
 
@@ -33,6 +34,8 @@ pub struct MidiImport {
     /// One Synth placeholder channel per (track, MIDI channel) that has notes.
     pub channels: Vec<ChannelId>,
     pub notes: usize,
+    /// Controller lane points written (CC 0-119 and pitch bend; M3/T10).
+    pub controller_points: usize,
     /// First tempo in the file, if it is in the supported range.
     pub tempo_bpm: Option<f64>,
     pub time_signature: Option<TimeSignature>,
@@ -47,11 +50,22 @@ pub struct ParsedNote {
     pub velocity: f32,
 }
 
-/// Notes of one (track, MIDI channel) pair.
+/// One controller message read from a file, in Patternhaus ticks.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParsedController {
+    pub controller: Controller,
+    pub tick: Tick,
+    /// CC 0..=1, pitch bend -1..=1 (the 7-bit or 14-bit value, normalised).
+    pub value: f64,
+}
+
+/// Notes and controller messages of one (track, MIDI channel) pair.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParsedPart {
     pub name: String,
     pub notes: Vec<ParsedNote>,
+    /// In file order (time, then arrival).
+    pub controllers: Vec<ParsedController>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -83,6 +97,7 @@ pub fn parse_midi(bytes: &[u8]) -> FormatResult<ParsedMidi> {
         // (midi channel, key) -> start ticks and velocity of notes still sounding (FIFO).
         let mut open: BTreeMap<(u8, u8), Vec<(u64, f32)>> = BTreeMap::new();
         let mut by_channel: BTreeMap<u8, Vec<ParsedNote>> = BTreeMap::new();
+        let mut ctl_by_channel: BTreeMap<u8, Vec<ParsedController>> = BTreeMap::new();
         let close = |by_channel: &mut BTreeMap<u8, Vec<ParsedNote>>,
                      ch: u8,
                      key: u8,
@@ -113,6 +128,28 @@ pub fn parse_midi(bytes: &[u8]) -> FormatResult<ParsedMidi> {
                                 let (start, vel) = slot.remove(0);
                                 close(&mut by_channel, ch, key.as_int(), start, vel, now);
                             }
+                        }
+                        MidiMessage::Controller { controller, value }
+                            if controller.as_int() <= 119 =>
+                        {
+                            ctl_by_channel
+                                .entry(ch)
+                                .or_default()
+                                .push(ParsedController {
+                                    controller: Controller::Cc(controller.as_int()),
+                                    tick: conv(now),
+                                    value: value.as_int() as f64 / 127.0,
+                                });
+                        }
+                        MidiMessage::PitchBend { bend } => {
+                            ctl_by_channel
+                                .entry(ch)
+                                .or_default()
+                                .push(ParsedController {
+                                    controller: Controller::PitchBend,
+                                    tick: conv(now),
+                                    value: (bend.as_int() as f64 / 8192.0).clamp(-1.0, 1.0),
+                                });
                         }
                         _ => {}
                     }
@@ -148,6 +185,7 @@ pub fn parse_midi(bytes: &[u8]) -> FormatResult<ParsedMidi> {
         }
         let many = by_channel.len() > 1;
         for (ch, mut notes) in by_channel {
+            let controllers = ctl_by_channel.remove(&ch).unwrap_or_default();
             notes.sort_by_key(|n| (n.start, n.key));
             let base = track_name
                 .clone()
@@ -158,7 +196,11 @@ pub fn parse_midi(bytes: &[u8]) -> FormatResult<ParsedMidi> {
             } else {
                 base
             };
-            parts.push(ParsedPart { name, notes });
+            parts.push(ParsedPart {
+                name,
+                notes,
+                controllers,
+            });
         }
     }
     Ok(ParsedMidi {
@@ -178,6 +220,7 @@ pub fn import_midi(
     let pattern = ed.add_pattern(&opts.pattern_name)?;
     let mut channels = Vec::new();
     let mut notes = 0;
+    let mut controller_points = 0;
     for part in &parsed.parts {
         let ch = ed.add_channel(
             &part.name,
@@ -192,12 +235,29 @@ pub fn import_midi(
             ed.add_note(pattern, ch, spec)?;
             notes += 1;
         }
+        // Controller messages are steps: each holds until the next one (a dense stream is
+        // as smooth as the file made it). Controllers of channels without notes are dropped.
+        for c in &part.controllers {
+            ed.add_cc_point(
+                pattern,
+                ch,
+                CcPointSpec {
+                    controller: c.controller,
+                    tick: c.tick,
+                    value: c.value,
+                    curve: CurveKind::Hold,
+                    tension: 0.0,
+                },
+            )?;
+            controller_points += 1;
+        }
         channels.push(ch);
     }
     Ok(MidiImport {
         pattern,
         channels,
         notes,
+        controller_points,
         tempo_bpm: parsed.tempo_bpm,
         time_signature: parsed.time_signature,
     })
@@ -212,17 +272,103 @@ pub enum MidiExport {
     Song,
 }
 
+enum EvKind {
+    NoteOff {
+        key: u8,
+    },
+    /// Controller changes sit between a note's end and the next note's start.
+    Cc {
+        controller: u8,
+        value: u8,
+    },
+    Bend {
+        value: i16,
+    },
+    NoteOn {
+        key: u8,
+        vel: u8,
+    },
+}
+
 struct Ev {
     time: Tick,
-    on: bool,
-    key: u8,
-    vel: u8,
+    kind: EvKind,
+}
+
+impl Ev {
+    /// Sort key at one tick: offs, controllers (so a note starts under its new value), ons.
+    fn order(&self) -> (Tick, u8, u8, i32) {
+        match self.kind {
+            EvKind::NoteOff { key } => (self.time, 0, key, 0),
+            EvKind::Cc { controller, value } => (self.time, 1, controller, value as i32),
+            EvKind::Bend { value } => (self.time, 1, 128, value as i32),
+            EvKind::NoteOn { key, .. } => (self.time, 2, key, 0),
+        }
+    }
+}
+
+/// Ticks between the messages of an exported ramp (about 5 ms at 120 BPM).
+const EXPORT_RAMP_STEP: Tick = 10;
+
+/// A lane's messages for the pattern ticks `lo..hi`, placed with pattern tick `lo` at song
+/// tick `origin`: the value at `lo`, every point inside, and ramps in between sampled every
+/// [`EXPORT_RAMP_STEP`] ticks, each only where the 7-bit (14-bit) value changes.
+fn lane_events(
+    c: Controller,
+    pts: &[AutomationPoint],
+    lo: Tick,
+    hi: Tick,
+    origin: Tick,
+    out: &mut Vec<Ev>,
+) {
+    let mut last: Option<i32> = None;
+    let mut push = |tick: Tick, v: f64, out: &mut Vec<Ev>| {
+        let q = c.quantize(v);
+        if last == Some(q) {
+            return;
+        }
+        last = Some(q);
+        let time = origin + (tick - lo);
+        out.push(Ev {
+            time,
+            kind: match c {
+                Controller::Cc(n) => EvKind::Cc {
+                    controller: n,
+                    value: q as u8,
+                },
+                Controller::PitchBend => EvKind::Bend { value: q as i16 },
+            },
+        });
+    };
+    let at = |t: Tick| value_at(pts, t as f64).unwrap_or(0.0);
+    push(lo, at(lo), out);
+    let mut knots: Vec<Tick> = pts
+        .iter()
+        .map(|p| p.tick)
+        .filter(|t| *t > lo && *t < hi)
+        .collect();
+    knots.dedup();
+    knots.push(hi);
+    let mut prev = lo;
+    for k in knots {
+        let mut t = prev + EXPORT_RAMP_STEP;
+        while t < k {
+            push(t, at(t), out);
+            t += EXPORT_RAMP_STEP;
+        }
+        if k < hi {
+            push(k, at(k), out);
+        }
+        prev = k;
+    }
 }
 
 /// Writes a type-1 MIDI file: a conductor track (name, tempo, time signature) and one track
 /// per channel that has notes.
 pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>> {
     let mut per_channel: BTreeMap<ChannelId, Vec<(Tick, Tick, u8, u8)>> = BTreeMap::new();
+    // controller messages per channel (M3/T10), unsorted
+    let mut per_channel_cc: BTreeMap<ChannelId, Vec<Ev>> = BTreeMap::new();
     let vel_of = |v: f32| ((v * 127.0).round() as i64).clamp(1, 127) as u8;
     match what {
         MidiExport::Pattern(id) => {
@@ -235,6 +381,19 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
                         n.key,
                         vel_of(n.velocity),
                     ));
+                }
+            }
+            let len = project.pattern_length(id)?.max(1);
+            for ch in pat.cc.keys() {
+                for lane in pat.lanes(*ch) {
+                    lane_events(
+                        lane.controller,
+                        &lane.auto_points(),
+                        0,
+                        len,
+                        0,
+                        per_channel_cc.entry(*ch).or_default(),
+                    );
                 }
             }
         }
@@ -253,6 +412,22 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
                 };
                 let plen = project.pattern_length(pid)?.max(1);
                 let pat = project.pattern(pid)?;
+                // lanes play the clip's window once, as the engine does
+                let hi = (clip.offset + clip.length).min(plen);
+                if clip.offset < hi {
+                    for ch in pat.cc.keys() {
+                        for lane in pat.lanes(*ch) {
+                            lane_events(
+                                lane.controller,
+                                &lane.auto_points(),
+                                clip.offset,
+                                hi,
+                                clip.start,
+                                per_channel_cc.entry(*ch).or_default(),
+                            );
+                        }
+                    }
+                }
                 for (ch, notes) in &pat.notes {
                     for n in notes.values() {
                         if n.muted || n.start < clip.offset {
@@ -295,9 +470,10 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
 
     let mut index = 0usize;
     for ch in project.channel_order.iter() {
-        let Some(notes) = per_channel.get(ch) else {
+        if !per_channel.contains_key(ch) && !per_channel_cc.contains_key(ch) {
             continue;
-        };
+        }
+        let notes: &[(Tick, Tick, u8, u8)] = per_channel.get(ch).map_or(&[], |v| v.as_slice());
         let channel = project.channel(*ch)?;
         // MIDI channel 10 (index 9) is the drum channel; keep synth tracks off it.
         let mut midi_ch = (index % 15) as u8;
@@ -309,19 +485,17 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
         for &(start, len, key, vel) in notes {
             evs.push(Ev {
                 time: start,
-                on: true,
-                key,
-                vel,
+                kind: EvKind::NoteOn { key, vel },
             });
             evs.push(Ev {
                 time: start + len,
-                on: false,
-                key,
-                vel: 0,
+                kind: EvKind::NoteOff { key },
             });
         }
-        // Offs before ons at the same tick so repeated notes retrigger cleanly.
-        evs.sort_by_key(|e| (e.time, e.on, e.key));
+        evs.extend(per_channel_cc.remove(ch).unwrap_or_default());
+        // Offs before ons at the same tick so repeated notes retrigger cleanly; controllers
+        // in between, so a note starts under its new value.
+        evs.sort_by_key(|e| e.order());
         let mut track = vec![meta(0, MetaMessage::TrackName(channel.name.as_bytes()))];
         let mut last = 0;
         for e in evs {
@@ -331,16 +505,22 @@ pub fn export_midi(project: &Project, what: MidiExport) -> FormatResult<Vec<u8>>
                 .ok()
                 .filter(|d| *d <= 0x0FFF_FFFF)
                 .ok_or_else(|| FormatError::Midi("song is too long for a MIDI file".into()))?;
-            let message = if e.on {
-                MidiMessage::NoteOn {
-                    key: u7::new(e.key),
-                    vel: u7::new(e.vel),
-                }
-            } else {
-                MidiMessage::NoteOff {
-                    key: u7::new(e.key),
+            let message = match e.kind {
+                EvKind::NoteOn { key, vel } => MidiMessage::NoteOn {
+                    key: u7::new(key),
+                    vel: u7::new(vel),
+                },
+                EvKind::NoteOff { key } => MidiMessage::NoteOff {
+                    key: u7::new(key),
                     vel: u7::new(0),
-                }
+                },
+                EvKind::Cc { controller, value } => MidiMessage::Controller {
+                    controller: u7::new(controller),
+                    value: u7::new(value),
+                },
+                EvKind::Bend { value } => MidiMessage::PitchBend {
+                    bend: midly::PitchBend::from_int(value),
+                },
             };
             track.push(TrackEvent {
                 delta: u28::new(delta),
@@ -454,6 +634,298 @@ mod tests {
         for c in q.channels.values() {
             assert!(matches!(c.instrument, InstrumentSpec::Synth { .. }));
         }
+    }
+
+    /// Lanes of the test project: CC1 swell on Lead, a bend ramp and CC64 steps on Bass.
+    fn with_lanes() -> (Project, PatternId) {
+        let (p, pat) = beat();
+        let mut ed = Edit::new(&p);
+        let lead = p.channel_order[0];
+        let bass = p.channel_order[1];
+        let mut add = |ch, c: Controller, t: Tick, v: f64, k: CurveKind| {
+            ed.add_cc_point(
+                pat,
+                ch,
+                CcPointSpec {
+                    controller: c,
+                    tick: t,
+                    value: v,
+                    curve: k,
+                    tension: 0.0,
+                },
+            )
+            .unwrap();
+        };
+        add(lead, Controller::Cc(1), 0, 0.3, CurveKind::Smooth);
+        add(lead, Controller::Cc(1), 960, 0.9, CurveKind::Smooth);
+        add(lead, Controller::Cc(1), 1920, 0.4, CurveKind::Hold);
+        add(bass, Controller::PitchBend, 0, -1.0, CurveKind::Linear);
+        add(bass, Controller::PitchBend, 480, 0.5, CurveKind::Hold);
+        add(bass, Controller::Cc(64), 0, 1.0, CurveKind::Hold);
+        add(bass, Controller::Cc(64), 960, 0.0, CurveKind::Hold);
+        (ed.finish().0, pat)
+    }
+
+    /// What a lane sounds like: its 7-bit (14-bit) value at `tick`, as the engine sends it.
+    fn wire_at(p: &Project, pat: PatternId, ch: ChannelId, c: Controller, tick: Tick) -> i32 {
+        let lane = p.pattern(pat).unwrap().lane(ch, c);
+        c.quantize(lane.value_at(tick as f64).unwrap())
+    }
+
+    #[test]
+    fn controller_lanes_round_trip_through_a_midi_file() {
+        let (p, pat) = with_lanes();
+        let bytes = export_midi(&p, MidiExport::Pattern(pat)).unwrap();
+        let parsed = parse_midi(&bytes).unwrap();
+        let lead = parsed.parts.iter().find(|x| x.name == "Lead").unwrap();
+        // the swell is written as it sounds: the first value, every point, a ramp between
+        assert_eq!(lead.controllers[0].tick, 0);
+        assert_eq!(lead.controllers[0].controller, Controller::Cc(1));
+        assert!((lead.controllers[0].value - 0.3).abs() < 1.0 / 254.0);
+        assert!(
+            lead.controllers
+                .iter()
+                .any(|c| Controller::Cc(1).quantize(c.value) == 114)
+        );
+        assert!(lead.controllers.len() > 20, "{}", lead.controllers.len());
+        let last = lead.controllers.last().unwrap();
+        // (the ramp reaches its final value a little before the last point; a repeat is not written)
+        assert!(last.tick <= 1920 && last.tick > 1800);
+        assert_eq!(last.value, 51.0 / 127.0);
+        // importing brings the lanes back: same sound at every tick that was written
+        let mut ed = Edit::new(&Project::empty("In"));
+        let r = import_midi(&mut ed, &bytes, &MidiImportOptions::default()).unwrap();
+        let (q, _) = ed.finish();
+        assert!(r.controller_points > 20);
+        let ch_of = |name: &str| {
+            *q.channels
+                .iter()
+                .find(|(_, c)| c.name == name)
+                .map(|(i, _)| i)
+                .unwrap()
+        };
+        let (lead_in, bass_in) = (ch_of("Lead"), ch_of("Bass"));
+        let (lead_out, bass_out) = (p.channel_order[0], p.channel_order[1]);
+        for (cin, cout, c) in [
+            (lead_in, lead_out, Controller::Cc(1)),
+            (bass_in, bass_out, Controller::PitchBend),
+            (bass_in, bass_out, Controller::Cc(64)),
+        ] {
+            let lane = q.pattern(r.pattern).unwrap().lane(cin, c);
+            assert!(!lane.points.is_empty(), "{c:?}");
+            for pt in &lane.points {
+                assert_eq!(
+                    c.quantize(pt.value),
+                    wire_at(&p, pat, cout, c, pt.tick),
+                    "{c:?} at tick {}",
+                    pt.tick
+                );
+            }
+        }
+        // and a second trip changes nothing
+        let again = export_midi(&q, MidiExport::Pattern(r.pattern)).unwrap();
+        let mut ed = Edit::new(&Project::empty("In2"));
+        let r2 = import_midi(&mut ed, &again, &MidiImportOptions::default()).unwrap();
+        let (q2, _) = ed.finish();
+        let lanes = |p: &Project, id: PatternId| {
+            let pat = p.pattern(id).unwrap();
+            let mut v: Vec<(String, String, Tick, i32)> = Vec::new();
+            for ch in pat.cc.keys() {
+                for l in pat.lanes(*ch) {
+                    for x in &l.points {
+                        v.push((
+                            p.channel(*ch).unwrap().name.clone(),
+                            l.controller.label(),
+                            x.tick,
+                            l.controller.quantize(x.value),
+                        ));
+                    }
+                }
+            }
+            v.sort();
+            v
+        };
+        assert_eq!(lanes(&q, r.pattern), lanes(&q2, r2.pattern));
+    }
+
+    #[test]
+    fn imports_controller_messages_as_hold_points_and_skips_what_it_cannot_use() {
+        use midly::num::u7;
+        let ev = |delta: u32, kind: TrackEventKind<'static>| TrackEvent {
+            delta: u28::new(delta),
+            kind,
+        };
+        let midi = |ch: u8, message: MidiMessage| TrackEventKind::Midi {
+            channel: u4::new(ch),
+            message,
+        };
+        let track = vec![
+            ev(
+                0,
+                midi(
+                    0,
+                    MidiMessage::NoteOn {
+                        key: u7::new(60),
+                        vel: u7::new(90),
+                    },
+                ),
+            ),
+            ev(
+                0,
+                midi(
+                    0,
+                    MidiMessage::Controller {
+                        controller: u7::new(11),
+                        value: u7::new(127),
+                    },
+                ),
+            ),
+            ev(
+                240,
+                midi(
+                    0,
+                    MidiMessage::Controller {
+                        controller: u7::new(11),
+                        value: u7::new(0),
+                    },
+                ),
+            ),
+            // channel mode messages (CC 120+) are not controllers
+            ev(
+                0,
+                midi(
+                    0,
+                    MidiMessage::Controller {
+                        controller: u7::new(123),
+                        value: u7::new(0),
+                    },
+                ),
+            ),
+            ev(
+                0,
+                midi(
+                    0,
+                    MidiMessage::PitchBend {
+                        bend: midly::PitchBend::from_int(-8192),
+                    },
+                ),
+            ),
+            ev(
+                0,
+                midi(
+                    0,
+                    MidiMessage::PitchBend {
+                        bend: midly::PitchBend::from_int(0),
+                    },
+                ),
+            ),
+            ev(
+                480,
+                midi(
+                    0,
+                    MidiMessage::NoteOn {
+                        key: u7::new(60),
+                        vel: u7::new(0),
+                    },
+                ),
+            ),
+            // a channel with controllers but no notes gets no channel
+            ev(
+                0,
+                midi(
+                    3,
+                    MidiMessage::Controller {
+                        controller: u7::new(1),
+                        value: u7::new(64),
+                    },
+                ),
+            ),
+            ev(0, TrackEventKind::Meta(MetaMessage::EndOfTrack)),
+        ];
+        let smf = Smf {
+            header: Header::new(Format::SingleTrack, Timing::Metrical(u15::new(480))),
+            tracks: vec![track],
+        };
+        let mut bytes = Vec::new();
+        smf.write_std(&mut bytes).unwrap();
+        let parsed = parse_midi(&bytes).unwrap();
+        assert_eq!(parsed.parts[0].controllers.len(), 4);
+        let mut ed = Edit::new(&Project::empty("cc"));
+        let r = import_midi(&mut ed, &bytes, &MidiImportOptions::default()).unwrap();
+        let (q, _) = ed.finish();
+        assert_eq!((r.channels.len(), r.controller_points), (1, 4));
+        let pat = q.pattern(r.pattern).unwrap();
+        let ch = r.channels[0];
+        let expr = pat.lane(ch, Controller::Cc(11));
+        let got: Vec<_> = expr.points.iter().map(|p| (p.tick, p.value)).collect();
+        // 240 file ticks at 480 ppq = 480 of ours
+        assert_eq!(got, vec![(0, 1.0), (480, 0.0)]);
+        assert!(expr.points.iter().all(|p| p.curve == CurveKind::Hold));
+        let bend = pat.lane(ch, Controller::PitchBend);
+        assert_eq!(
+            bend.points.iter().map(|p| p.value).collect::<Vec<_>>(),
+            vec![-1.0, 0.0]
+        );
+        assert!(pat.lane(ch, Controller::Cc(123)).points.is_empty());
+    }
+
+    #[test]
+    fn song_export_writes_lanes_per_clip_window() {
+        let (p, pat) = with_lanes();
+        let mut ed = Edit::new(&p);
+        // the pattern is 3 beats long here (3/4, one bar); place it at bar 2 trimmed
+        let bar = p.settings.time_signature.ticks_per_bar();
+        let c = ed.add_clip(0, pat, bar).unwrap();
+        ed.update_clip(c, |c| {
+            c.offset = 960;
+            c.length = 960;
+        })
+        .unwrap();
+        let p2 = ed.finish().0;
+        let bytes = export_midi(&p2, MidiExport::Song).unwrap();
+        let parsed = parse_midi(&bytes).unwrap();
+        let lead = parsed.parts.iter().find(|x| x.name == "Lead").unwrap();
+        // the window starts at the swell's peak, 0.9 (114/127), at the clip start
+        let first = &lead.controllers[0];
+        assert_eq!((first.tick, first.controller), (bar, Controller::Cc(1)));
+        assert_eq!(Controller::Cc(1).quantize(first.value), 114);
+        assert!(
+            lead.controllers
+                .iter()
+                .all(|c| c.tick >= bar && c.tick < bar + 960)
+        );
+        // a channel with lanes but no notes still gets a track
+        let mut ed = Edit::new(&p);
+        let ch = ed
+            .add_channel(
+                "Mod only",
+                InstrumentSpec::Synth {
+                    preset: None,
+                    params: Default::default(),
+                },
+            )
+            .unwrap();
+        ed.add_cc_point(
+            pat,
+            ch,
+            CcPointSpec {
+                controller: Controller::Cc(7),
+                tick: 0,
+                value: 0.5,
+                curve: CurveKind::Hold,
+                tension: 0.0,
+            },
+        )
+        .unwrap();
+        let p3 = ed.finish().0;
+        let parsed = parse_midi(&export_midi(&p3, MidiExport::Pattern(pat)).unwrap()).unwrap();
+        // (no notes: the importer drops it, but the file has the track)
+        assert!(parsed.parts.iter().all(|x| x.name != "Mod only"));
+        let smf = Smf::parse(&export_midi(&p3, MidiExport::Pattern(pat)).unwrap())
+            .unwrap()
+            .tracks
+            .len();
+        assert_eq!(smf, 4, "conductor + Lead + Bass + Mod only");
     }
 
     #[test]

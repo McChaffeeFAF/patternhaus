@@ -72,14 +72,14 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "file.import_midi",
-        "Import a MIDI file as a new pattern with one channel per track or MIDI channel.",
+        "Import a MIDI file as a new pattern with one channel per track or MIDI channel (notes, CC and pitch bend).",
         Scope::Full,
         MUTATES,
         import_midi,
     ));
     r.register(typed(
         "file.export_midi",
-        "Export a pattern, or the whole song, as a MIDI file.",
+        "Export a pattern, or the whole song, as a MIDI file (notes, CC and pitch bend lanes).",
         Scope::Full,
         READ,
         export_midi,
@@ -268,13 +268,22 @@ fn import_midi(ctx: &mut CommandCtx<'_>, p: ImportMidi) -> CmdResult<CommandOutp
         ed,
         json!({
             "pattern": r.pattern, "channels": r.channels, "notes": r.notes,
+            "controller_points": r.controller_points,
             "tempo_bpm": r.tempo_bpm, "time_signature": r.time_signature
         }),
         format!(
-            "imported {} as {name}: {}, {}",
+            "imported {} as {name}: {}, {}{}",
             p.path,
             plural(r.channels.len(), "channel", "channels"),
-            plural(r.notes, "note", "notes")
+            plural(r.notes, "note", "notes"),
+            if r.controller_points > 0 {
+                format!(
+                    ", {} of CC and pitch bend",
+                    plural(r.controller_points, "point", "points")
+                )
+            } else {
+                String::new()
+            }
         ),
     ))
 }

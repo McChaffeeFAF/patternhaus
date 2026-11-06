@@ -346,7 +346,7 @@ fn cc_lines(
                 c.label(),
                 ch_name(project, ch),
                 pat.name,
-                bar_span(t, lo, hi + 1)
+                bar_span(t, lo, hi.max(lo + 1))
             ));
         }
     }

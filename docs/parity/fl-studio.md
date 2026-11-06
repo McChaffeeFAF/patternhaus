@@ -28,6 +28,8 @@ Sources for the *Behaves* column:
 | Piano roll | Lasso select (Alt+drag), box select (Ctrl+drag) | UI selection only: no command until you act on the selection | owner check pending ([M1-ui](../manual-tests/M1-ui.md)) |
 | Piano roll | Slice tool | `note.update` (length of the head) + `note.add` (the tail) as one batch, one undo step | Cuts at the grid-snapped click; Alt = no snap |
 | Piano roll | Mute tool | `note.update { muted }` | A muted note stays and is not played |
+| Piano roll event editor | Controller lanes: CC 0-119 and pitch bend per channel, drawn under the notes | `cc.set` `cc.add_points` `cc.remove_points` `cc.clear` `cc.list` `cc.shape`; the lane strip in `snapshot piano_roll`; engine playback with chase (`ph-engine` `cc`) | M3/T10. FL edits event lanes in the piano roll's event editor; Patternhaus has the data, commands, playback and snapshot strip. The lane **editor UI** (drawing points with the mouse) is a later track; the piano roll's copy and paste of notes leaves lanes alone, and `pattern.clone` / `channel.clone` copy them. Not in FL's editor: `cc.shape` swells and ramps, names for controllers |
+| Piano roll event editor | MIDI file round trip of controller data | `file.import_midi` `file.export_midi` | CC and pitch bend import as hold points (steps, as in the file); export writes a lane as it sounds (ramps sampled about every 10 ticks, only where the 7-bit / 14-bit value changes) |
 | Piano roll | Quantize | `note.quantize` | owner check pending ([M1-ui](../manual-tests/M1-ui.md)) |
 | Piano roll | Transpose | `note.transpose` | owner check pending ([M1-ui](../manual-tests/M1-ui.md)) |
 | Piano roll | Note velocity / pan | `note.set_velocity` `note.update` | owner check pending ([M1-ui](../manual-tests/M1-ui.md)) |

@@ -362,12 +362,11 @@ fn lanes_follow_pattern_clone_channel_clone_and_removal() {
     // removing the channel takes its lanes with it, and undo brings them back
     r.run("channel.remove", json!({ "channel": r.ch }));
     assert!(
-        r.p()
+        !r.p()
             .pattern(PatternId(r.pat))
             .unwrap()
             .cc
-            .get(&ChannelId(r.ch))
-            .is_none()
+            .contains_key(&ChannelId(r.ch))
     );
     r.s.undo(&Author::Human).unwrap().unwrap();
     assert_eq!(r.lane(Controller::Cc(1)).points.len(), 3);

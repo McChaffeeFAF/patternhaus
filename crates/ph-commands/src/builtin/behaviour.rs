@@ -1705,3 +1705,71 @@ fn sample_import_needs_a_host_that_can_import() {
         CmdError::Model(_)
     ));
 }
+
+#[test]
+fn midi_files_carry_controller_lanes_both_ways() {
+    let mut r = Rig::new();
+    let pat = r.run("pattern.add", json!({ "name": "Swell" })).result["pattern"]
+        .as_u64()
+        .unwrap();
+    let ch = r
+        .run(
+            "channel.add",
+            json!({ "name": "Strings", "instrument": { "kind": "synth" } }),
+        )
+        .result["channel"]
+        .as_u64()
+        .unwrap();
+    r.run(
+        "note.add",
+        json!({ "pattern": pat, "channel": ch, "notes": [{ "key": 60, "start": 0, "length": 3840 }] }),
+    );
+    r.run(
+        "cc.shape",
+        json!({ "pattern": pat, "channel": ch, "controller": "mod wheel",
+                "start": 0, "end": 3840, "from": 0.3, "peak": 0.9, "to": 0.4 }),
+    );
+    r.run(
+        "cc.shape",
+        json!({ "pattern": pat, "channel": ch, "controller": "pitch bend",
+                "start": 0, "end": 960, "from": 0.0, "to": 0.5, "curve": "linear" }),
+    );
+    r.run(
+        "file.export_midi",
+        json!({ "path": "out/swell.mid", "pattern": pat }),
+    );
+    let out = r.run("file.import_midi", json!({ "path": "out/swell.mid" }));
+    assert!(out.result["controller_points"].as_u64().unwrap() > 40);
+    assert!(out.summary.unwrap().contains("of CC and pitch bend"));
+    let new = PatternId(out.result["pattern"].as_u64().unwrap() as u32);
+    let new_ch = r
+        .p()
+        .pattern(new)
+        .unwrap()
+        .cc
+        .keys()
+        .next()
+        .copied()
+        .unwrap();
+    let lane = r.p().pattern(new).unwrap().lane(new_ch, Controller::Cc(1));
+    let top = lane.points.iter().map(|p| p.value).fold(0.0, f64::max);
+    assert!((top - 0.9).abs() < 0.01, "{top}");
+    assert_eq!(lane.points[0].tick, 0);
+    let bend = r
+        .p()
+        .pattern(new)
+        .unwrap()
+        .lane(new_ch, Controller::PitchBend);
+    let end = bend.points.last().unwrap();
+    assert!((end.value - 0.5).abs() < 0.001 && end.tick <= 960);
+    // lanes were not touched in the source
+    assert_eq!(
+        r.p()
+            .pattern(PatternId(pat as u32))
+            .unwrap()
+            .lane(ChannelId(ch as u32), Controller::Cc(1))
+            .points
+            .len(),
+        3
+    );
+}

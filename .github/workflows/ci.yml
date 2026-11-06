@@ -77,6 +77,10 @@ jobs:
         run: |
           cargo test -p ph-cli --test acceptance_m3 -- --nocapture
           cargo test -p ph-engine --lib m3_oracle
+      - name: M3 controller lanes (CC1 swell on a Haus Sampler, MCP only) and the lane oracle
+        run: |
+          cargo test -p ph-cli --test acceptance_m3_cc -- --nocapture
+          cargo test -p ph-engine --lib cc_lanes
       - name: golden renders, oracle and round trip (criteria 4, 6, 8)
         run: cargo xtask golden
       - run: cargo test --workspace

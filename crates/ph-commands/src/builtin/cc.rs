@@ -119,10 +119,11 @@ fn range_text(start: Option<Tick>, end: Option<Tick>) -> String {
     }
 }
 
-/// Points of a lane at or past the pattern's end are never played.
+/// Points of a lane past the pattern's end are never played (a point exactly at the end is
+/// not played either, but the ramp up to it is, so it is not worth a warning).
 fn past_end(project: &Project, pattern: PatternId, ticks: impl Iterator<Item = Tick>) -> usize {
     let len = project.pattern_length(pattern).unwrap_or(Tick::MAX);
-    ticks.filter(|t| *t >= len).count()
+    ticks.filter(|t| *t > len).count()
 }
 
 fn warn_past_end(
@@ -135,7 +136,7 @@ fn warn_past_end(
         Value::Null
     } else {
         json!(format!(
-            "{n} point(s) lie at or past the pattern's end ({} ticks) and will not play; lengthen the pattern with pattern.set_length",
+            "{n} point(s) lie past the pattern's end ({} ticks) and will not play; lengthen the pattern with pattern.set_length",
             project.pattern_length(pattern).unwrap_or(0)
         ))
     }
