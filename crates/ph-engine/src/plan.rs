@@ -348,6 +348,8 @@ pub(crate) struct PatternStream {
     pub len_samples: i64,
     /// Indexed by channel node.
     pub notes: Vec<Vec<NoteEv>>,
+    /// Controller lanes, indexed by channel node (M3/T10).
+    pub cc: Vec<Vec<crate::cc::CcLaneStream>>,
 }
 
 pub(crate) struct Plan {
@@ -366,6 +368,8 @@ pub(crate) struct Plan {
     pub choke: Vec<Vec<usize>>,
     /// Song-mode streams, indexed by channel node.
     pub song: Vec<Vec<NoteEv>>,
+    /// Song-mode controller lanes, indexed by channel node (M3/T10).
+    pub song_cc: Vec<Vec<crate::cc::CcLaneStream>>,
     pub song_len: i64,
     /// Sorted by pattern id.
     pub patterns: Vec<PatternStream>,
@@ -1402,10 +1406,22 @@ pub(crate) fn compile(
                 v
             })
             .collect();
+        let cc = chans
+            .iter()
+            .map(|c| {
+                let w = crate::cc::Window {
+                    lo: 0,
+                    hi: len,
+                    origin: 0,
+                };
+                crate::cc::compile(&[(&**pat, w)], c.id, &tempo)
+            })
+            .collect();
         patterns.push(PatternStream {
             id: *pid,
             len_samples: tempo.sample_at(len),
             notes,
+            cc,
         });
     }
     let mut clips: Vec<&ph_core::Clip> = project
@@ -1452,6 +1468,37 @@ pub(crate) fn compile(
         })
         .collect();
 
+    let song_cc = chans
+        .iter()
+        .map(|ch| {
+            let mut parts: Vec<(&ph_core::Pattern, crate::cc::Window)> = Vec::new();
+            for clip in &clips {
+                let Some(pid) = clip.pattern() else {
+                    continue;
+                };
+                let Some(pat) = project.patterns.get(&pid) else {
+                    continue;
+                };
+                if !pat.cc.contains_key(&ch.id) {
+                    continue;
+                }
+                let plen = pattern_len.get(&pid).copied().unwrap_or(0);
+                let hi = (clip.offset + clip.length).min(plen);
+                if clip.offset < hi {
+                    parts.push((
+                        &**pat,
+                        crate::cc::Window {
+                            lo: clip.offset,
+                            hi,
+                            origin: clip.start,
+                        },
+                    ));
+                }
+            }
+            crate::cc::compile(&parts, ch.id, &tempo)
+        })
+        .collect();
+
     let mut choke = vec![Vec::new(); CHOKE_GROUPS + 1];
     for (i, node) in nodes.iter().enumerate() {
         if let NodeDef::Channel(c) = &node.def
@@ -1478,6 +1525,7 @@ pub(crate) fn compile(
         channel_lookup,
         choke,
         song,
+        song_cc,
         patterns,
         transfers,
         params,

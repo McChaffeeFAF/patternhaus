@@ -7,6 +7,7 @@ mod audio;
 mod audio_oracle;
 mod audition;
 mod automation;
+mod cc_lanes;
 mod m2_oracle;
 mod m3_oracle;
 mod midi;

@@ -139,6 +139,12 @@ pub(crate) struct Runtime {
     audition: Player,
     /// Recording and input monitoring (M2/T8).
     pub rig: Rig,
+    /// Tests: every controller and bend event scheduled, as (channel node, timeline sample).
+    #[cfg(test)]
+    pub tap: Vec<(usize, i64, EventKind)>,
+    /// Tests: record into `tap` (off by default: pushing allocates).
+    #[cfg(test)]
+    pub tap_on: bool,
 }
 
 // SAFETY: the job's raw plan pointer only refers to `self.plan` during `run_graph`.
@@ -201,6 +207,10 @@ impl Runtime {
             audition_port,
             audition: Player::new(),
             rig: Rig::new(n),
+            #[cfg(test)]
+            tap: Vec::new(),
+            #[cfg(test)]
+            tap_on: false,
         }
     }
 
@@ -532,6 +542,8 @@ impl Runtime {
         let a = self.tr.pos;
         let b = a + n as i64;
         self.schedule_events(a, b);
+        #[cfg(test)]
+        self.tap_events(a);
         let ticks = self.plan.tempo.tick_at(a);
         let ctx = ChunkCtx {
             frames: n,
@@ -570,6 +582,23 @@ impl Runtime {
         }
     }
 
+    #[cfg(test)]
+    fn tap_events(&mut self, a: i64) {
+        if !self.tap_on {
+            return;
+        }
+        for i in 0..self.plan.n_channels {
+            // SAFETY: between blocks.
+            if let Some(st) = unsafe { self.plan.channel_mut(i) } {
+                for e in &st.events {
+                    if matches!(e.kind, EventKind::Cc { .. } | EventKind::PitchBend { .. }) {
+                        self.tap.push((i, a + e.frame as i64, e.kind));
+                    }
+                }
+            }
+        }
+    }
+
     fn run_graph(&mut self, ctx: ChunkCtx) {
         let plan: &Plan = &self.plan;
         match &self.pool {
@@ -602,6 +631,12 @@ impl Runtime {
             match mode {
                 PlayMode::Song => &plan.song[i],
                 PlayMode::Pattern(id) => plan.pattern(id).map_or(&[][..], |p| &p.notes[i]),
+            }
+        };
+        let cc_of = |i: usize| -> &[crate::cc::CcLaneStream] {
+            match mode {
+                PlayMode::Song => &plan.song_cc[i],
+                PlayMode::Pattern(id) => plan.pattern(id).map_or(&[][..], |p| &p.cc[i]),
             }
         };
         // pass 1: transport flushes, previews and note-ons
@@ -688,6 +723,9 @@ impl Runtime {
                         false,
                     );
                 }
+            }
+            if playing {
+                schedule_cc(st, cc_of(i), a, b, end, resync);
             }
         }
         // pass 1b: automation (M2/T7). Song mode only; anywhere else automated parameters
@@ -957,6 +995,48 @@ fn schedule_automation(plan: &Plan, a: i64, b: i64, active: bool, resync: bool) 
             && let Some(e) = s.effects.get_mut(slot)
         {
             e.events.sort_unstable_by_key(event_order);
+        }
+    }
+}
+
+/// Controller lanes (M3/T10) for the chunk `[a, b)`: the chase after a transport jump, then
+/// the lane events due. Stateless: it only searches the plan's sorted lists, so the events do
+/// not depend on how the audio is divided into blocks.
+fn schedule_cc(
+    st: &mut ChannelState,
+    lanes: &[crate::cc::CcLaneStream],
+    a: i64,
+    b: i64,
+    end: Option<i64>,
+    resync: bool,
+) {
+    // note-offs keep their room, as for automation
+    let cap = EVENT_CAP - EVENT_RESERVE;
+    for lane in lanes {
+        let ev = &lane.events[..];
+        let lo = ev.partition_point(|e| e.sample < a);
+        let kind = |value: f32| match lane.controller {
+            ph_core::Controller::Cc(n) => EventKind::Cc {
+                controller: n,
+                value,
+            },
+            ph_core::Controller::PitchBend => EventKind::PitchBend { value },
+        };
+        // chase: play/seek/loop/new plan inside the lane sends the value in force first,
+        // unless an event of its own lands on this very frame
+        if resync && lo > 0 && ev.get(lo).is_none_or(|e| e.sample != a) && st.events.len() < cap {
+            push_event(st, 0, kind(ev[lo - 1].value));
+        }
+        let mut k = lo;
+        while k < ev.len() && ev[k].sample < b {
+            let e = ev[k];
+            k += 1;
+            if end.is_some_and(|x| e.sample >= x) {
+                break;
+            }
+            if st.events.len() < cap {
+                push_event(st, (e.sample - a) as u32, kind(e.value));
+            }
         }
     }
 }

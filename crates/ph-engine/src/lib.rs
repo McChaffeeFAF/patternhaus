@@ -21,6 +21,7 @@ pub mod audio_clips;
 mod audition;
 pub mod automation;
 pub mod catalog;
+mod cc;
 mod control;
 mod device;
 #[cfg(all(test, loom))]
