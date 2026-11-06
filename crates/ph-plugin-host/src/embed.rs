@@ -142,7 +142,7 @@ mod win {
         // SAFETY: plain CreateWindowExW with a registered class and a live parent
         unsafe {
             CreateWindowExW(
-                0,
+                WS_EX_NOPARENTNOTIFY,
                 CLASS.as_ptr(),
                 std::ptr::null(),
                 WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,

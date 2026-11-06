@@ -87,6 +87,49 @@ fn pump_messages() {
 #[cfg(not(windows))]
 fn pump_messages() {}
 
+/// Waits for a job's result on the calling thread.
+///
+/// On Windows the caller may own windows that the main thread's job talks to: an editor frame
+/// is a child of the app window (owned by the UI thread), so creating it, or a plugin editor
+/// attaching inside it, sends messages to the UI thread and blocks until they are handled. A
+/// caller blocked in a plain `recv` never handles them and both threads hang (owner report,
+/// 2026-11-05: opening Kontakt's editor froze the app). So the wait keeps handling messages
+/// *sent* to this thread from other threads, which never removes queued input or paint
+/// messages.
+fn wait<R>(rx: &Receiver<R>) -> R {
+    const LOST: &str = "a plugin main-thread job panicked; see the log";
+    #[cfg(windows)]
+    loop {
+        match rx.recv_timeout(Duration::from_millis(1)) {
+            Ok(r) => return r,
+            Err(RecvTimeoutError::Timeout) => handle_sent_messages(),
+            Err(RecvTimeoutError::Disconnected) => panic!("{LOST}"),
+        }
+    }
+    #[cfg(not(windows))]
+    rx.recv().expect(LOST)
+}
+
+/// Handles the messages other threads have sent to this one (`SendMessage`), and nothing else.
+#[cfg(windows)]
+fn handle_sent_messages() {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MSG, PM_NOREMOVE, PM_QS_SENDMESSAGE, PeekMessageW,
+    };
+    // SAFETY: PeekMessageW delivers pending sent messages to their window procedures; with
+    // PM_NOREMOVE | PM_QS_SENDMESSAGE it takes nothing off the queue.
+    unsafe {
+        let mut msg: MSG = std::mem::zeroed();
+        PeekMessageW(
+            &mut msg,
+            std::ptr::null_mut(),
+            0,
+            0,
+            PM_NOREMOVE | PM_QS_SENDMESSAGE,
+        );
+    }
+}
+
 impl MainThread {
     pub fn is_current(&self) -> bool {
         std::thread::current().id() == self.id
@@ -106,8 +149,7 @@ impl MainThread {
             .unwrap_or_else(|e| e.into_inner())
             .send(job)
             .expect("the plugin main thread has stopped");
-        rx.recv()
-            .expect("a plugin main-thread job panicked; see the log")
+        wait(&rx)
     }
 
     /// Queues `f` without waiting.
