@@ -156,6 +156,20 @@ impl PluginEditors {
             .map(|e| e.size)
     }
 
+    /// Follows an embedded editor that resized itself (the plugin asked its host for a new
+    /// size): its space and frame take the new size and its window fits it again.
+    pub fn sync_size(&mut self, slot: PluginSlot) {
+        if let Some(e) = self.open.get_mut(&slot)
+            && e.frame.is_some()
+            && let Some(s) = e.editor.size()
+            && s != e.size
+        {
+            e.size = s;
+            e.rect = None;
+            e.fitted = false;
+        }
+    }
+
     /// True once per opened embedded editor: its window should grow to fit it.
     pub fn take_fit(&mut self, slot: PluginSlot) -> bool {
         match self.open.get_mut(&slot) {
@@ -356,6 +370,7 @@ pub fn plugin_panel(ui: &mut Ui, core: &mut AppCore, target: PluginTarget) {
         }
     }
     // an embedded editor gets its space here; the frame follows it every frame
+    core.plugins.editors.sync_size(slot);
     if let Some(size) = core.plugins.editors.embedded_size(slot) {
         let ppp = ui.ctx().pixels_per_point();
         let (rect, _) = ui.allocate_exact_size(

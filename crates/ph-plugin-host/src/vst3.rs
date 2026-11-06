@@ -904,6 +904,7 @@ impl PluginControl for ControlHandle {
         Some(Box::new(Vst3Editor {
             control: self.0.clone(),
             size: None,
+            asked: Default::default(),
         }))
     }
 }
@@ -914,6 +915,9 @@ impl PluginControl for ControlHandle {
 pub struct Vst3Editor {
     control: Arc<Vst3Control>,
     size: Option<EditorSize>,
+    /// The size the plugin itself last asked for (`IPlugFrame::resizeView`), if any since
+    /// the host last set one.
+    asked: Arc<std::sync::Mutex<Option<(i32, i32)>>>,
 }
 
 /// A parent window handle the main thread uses (the UI keeps it alive while open).
@@ -934,6 +938,8 @@ impl PluginEditor for Vst3Editor {
             ));
         };
         let hwnd = SendHwnd(h.hwnd.get());
+        *self.asked.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let asked = self.asked.clone();
         let size = self.control.on_main(
             PluginCall::Param,
             "opening its editor",
@@ -951,9 +957,7 @@ impl PluginEditor for Vst3Editor {
                             "the editor cannot embed in a Win32 window".into(),
                         ));
                     }
-                    let frame = ComWrapper::new(Frame {
-                        size: std::sync::Mutex::new(None),
-                    });
+                    let frame = ComWrapper::new(Frame { size: asked });
                     view.setFrame(frame.as_com_ref::<IPlugFrame>().unwrap().as_ptr());
                     if view.attached(hwnd.0 as *mut c_void, kPlatformTypeHWND) != kResultOk {
                         return Err(PluginError::Call("the editor refused its parent".into()));
@@ -1035,12 +1039,20 @@ impl PluginEditor for Vst3Editor {
                 })
             },
         )??;
+        *self.asked.lock().unwrap_or_else(|e| e.into_inner()) = None;
         self.size = Some(s);
         Ok(s)
     }
 
     fn size(&self) -> Option<EditorSize> {
-        self.size
+        let open = self.size?;
+        match *self.asked.lock().unwrap_or_else(|e| e.into_inner()) {
+            Some((w, h)) => Some(EditorSize {
+                width: w.max(1) as u32,
+                height: h.max(1) as u32,
+            }),
+            None => Some(open),
+        }
     }
 }
 
