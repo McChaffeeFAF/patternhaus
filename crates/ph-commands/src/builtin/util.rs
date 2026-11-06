@@ -92,6 +92,16 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
             }
         }
     }
+    for pat in cur.patterns.values() {
+        for (c, points) in &pat.cc {
+            for n in points.keys() {
+                let path = ObjectPath::CcPoint(pat.id, *c, *n);
+                if get(target, path).is_none() {
+                    ed.put(path, None)?;
+                }
+            }
+        }
+    }
     for (cid, pid) in points_of(&cur) {
         let path = ObjectPath::Point(cid, pid);
         if get(target, path).is_none() {
@@ -201,6 +211,14 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
         for (c, notes) in &pat.notes {
             for n in notes.keys() {
                 let path = ObjectPath::Note(pat.id, *c, *n);
+                ed.put(path, get(target, path))?;
+            }
+        }
+    }
+    for pat in target.patterns.values() {
+        for (c, points) in &pat.cc {
+            for n in points.keys() {
+                let path = ObjectPath::CcPoint(pat.id, *c, *n);
                 ed.put(path, get(target, path))?;
             }
         }

@@ -18,7 +18,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "channel.remove",
-        "Remove a channel and all of its notes (undoable); optionally its now-unused Haus Sampler instrument.",
+        "Remove a channel and all of its notes and controller lanes (undoable); optionally its now-unused Haus Sampler instrument.",
         Scope::Compose,
         MUTATES,
         remove,
@@ -95,7 +95,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "channel.clone",
-        "Duplicate a channel with its settings and notes.",
+        "Duplicate a channel with its settings, notes and controller lanes.",
         Scope::Compose,
         MUTATES,
         clone,
@@ -439,6 +439,7 @@ fn clone(ctx: &mut CommandCtx<'_>, p: ChannelOnly) -> CmdResult<CommandOutput> {
         .map_or(usize::MAX, |i| i + 1);
     ed.move_channel(id, at)?;
     let mut count = 0;
+    let mut cc_points = 0;
     for pat in ctx.project.patterns.values() {
         for n in notes_of(ctx.project, pat.id, p.channel)? {
             let mut spec = NoteSpec::new(n.key, n.start, n.length);
@@ -449,10 +450,26 @@ fn clone(ctx: &mut CommandCtx<'_>, p: ChannelOnly) -> CmdResult<CommandOutput> {
             ed.add_note(pat.id, id, spec)?;
             count += 1;
         }
+        if let Some(points) = pat.cc.get(&p.channel) {
+            for pt in points.values() {
+                ed.add_cc_point(
+                    pat.id,
+                    id,
+                    CcPointSpec {
+                        controller: pt.controller,
+                        tick: pt.tick,
+                        value: pt.value,
+                        curve: pt.curve,
+                        tension: pt.tension,
+                    },
+                )?;
+                cc_points += 1;
+            }
+        }
     }
     Ok(CommandOutput::from_edit(
         ed,
-        json!({ "channel": id, "notes": count }),
+        json!({ "channel": id, "notes": count, "cc_points": cc_points }),
         format!(
             "cloned {} as {name} with {}",
             src.name,

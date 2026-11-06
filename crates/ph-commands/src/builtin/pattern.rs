@@ -17,7 +17,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "pattern.remove",
-        "Delete a pattern with its notes and playlist clips (undoable).",
+        "Delete a pattern with its notes, controller lanes and playlist clips (undoable).",
         Scope::Compose,
         MUTATES,
         remove,
@@ -45,7 +45,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "pattern.clone",
-        "Duplicate a pattern with all of its notes.",
+        "Duplicate a pattern with all of its notes and controller lanes.",
         Scope::Compose,
         MUTATES,
         clone,
@@ -59,7 +59,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "pattern.clear_channel",
-        "Delete every note one channel has in a pattern.",
+        "Delete every note one channel has in a pattern (its controller lanes stay; see cc.clear).",
         Scope::Compose,
         MUTATES,
         clear_channel,
@@ -233,9 +233,26 @@ fn clone(ctx: &mut CommandCtx<'_>, p: PatternOnly) -> CmdResult<CommandOutput> {
             count += 1;
         }
     }
+    let mut cc_points = 0;
+    for (ch, points) in &src.cc {
+        for p in points.values() {
+            ed.add_cc_point(
+                id,
+                *ch,
+                CcPointSpec {
+                    controller: p.controller,
+                    tick: p.tick,
+                    value: p.value,
+                    curve: p.curve,
+                    tension: p.tension,
+                },
+            )?;
+            cc_points += 1;
+        }
+    }
     Ok(CommandOutput::from_edit(
         ed,
-        json!({ "pattern": id, "notes": count }),
+        json!({ "pattern": id, "notes": count, "cc_points": cc_points }),
         format!("cloned pattern {} as {name}", src.name),
     ))
 }

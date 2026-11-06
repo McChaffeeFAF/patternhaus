@@ -98,9 +98,25 @@ fn pattern_notes(ctx: &mut CommandCtx<'_>, p: PatternNotes) -> CmdResult<Command
             by_channel.insert(ch.to_string(), json!(list));
         }
     }
-    Ok(CommandOutput::value(json!({
+    // controller lanes (M3/T10), compactly: the shape, not every point (see cc.list)
+    let mut lanes = serde_json::Map::new();
+    for ch in pat.cc.keys() {
+        if p.channel.is_none_or(|c| c == *ch) {
+            let l: Vec<_> = pat
+                .lanes(*ch)
+                .iter()
+                .map(|l| json!({ "controller": l.controller, "name": l.controller.name(), "points": l.points.len(), "shape": l.describe() }))
+                .collect();
+            lanes.insert(ch.to_string(), json!(l));
+        }
+    }
+    let mut out = json!({
         "pattern": p.pattern, "length": ctx.project.pattern_length(p.pattern)?, "channels": by_channel
-    })))
+    });
+    if !lanes.is_empty() {
+        out["controller_lanes"] = json!(lanes);
+    }
+    Ok(CommandOutput::value(out))
 }
 
 fn mixer(ctx: &mut CommandCtx<'_>, _: NoParams) -> CmdResult<CommandOutput> {
@@ -120,7 +136,7 @@ fn playlist(ctx: &mut CommandCtx<'_>, _: NoParams) -> CmdResult<CommandOutput> {
 #[serde(deny_unknown_fields)]
 struct Object {
     /// Object path: settings | channel/<id> | channel_order | pattern/<id> | pattern_order |
-    /// note/<pattern>/<channel>/<note> | insert/<n> | track/<n> | clip/<id>.
+    /// note/<pattern>/<channel>/<note> | cc/<pattern>/<channel>/<point> | insert/<n> | track/<n> | clip/<id>.
     path: ObjectPath,
 }
 

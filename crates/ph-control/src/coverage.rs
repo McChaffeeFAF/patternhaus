@@ -18,6 +18,7 @@ const BEHAVIOUR_SOURCES: &[&str] = &[
     include_str!("../../ph-commands/src/builtin/proposal_behaviour.rs"),
     include_str!("../../ph-commands/src/builtin/sampler_behaviour.rs"),
     include_str!("../../ph-commands/src/builtin/catalogue_behaviour.rs"),
+    include_str!("../../ph-commands/src/builtin/cc_behaviour.rs"),
     include_str!("catalogue_tests.rs"),
     include_str!("node_params.rs"),
     include_str!("tests.rs"),
@@ -132,7 +133,7 @@ fn every_m2_command_is_called_by_a_behaviour_test_and_refuses_unknown_params() {
     assert!(open.is_empty(), "these accept unknown params: {open:?}");
 }
 
-/// M3 criterion 8: every `sampler.*` and `catalogue.*` command is called by a behaviour test
+/// M3 criterion 8: every `sampler.*`, `catalogue.*` and `cc.*` command is called by a behaviour test
 /// and refuses unknown parameters, like the M2 commands.
 #[test]
 fn every_m3_command_is_called_by_a_behaviour_test_and_refuses_unknown_params() {
@@ -141,9 +142,13 @@ fn every_m3_command_is_called_by_a_behaviour_test_and_refuses_unknown_params() {
     let m3: Vec<_> = reg
         .list("")
         .into_iter()
-        .filter(|s| s.id.starts_with("sampler.") || s.id.starts_with("catalogue."))
+        .filter(|s| {
+            s.id.starts_with("sampler.")
+                || s.id.starts_with("catalogue.")
+                || s.id.starts_with("cc.")
+        })
         .collect();
-    assert!(m3.len() >= 25, "the M3 commands are served: {}", m3.len());
+    assert!(m3.len() >= 31, "the M3 commands are served: {}", m3.len());
     let uncalled: Vec<_> = m3
         .iter()
         .filter(|s| !called_in(&sources, s.id))

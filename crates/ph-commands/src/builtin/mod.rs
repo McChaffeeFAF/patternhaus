@@ -17,6 +17,9 @@ mod behaviour;
 mod catalogue;
 #[cfg(test)]
 mod catalogue_behaviour;
+mod cc;
+#[cfg(test)]
+mod cc_behaviour;
 mod channel;
 mod editor;
 #[cfg(test)]
@@ -69,6 +72,7 @@ pub fn register_builtin(r: &mut Registry) {
     channel::register(r);
     pattern::register(r);
     note::register(r);
+    cc::register(r);
     step::register(r);
     playlist::register(r);
     mixer::register(r);

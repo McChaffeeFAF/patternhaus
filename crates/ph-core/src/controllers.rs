@@ -294,7 +294,51 @@ impl CcLane {
     }
 }
 
-pub(crate) fn validate_cc_point(p: &CcPoint) -> ModelResult<()> {
+/// A value as short text: two decimals, trailing zeros trimmed (`0.3`, `0.35`, `-0.5`, `1`).
+pub fn fmt_value(v: f64) -> String {
+    let t = format!("{v:.2}");
+    let t = t.trim_end_matches('0').trim_end_matches('.');
+    if t.is_empty() || t == "-0" {
+        "0".into()
+    } else {
+        t.into()
+    }
+}
+
+impl CcLane {
+    /// The lane in a few words for diffs and views: `hold 0.5`, `ramp 0.2→0.9`,
+    /// `swell 0.3→0.9→0.4`, `dip 0.9→0.2→0.8`, `0.2→0.5→0.7→0.1`, or `9 points 0.1..0.9`.
+    pub fn describe(&self) -> String {
+        let v: Vec<f64> = self.points.iter().map(|p| p.value).collect();
+        let join = |v: &[f64]| {
+            v.iter()
+                .map(|x| fmt_value(*x))
+                .collect::<Vec<_>>()
+                .join("→")
+        };
+        match v.len() {
+            0 => "empty".into(),
+            1 => format!("hold {}", fmt_value(v[0])),
+            _ if v.windows(2).all(|w| w[0] == w[1]) => format!("hold {}", fmt_value(v[0])),
+            2 => format!("ramp {}", join(&v)),
+            3 if v[1] > v[0] && v[1] > v[2] => format!("swell {}", join(&v)),
+            3 if v[1] < v[0] && v[1] < v[2] => format!("dip {}", join(&v)),
+            n if n <= 5 => join(&v),
+            n => {
+                let lo = v.iter().cloned().fold(f64::INFINITY, f64::min);
+                let hi = v.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                format!("{n} points {}..{}", fmt_value(lo), fmt_value(hi))
+            }
+        }
+    }
+
+    /// First and last point tick.
+    pub fn span(&self) -> Option<(Tick, Tick)> {
+        Some((self.points.first()?.tick, self.points.last()?.tick))
+    }
+}
+
+pub fn validate_cc_point(p: &CcPoint) -> ModelResult<()> {
     if let Controller::Cc(n) = p.controller
         && n > MAX_CC
     {

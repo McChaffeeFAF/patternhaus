@@ -202,6 +202,20 @@ pub fn validate(p: &Project) -> FormatResult<()> {
                 ph_core::validate_note(n)?;
             }
         }
+        for (cid, points) in &pat.cc {
+            if !p.channels.contains_key(cid) {
+                return bad(format!(
+                    "pattern {} has controller points for missing channel {cid}",
+                    pat.id
+                ));
+            }
+            for (id, pt) in points {
+                if pt.id != *id {
+                    return bad(format!("controller point {id} is malformed"));
+                }
+                ph_core::validate_cc_point(pt)?;
+            }
+        }
     }
     let mut paths = std::collections::BTreeSet::new();
     for (id, e) in p.samples.iter() {

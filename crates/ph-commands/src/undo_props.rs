@@ -25,7 +25,7 @@ struct Op {
 fn op() -> impl Strategy<Value = Op> {
     (
         any::<bool>(),
-        0u8..40,
+        0u8..42,
         any::<u16>(),
         any::<u16>(),
         any::<u16>(),
@@ -428,6 +428,33 @@ impl Rig {
                           "depth": -((op.c % 24) as f32), "group": group }] }),
                 )
             }
+            // ---- M3/T10 controller lanes
+            40 => {
+                let (Some(p), Some(c)) = (
+                    Self::pick(&self.patterns(), op.a),
+                    Self::pick(&self.channels(), op.b),
+                ) else {
+                    return;
+                };
+                (
+                    "cc.shape",
+                    json!({ "pattern": p, "channel": c, "controller": 1 + op.c % 3,
+                            "start": (op.a % 8) as u64 * 120, "end": 960 + (op.b % 8) as u64 * 120,
+                            "from": (op.c % 11) as f64 / 10.0, "peak": (op.a % 11) as f64 / 10.0 }),
+                )
+            }
+            41 => {
+                let (Some(p), Some(c)) = (
+                    Self::pick(&self.patterns(), op.a),
+                    Self::pick(&self.channels(), op.b),
+                ) else {
+                    return;
+                };
+                (
+                    "cc.clear",
+                    json!({ "pattern": p, "channel": c, "controller": 1 + op.c % 3 }),
+                )
+            }
             _ => {
                 let Some(i) = Self::pick(&self.instruments(), op.a) else {
                     return;
@@ -556,6 +583,9 @@ proptest! {
                 e.patches.iter().any(|p| match (path, p.path) {
                     (ObjectPath::Channel(c), ObjectPath::Note(_, nc, _)) => c == nc,
                     (ObjectPath::Pattern(x), ObjectPath::Note(np, _, _)) => x == np,
+                    // M3/T10: a controller point keeps its channel and pattern alive too
+                    (ObjectPath::Channel(c), ObjectPath::CcPoint(_, nc, _)) => c == nc,
+                    (ObjectPath::Pattern(x), ObjectPath::CcPoint(np, _, _)) => x == np,
                     (ObjectPath::Pattern(x), ObjectPath::Clip(_)) => p
                         .after
                         .as_ref()
