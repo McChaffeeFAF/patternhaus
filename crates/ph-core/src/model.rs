@@ -183,6 +183,11 @@ pub struct Pattern {
     pub length: Option<Tick>,
     /// channel -> note id -> note. Ordered by id for stable saves; the engine sorts by time.
     pub notes: BTreeMap<ChannelId, BTreeMap<NoteId, Note>>,
+    /// Controller lanes (M3/T10): channel -> point id -> point; the points of one
+    /// [`Controller`] make a lane. Added after format 3 was introduced; absent in older
+    /// projects and omitted when empty, so projects without lanes serialise exactly as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub cc: BTreeMap<ChannelId, BTreeMap<PointId, CcPoint>>,
 }
 
 /// The editable header of a pattern, i.e. everything except its notes. Patches on
@@ -595,6 +600,40 @@ impl Pattern {
 
     pub fn note_count(&self) -> usize {
         self.notes.values().map(|m| m.len()).sum()
+    }
+
+    /// Number of controller lane points (all channels).
+    pub fn cc_count(&self) -> usize {
+        self.cc.values().map(|m| m.len()).sum()
+    }
+
+    /// The lanes of one channel, ordered by controller, each with its points in evaluation
+    /// order `(tick, id)`.
+    pub fn lanes(&self, channel: ChannelId) -> Vec<CcLane> {
+        let mut by: BTreeMap<Controller, Vec<CcPoint>> = BTreeMap::new();
+        for p in self.cc.get(&channel).into_iter().flat_map(|m| m.values()) {
+            by.entry(p.controller).or_default().push(p.clone());
+        }
+        by.into_iter()
+            .map(|(controller, mut points)| {
+                points.sort_by_key(|p| (p.tick, p.id));
+                CcLane { controller, points }
+            })
+            .collect()
+    }
+
+    /// One lane (empty points when the channel has none for `controller`).
+    pub fn lane(&self, channel: ChannelId, controller: Controller) -> CcLane {
+        let mut points: Vec<CcPoint> = self
+            .cc
+            .get(&channel)
+            .into_iter()
+            .flat_map(|m| m.values())
+            .filter(|p| p.controller == controller)
+            .cloned()
+            .collect();
+        points.sort_by_key(|p| (p.tick, p.id));
+        CcLane { controller, points }
     }
 }
 

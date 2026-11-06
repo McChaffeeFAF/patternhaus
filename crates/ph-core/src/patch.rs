@@ -96,6 +96,12 @@ pub fn get(project: &Project, path: ObjectPath) -> Option<Value> {
             .and_then(|pat| pat.notes.get(&c))
             .and_then(|m| m.get(&n))
             .map(to_value),
+        ObjectPath::CcPoint(p, c, n) => project
+            .patterns
+            .get(&p)
+            .and_then(|pat| pat.cc.get(&c))
+            .and_then(|m| m.get(&n))
+            .map(to_value),
         ObjectPath::Insert(i) => project.mixer.get(i.0 as usize).map(to_value),
         ObjectPath::Track(t) => project.tracks.get(t as usize).map(to_value),
         ObjectPath::Clip(id) => project.clips.get(&id).map(|c| match &c.kind {
@@ -180,6 +186,13 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                 {
                     return invalid("channel still has notes".into());
                 }
+                if project
+                    .patterns
+                    .values()
+                    .any(|p| p.cc.get(&id).is_some_and(|m| !m.is_empty()))
+                {
+                    return invalid("channel still has controller points".into());
+                }
                 for pat in Arc::make_mut(&mut project.patterns).values_mut() {
                     if pat.notes.contains_key(&id) {
                         Arc::make_mut(pat).notes.remove(&id);
@@ -219,6 +232,7 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                                 color: h.color,
                                 length: h.length,
                                 notes: Default::default(),
+                                cc: Default::default(),
                             }),
                         );
                     }
@@ -231,6 +245,9 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                 };
                 if p.note_count() > 0 {
                     return invalid("pattern still has notes".into());
+                }
+                if p.cc_count() > 0 {
+                    return invalid("pattern still has controller points".into());
                 }
                 if project.pattern_order.contains(&id) {
                     return invalid("remove it from pattern_order first".into());
@@ -267,6 +284,32 @@ pub fn set(project: &mut Project, path: ObjectPath, value: Option<&Value>) -> Mo
                         m.remove(&nid);
                         if m.is_empty() {
                             pat.notes.remove(&cid);
+                        }
+                    }
+                }
+            }
+        }
+        ObjectPath::CcPoint(pid, cid, nid) => {
+            if !project.channels.contains_key(&cid) {
+                return Err(ModelError::NoChannel(cid));
+            }
+            let pats = Arc::make_mut(&mut project.patterns);
+            let pat = Arc::make_mut(pats.get_mut(&pid).ok_or(ModelError::NoPattern(pid))?);
+            match value {
+                Some(v) => {
+                    let n: CcPoint = from_value(path, v)?;
+                    if n.id != nid {
+                        return invalid(format!("value has id {}", n.id));
+                    }
+                    validate_cc_point(&n)?;
+                    pat.cc.entry(cid).or_default().insert(nid, n);
+                    project.next_ids.point = project.next_ids.point.max(nid.0 + 1);
+                }
+                None => {
+                    if let Some(m) = pat.cc.get_mut(&cid) {
+                        m.remove(&nid);
+                        if m.is_empty() {
+                            pat.cc.remove(&cid);
                         }
                     }
                 }
@@ -756,6 +799,19 @@ impl Edit {
         for (p, n) in notes {
             self.put(ObjectPath::Note(p, id, n), None)?;
         }
+        let points: Vec<(PatternId, PointId)> = self
+            .work
+            .patterns
+            .values()
+            .flat_map(|p| {
+                p.cc.get(&id)
+                    .into_iter()
+                    .flat_map(move |m| m.keys().map(move |n| (p.id, *n)))
+            })
+            .collect();
+        for (p, n) in points {
+            self.put(ObjectPath::CcPoint(p, id, n), None)?;
+        }
         let order: Vec<ChannelId> = self
             .work
             .channel_order
@@ -824,8 +880,16 @@ impl Edit {
             .filter(|c| c.pattern() == Some(id))
             .map(|c| c.id)
             .collect();
+        let points: Vec<(ChannelId, PointId)> = pat
+            .cc
+            .iter()
+            .flat_map(|(c, m)| m.keys().map(move |n| (*c, *n)))
+            .collect();
         for (c, n) in notes {
             self.put(ObjectPath::Note(id, c, n), None)?;
+        }
+        for (c, n) in points {
+            self.put(ObjectPath::CcPoint(id, c, n), None)?;
         }
         for c in clips {
             self.remove_clip(c)?;
@@ -907,6 +971,65 @@ impl Edit {
     ) -> ModelResult<()> {
         self.note(pattern, channel, id)?;
         self.put(ObjectPath::Note(pattern, channel, id), None)
+    }
+
+    // ---------------------------------------------------------------- controller lanes
+
+    /// Adds a controller lane point (M3/T10).
+    pub fn add_cc_point(
+        &mut self,
+        pattern: PatternId,
+        channel: ChannelId,
+        spec: CcPointSpec,
+    ) -> ModelResult<PointId> {
+        let id = PointId(self.work.next_ids.point);
+        let p = CcPoint {
+            id,
+            controller: spec.controller,
+            tick: spec.tick,
+            value: spec.value,
+            curve: spec.curve,
+            tension: spec.tension,
+        };
+        self.put_typed(ObjectPath::CcPoint(pattern, channel, id), Some(&p))?;
+        Ok(id)
+    }
+
+    pub fn cc_point(
+        &self,
+        pattern: PatternId,
+        channel: ChannelId,
+        id: PointId,
+    ) -> ModelResult<&CcPoint> {
+        self.work
+            .pattern(pattern)?
+            .cc
+            .get(&channel)
+            .and_then(|m| m.get(&id))
+            .ok_or(ModelError::NoCcPoint(id))
+    }
+
+    pub fn update_cc_point(
+        &mut self,
+        pattern: PatternId,
+        channel: ChannelId,
+        id: PointId,
+        f: impl FnOnce(&mut CcPoint),
+    ) -> ModelResult<()> {
+        let mut p = self.cc_point(pattern, channel, id)?.clone();
+        f(&mut p);
+        p.id = id;
+        self.put_typed(ObjectPath::CcPoint(pattern, channel, id), Some(&p))
+    }
+
+    pub fn remove_cc_point(
+        &mut self,
+        pattern: PatternId,
+        channel: ChannelId,
+        id: PointId,
+    ) -> ModelResult<()> {
+        self.cc_point(pattern, channel, id)?;
+        self.put(ObjectPath::CcPoint(pattern, channel, id), None)
     }
 
     // ---------------------------------------------------------------- mixer & playlist

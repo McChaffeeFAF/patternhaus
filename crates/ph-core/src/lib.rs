@@ -9,6 +9,7 @@
 
 mod audio;
 mod automation;
+mod controllers;
 mod ids;
 mod model;
 mod patch;
@@ -18,6 +19,7 @@ mod time;
 
 pub use audio::*;
 pub use automation::*;
+pub use controllers::*;
 pub use ids::*;
 pub use model::*;
 pub use patch::*;
@@ -43,6 +45,8 @@ pub enum ModelError {
     NoSample(SampleId),
     #[error("no automation point with id {0}")]
     NoPoint(PointId),
+    #[error("no controller point with id {0} there")]
+    NoCcPoint(PointId),
     #[error("no instrument with id {0}")]
     NoInstrument(InstrumentId),
     #[error("no group with id {0}")]
@@ -68,3 +72,6 @@ mod m2_tests;
 
 #[cfg(test)]
 mod m3_tests;
+
+#[cfg(test)]
+mod cc_tests;
