@@ -497,6 +497,8 @@ pub fn studio_registry() -> Registry {
 #[cfg(test)]
 mod catalogue_tests;
 #[cfg(test)]
+mod cc_agent_tests;
+#[cfg(test)]
 mod coverage;
 #[cfg(test)]
 mod plugin_tests;

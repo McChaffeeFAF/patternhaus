@@ -203,6 +203,7 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
             }
             lines.push(format!("{name} in {}: {}", pat.name, parts.join("; ")));
         }
+        cc_lines(after, pat, old.map(|o| &**o), &t, &mut lines);
         if notes_changed {
             let (b, a) = (pattern_chords(before, *pid), pattern_chords(after, *pid));
             if b != a
@@ -281,6 +282,74 @@ pub fn diff(before: &Project, after: &Project) -> Diff {
         lines.push(format!("...and {extra} more change(s)"));
     }
     Diff { lines }
+}
+
+/// Controller lane edits of one pattern (M3/T10), e.g.
+/// `CC1 Mod Wheel on Strings in Verse, bars 25-28: swell 0.3→0.9→0.4`.
+fn cc_lines(
+    project: &Project,
+    pat: &ph_core::Pattern,
+    old: Option<&ph_core::Pattern>,
+    t: &ph_analysis::Timing,
+    lines: &mut Vec<String>,
+) {
+    use ph_core::{CcLane, CcPoint, Controller};
+    let chans: BTreeSet<ChannelId> = pat
+        .cc
+        .keys()
+        .chain(old.into_iter().flat_map(|o| o.cc.keys()))
+        .copied()
+        .collect();
+    for ch in chans {
+        let controllers: BTreeSet<Controller> = pat
+            .cc
+            .get(&ch)
+            .into_iter()
+            .chain(old.and_then(|o| o.cc.get(&ch)))
+            .flat_map(|m| m.values().map(|p| p.controller))
+            .collect();
+        for c in controllers {
+            let new = pat.lane(ch, c);
+            let was = old.map_or(
+                CcLane {
+                    controller: c,
+                    points: Vec::new(),
+                },
+                |o| o.lane(ch, c),
+            );
+            let added: Vec<&CcPoint> = new
+                .points
+                .iter()
+                .filter(|p| !was.points.iter().any(|q| q == *p))
+                .collect();
+            let removed: Vec<&CcPoint> = was
+                .points
+                .iter()
+                .filter(|p| !new.points.iter().any(|q| q == *p))
+                .collect();
+            if added.is_empty() && removed.is_empty() {
+                continue;
+            }
+            let ticks = added.iter().chain(removed.iter()).map(|p| p.tick);
+            let (lo, hi) = (ticks.clone().min().unwrap_or(0), ticks.max().unwrap_or(0));
+            let what = if added.is_empty() {
+                format!("cleared ({} points removed)", removed.len())
+            } else {
+                CcLane {
+                    controller: c,
+                    points: added.iter().map(|p| (*p).clone()).collect(),
+                }
+                .describe()
+            };
+            lines.push(format!(
+                "{} on {} in {}, {}: {what}",
+                c.label(),
+                ch_name(project, ch),
+                pat.name,
+                bar_span(t, lo, hi + 1)
+            ));
+        }
+    }
 }
 
 fn join_some(v: &[String]) -> String {

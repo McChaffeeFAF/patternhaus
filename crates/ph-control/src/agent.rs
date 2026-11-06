@@ -291,7 +291,7 @@ impl Agent {
             ),
             tool(
                 "snapshot",
-                "See the result: returns a PNG image. kind: waveform (the rendered mix; with clip or sample, the audio of that audio clip as it is set up in the playlist, or of that registered sample), spectrogram, piano_roll (args pattern, channels[], range; all channels coloured), playlist (arrangement overview; audio clips show their waveform), zone_map (a Haus Sampler instrument's zones, keys across and velocity up, coloured by group as in the sampler window; arg instrument, default the first). Optional save: true also writes the PNG under renders/.",
+                "See the result: returns a PNG image. kind: waveform (the rendered mix; with clip or sample, the audio of that audio clip as it is set up in the playlist, or of that registered sample), spectrogram, piano_roll (args pattern, channels[], range; all channels coloured; a pattern's controller lanes, CC and pitch bend, are drawn as strips under the notes unless lanes is false; lanes can list controllers, e.g. [1, 11] or names like expression), playlist (arrangement overview; audio clips show their waveform), zone_map (a Haus Sampler instrument's zones, keys across and velocity up, coloured by group as in the sampler window; arg instrument, default the first). Optional save: true also writes the PNG under renders/.",
                 json!({ "type": "object", "properties": {
                     "kind": { "type": "string", "enum": ["waveform", "spectrogram", "piano_roll", "playlist", "zone_map"] },
                     "instrument": { "type": "integer", "description": "Haus Sampler instrument id (zone_map); get_state view zones lists them" },
@@ -299,6 +299,7 @@ impl Agent {
                     "clip": { "type": "integer", "description": "audio clip id (waveform): its played range with gain, fades and direction applied" },
                     "sample": { "type": "integer", "description": "registry sample id (waveform): the whole file" },
                     "channels": { "type": "array", "items": {}, "description": "channel ids or names to show (piano_roll)" },
+                    "lanes": { "description": "piano_roll controller lane strips: false hides them; a list of controllers (numbers or names) shows only those; default: every lane of the shown channels" },
                     "range": range_schema(),
                     "width": { "type": "integer", "description": "image width in pixels, 480-4000, default 1400" },
                     "save": { "type": "boolean" } }, "required": ["kind"] }),
@@ -1489,30 +1490,37 @@ impl Agent {
     ) -> Result<(Vec<u8>, String), String> {
         let timing = views::timing(p);
         let bar = timing.ticks_per_bar();
+        let mut scoped: Option<PatternId> = None;
         let (mut notes, what): (Vec<SongNote>, String) =
             match args.get("pattern").filter(|v| !v.is_null()) {
                 Some(v) => {
                     let id: PatternId = views::find_pattern(p, v)?;
+                    scoped = Some(id);
                     (
                         ph_analysis::music::pattern_notes(p, id),
                         format!("PATTERN {}", p.patterns[&id].name.to_uppercase()),
                     )
                 }
                 None if p.clips.is_empty() => match p.pattern_order.first() {
-                    Some(id) => (
-                        ph_analysis::music::pattern_notes(p, *id),
-                        format!("PATTERN {}", p.patterns[id].name.to_uppercase()),
-                    ),
+                    Some(id) => {
+                        scoped = Some(*id);
+                        (
+                            ph_analysis::music::pattern_notes(p, *id),
+                            format!("PATTERN {}", p.patterns[id].name.to_uppercase()),
+                        )
+                    }
                     None => return Err("the project has no patterns yet".into()),
                 },
                 None => (song_notes(p), "SONG".to_string()),
             };
+        let mut shown: Option<Vec<ChannelId>> = None;
         if let Some(list) = args["channels"].as_array() {
             let mut keep = Vec::new();
             for c in list {
                 keep.push(views::find_channel(p, c)?);
             }
             notes.retain(|n| keep.contains(&n.channel));
+            shown = Some(keep);
         }
         let end = notes
             .iter()
@@ -1533,6 +1541,10 @@ impl Agent {
             .collect();
         let group = |c: ChannelId| order.iter().position(|x| *x == c).unwrap_or(0);
         let rn = image::roll_notes(&notes, &group);
+        // controller lanes (M3/T10): strips under the notes for the shown channels of a
+        // pattern, unless `lanes` is false; `lanes: ["mod wheel", 11]` picks controllers
+        let (lane_strips, lane_names) =
+            self.roll_lanes(p, args, scoped, shown.as_deref(), &order, rg)?;
         let png = image::piano_roll(&PianoRollSpec {
             title: format!(
                 "PIANO ROLL  {what}  BARS {}-{}  {} BPM  C4 = MIDI 60",
@@ -1541,15 +1553,21 @@ impl Agent {
                 p.settings.bpm
             ),
             notes: &rn,
+            lanes: &lane_strips,
             legend: &legend,
             timing,
             range: rg,
             width,
         });
+        let lanes_text = if lane_names.is_empty() {
+            String::new()
+        } else {
+            format!("; controller lanes below: {}", lane_names.join(", "))
+        };
         Ok((
             png,
             format!(
-                "piano roll of {}, bars {}-{}, {} notes; colours per channel: {}",
+                "piano roll of {}, bars {}-{}, {} notes; colours per channel: {}{lanes_text}",
                 what.to_lowercase(),
                 rg.0 / bar + 1,
                 rg.1.div_ceil(bar),
@@ -1561,6 +1579,97 @@ impl Agent {
                     .join(", ")
             ),
         ))
+    }
+
+    /// The lane strips of a piano roll: every lane of the channels shown (those with notes,
+    /// or the ones named in `channels`), at most six.
+    fn roll_lanes(
+        &self,
+        p: &Arc<Project>,
+        args: &Value,
+        pattern: Option<PatternId>,
+        shown: Option<&[ChannelId]>,
+        with_notes: &[ChannelId],
+        rg: (Tick, Tick),
+    ) -> Result<(Vec<image::RollLane>, Vec<String>), String> {
+        let Some(pid) = pattern else {
+            return Ok((Vec::new(), Vec::new()));
+        };
+        let mut only: Option<Vec<ph_core::Controller>> = None;
+        match &args["lanes"] {
+            Value::Bool(false) => return Ok((Vec::new(), Vec::new())),
+            Value::Array(list) => {
+                let mut v = Vec::new();
+                for c in list {
+                    v.push(
+                        serde_json::from_value::<ph_core::Controller>(c.clone())
+                            .map_err(|e| format!("lanes: {e}"))?,
+                    );
+                }
+                only = Some(v);
+            }
+            _ => {}
+        }
+        let pat = &p.patterns[&pid];
+        let mut chans: Vec<ChannelId> = shown.map(|s| s.to_vec()).unwrap_or_default();
+        for c in with_notes {
+            if !chans.contains(c) {
+                chans.push(*c);
+            }
+        }
+        // lane-only channels count too when nothing narrowed the view
+        if shown.is_none() {
+            for c in pat.cc.keys() {
+                if !chans.contains(c) {
+                    chans.push(*c);
+                }
+            }
+        }
+        let n = 600usize;
+        let span = (rg.1.saturating_sub(rg.0)).max(1) as f64;
+        let mut strips = Vec::new();
+        let mut names = Vec::new();
+        for ch in p.channel_order.iter().filter(|c| chans.contains(c)) {
+            for lane in pat.lanes(*ch) {
+                if only.as_ref().is_some_and(|o| !o.contains(&lane.controller)) {
+                    continue;
+                }
+                if strips.len() >= 6 {
+                    break;
+                }
+                let bipolar = lane.controller == ph_core::Controller::PitchBend;
+                let norm =
+                    |v: f64| ((if bipolar { (v + 1.0) / 2.0 } else { v }) as f32).clamp(0.0, 1.0);
+                let auto = lane.auto_points();
+                let values = (0..n)
+                    .map(|i| {
+                        let t = rg.0 as f64 + (i as f64 + 0.5) / n as f64 * span;
+                        norm(ph_core::value_at(&auto, t).unwrap_or(0.0))
+                    })
+                    .collect();
+                let points = lane
+                    .points
+                    .iter()
+                    .map(|x| (x.tick, norm(x.value)))
+                    .collect();
+                let cname = p.channels.get(ch).map_or(String::new(), |c| c.name.clone());
+                let label = format!("{} {}", lane.controller.label(), cname);
+                names.push(format!(
+                    "{} on {} ({})",
+                    lane.controller.label(),
+                    cname,
+                    lane.describe()
+                ));
+                strips.push(image::RollLane {
+                    label,
+                    color: p.channels.get(ch).map_or(0x5f9ea0, |c| c.color),
+                    bipolar,
+                    values,
+                    points,
+                });
+            }
+        }
+        Ok((strips, names))
     }
 }
 

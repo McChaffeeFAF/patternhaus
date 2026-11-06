@@ -431,9 +431,26 @@ pub struct RollNote {
     pub group: usize,
 }
 
+/// A controller lane drawn as a strip under the notes (M3/T10).
+pub struct RollLane {
+    /// "CC1 Mod Wheel".
+    pub label: String,
+    /// The channel's colour, 0xRRGGBB.
+    pub color: u32,
+    /// Pitch bend: the strip has a centre line.
+    pub bipolar: bool,
+    /// The lane's value across the shown range, one entry per equal slice of it, normalised
+    /// to 0..=1 (bipolar lanes: -1..=1 mapped to 0..=1). Empty = nothing to draw.
+    pub values: Vec<f32>,
+    /// Where the lane's points are: (tick, normalised value).
+    pub points: Vec<(u64, f32)>,
+}
+
 pub struct PianoRollSpec<'a> {
     pub title: String,
     pub notes: &'a [RollNote],
+    /// Lane strips under the notes (empty = none; the picture is then as before).
+    pub lanes: &'a [RollLane],
     /// `(name, 0xRRGGBB)` per group, shown as a legend.
     pub legend: &'a [(String, u32)],
     pub timing: Timing,
@@ -464,7 +481,15 @@ pub fn piano_roll(spec: &PianoRollSpec) -> Vec<u8> {
     let rows = (hi_key - lo_key + 1) as i32;
     let row_h = (560 / rows).clamp(8, 20);
     let plot_h = rows * row_h;
-    let h = top + plot_h + bottom;
+    // lane strips sit below the notes' footer line
+    let (strip_h, strip_gap) = (48, 8);
+    let lanes_top = top + plot_h + 26;
+    let lanes_h = if spec.lanes.is_empty() {
+        0
+    } else {
+        spec.lanes.len() as i32 * (strip_h + strip_gap) + 4
+    };
+    let h = top + plot_h + bottom + lanes_h;
     let mut c = Canvas::new(w as u32, h as u32);
     let (x0, x1) = (l, w - r);
     let (t0, t1) = (
@@ -560,6 +585,49 @@ pub fn piano_roll(spec: &PianoRollSpec) -> Vec<u8> {
         top + plot_h + 6,
         DIM,
     );
+    // Controller lanes.
+    for (i, lane) in spec.lanes.iter().enumerate() {
+        let y0 = lanes_top + i as i32 * (strip_h + strip_gap);
+        c.rect(x0, y0, x1 - x0, strip_h, PANEL);
+        axis.grid(&mut c, y0, y0 + strip_h, y0 - th() - 2);
+        c.rect(x0, y0 + strip_h, x1 - x0, 1, GRID_STRONG);
+        if lane.bipolar {
+            c.rect(x0, y0 + strip_h / 2, x1 - x0, 1, GRID_STRONG);
+        }
+        // the label sits in the left margin, wrapped on its first space
+        let label = lane.label.to_uppercase();
+        let (a, b) = label.split_once(' ').unwrap_or((label.as_str(), ""));
+        c.text(a, 8, y0 + 4, TEXT);
+        if !b.is_empty() {
+            c.text(b, 8, y0 + 4 + th() + 2, DIM);
+        }
+        let color = rgb(lane.color);
+        let y_of = |v: f32| y0 + 2 + ((1.0 - v.clamp(0.0, 1.0)) * (strip_h - 5) as f32) as i32;
+        let n = lane.values.len();
+        if n > 0 {
+            let mut prev: Option<i32> = None;
+            for x in x0..x1 {
+                let k = ((x - x0) as usize * n / (x1 - x0).max(1) as usize).min(n - 1);
+                let y = y_of(lane.values[k]);
+                // join this column to the previous one so steep ramps stay connected
+                let (a, b) = match prev {
+                    Some(p) => (p.min(y), p.max(y)),
+                    None => (y, y),
+                };
+                c.rect(x, a, 1, (b - a + 1).max(1) + 1, color);
+                prev = Some(y);
+            }
+        }
+        for (tick, v) in &lane.points {
+            let t = *tick as f64;
+            if t < t0 || t > t1 {
+                continue;
+            }
+            let (px, py) = (axis.x(t), y_of(*v));
+            c.rect(px - 3, py - 3, 7, 7, [0xff, 0xff, 0xff]);
+            c.rect(px - 2, py - 2, 5, 5, color);
+        }
+    }
     c.png()
 }
 
@@ -1032,6 +1100,7 @@ mod tests {
         let png = piano_roll(&PianoRollSpec {
             title: "PIANO ROLL".into(),
             notes: &notes,
+            lanes: &[],
             legend: &legend,
             timing: timing(),
             range: (0, 4 * 3840),
@@ -1040,6 +1109,27 @@ mod tests {
         let (w, h, buf) = decode(&png);
         assert_eq!(w, 1200);
         assert!(h > 300 && distinct_colours(&buf) > 8);
+        // a lane strip makes the picture taller and adds the lane's colour
+        let lane = RollLane {
+            label: "CC1 Mod Wheel".into(),
+            color: 0xd2691e,
+            bipolar: false,
+            values: (0..400).map(|i| i as f32 / 400.0).collect(),
+            points: vec![(0, 0.0), (15360, 1.0)],
+        };
+        let with = piano_roll(&PianoRollSpec {
+            title: "PIANO ROLL".into(),
+            notes: &notes,
+            lanes: std::slice::from_ref(&lane),
+            legend: &legend,
+            timing: timing(),
+            range: (0, 4 * 3840),
+            width: 1200,
+        });
+        let (w2, h2, buf2) = decode(&with);
+        assert_eq!(w2, 1200);
+        assert!(h2 > h + 40, "{h} -> {h2}");
+        assert!(distinct_colours(&buf2) >= distinct_colours(&buf));
 
         let tracks = vec![
             PlaylistTrackRow {

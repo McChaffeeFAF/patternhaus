@@ -214,19 +214,37 @@ pub fn pattern_view(p: &Project, args: &Value) -> Result<Value, String> {
     let mut channels = Vec::new();
     for c in p.channels_in_order() {
         let ns: Vec<&SongNote> = all.iter().filter(|n| n.channel == c.id).collect();
-        if ns.is_empty() {
+        let lanes = pat.lanes(c.id);
+        if ns.is_empty() && lanes.is_empty() {
             continue;
         }
         let first = ns.iter().map(|n| n.start).min().unwrap_or(0);
         let last = ns.iter().map(|n| n.start + n.length).max().unwrap_or(0);
-        channels.push(json!({
+        let mut entry = json!({
             "channel": c.name,
             "id": c.id,
             "notes": ns.len(),
             "range": range_text(&ns),
             "spans": bar_span(&t, first, last),
             "pitched": pitched.contains(&c.id),
-        }));
+        });
+        if !lanes.is_empty() {
+            // controller lanes (M3/T10): the shape and where, not every point
+            entry["lanes"] = lanes
+                .iter()
+                .map(|l| {
+                    let (a, b) = l.span().unwrap_or((0, 0));
+                    format!(
+                        "{}: {} ({})",
+                        l.controller.label(),
+                        l.describe(),
+                        bar_span(&t, a, b.max(a + 1))
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into();
+        }
+        channels.push(entry);
     }
     let pn: Vec<SongNote> = all
         .iter()
@@ -446,7 +464,10 @@ pub fn overview(p: &Project, warnings: &[String]) -> Value {
         "bpm": p.settings.bpm,
         "time_signature": format!("{}/{}", p.settings.time_signature.numerator, p.settings.time_signature.denominator),
         "channels": p.channels_in_order().map(|c| format!("{} (id {})", c.name, c.id)).collect::<Vec<_>>(),
-        "patterns": p.patterns_in_order().map(|x| format!("{} (id {}, {} notes)", x.name, x.id, x.note_count())).collect::<Vec<_>>(),
+        "patterns": p.patterns_in_order().map(|x| match x.cc_count() {
+            0 => format!("{} (id {}, {} notes)", x.name, x.id, x.note_count()),
+            n => format!("{} (id {}, {} notes, {n} controller points)", x.name, x.id, x.note_count()),
+        }).collect::<Vec<_>>(),
         "clips": p.clips.len(),
         "song_bars": bars,
         "key": key.map(|k| format!("{} (confidence {})", k.key, k.confidence)),
