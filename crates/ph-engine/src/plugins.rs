@@ -38,7 +38,19 @@ pub struct PluginEnv {
     /// State file contents by reference, used instead of the files (an offline render of the
     /// live session uses the live states).
     overrides: Arc<BTreeMap<String, Vec<u8>>>,
+    /// Wall-clock time an offline render lets plugins run on silence before it starts (see
+    /// [`PluginEnv::settle`]).
+    settle: std::time::Duration,
+    /// Plugins built from this env render offline (faster or slower than real time), so they
+    /// are activated in their offline mode whatever the render quality.
+    offline: bool,
 }
+
+/// Environment variable: seconds an offline render waits, running its plugins on silence in
+/// real time, before it starts. Samplers such as Kontakt load their samples in the background
+/// after their state is restored; an offline render runs faster than real time and would
+/// otherwise play them before anything has loaded.
+pub const SETTLE_ENV: &str = "PATTERNHAUS_PLUGIN_SETTLE_SECONDS";
 
 impl std::fmt::Debug for PluginEnv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -55,6 +67,35 @@ impl PluginEnv {
             host,
             project_dir: Arc::new(RwLock::new(project_dir.to_path_buf())),
             overrides: Arc::new(BTreeMap::new()),
+            settle: settle_from_env(),
+            offline: false,
+        }
+    }
+
+    /// A copy for an offline render: its plugins are told they render offline (VST3
+    /// `kOffline`, CLAP offline rendering), which a streaming sampler such as Kontakt needs to
+    /// wait for its samples instead of dropping notes when the render outruns the disk.
+    pub fn offline(&self) -> Self {
+        Self {
+            offline: true,
+            ..self.clone()
+        }
+    }
+
+    pub fn is_offline(&self) -> bool {
+        self.offline
+    }
+
+    /// How long an offline render lets its plugins settle first ([`SETTLE_ENV`], default 0).
+    pub fn settle(&self) -> std::time::Duration {
+        self.settle
+    }
+
+    /// A copy with this settle time.
+    pub fn with_settle(&self, settle: std::time::Duration) -> Self {
+        Self {
+            settle,
+            ..self.clone()
         }
     }
 
@@ -90,6 +131,16 @@ impl PluginEnv {
         }
         std::fs::read(self.project_dir().join(rel)).ok()
     }
+}
+
+fn settle_from_env() -> std::time::Duration {
+    std::env::var(SETTLE_ENV)
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|s| s.is_finite() && *s > 0.0)
+        .map_or(std::time::Duration::ZERO, |s| {
+            std::time::Duration::from_secs_f64(s.min(600.0))
+        })
 }
 
 /// Where a plugin sits in the project.
@@ -227,7 +278,17 @@ pub(crate) fn create(
         node.load_state(&state.data, assets)
             .map_err(|e| format!("{r}: {e}"))?;
     }
-    node.activate(activate);
+    // plugin adapters choose their offline mode from `Quality::High` (DSP quality means
+    // nothing else to them), so an offline env activates them that way
+    let offline_info = ActivateInfo {
+        quality: ph_node::Quality::High,
+        ..*activate
+    };
+    node.activate(if env.is_offline() {
+        &offline_info
+    } else {
+        activate
+    });
     let desc = Arc::new(node.descriptor().clone());
     for (k, v) in params {
         if let Some(p) = desc.param_id(k) {

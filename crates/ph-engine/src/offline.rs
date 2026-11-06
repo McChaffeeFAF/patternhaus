@@ -133,6 +133,19 @@ impl Offline {
         out
     }
 
+    /// Runs the (stopped) graph on silence in real time for `wait`, discarding the output, so
+    /// plugins that load in the background are ready before the render starts.
+    fn settle(&mut self, wait: std::time::Duration, block: usize, sample_rate: u32) {
+        let step = (sample_rate as usize / 20).max(block); // about 50 ms
+        let pace = std::time::Duration::from_secs_f64(step as f64 / sample_rate.max(1) as f64);
+        let start = std::time::Instant::now();
+        let mut scratch = [vec![0.0f32; step], vec![0.0f32; step]];
+        while start.elapsed() < wait {
+            self.render_into(&mut scratch, 0, step, block);
+            std::thread::sleep(pace);
+        }
+    }
+
     fn render_into(&mut self, out: &mut [Vec<f32>; 2], from: usize, frames: usize, block: usize) {
         let saved = enable_ftz_daz();
         let block = block.max(1);
@@ -146,6 +159,17 @@ impl Offline {
         }
         restore_fp(saved);
     }
+}
+
+fn has_plugins(project: &Project) -> bool {
+    project
+        .channels_in_order()
+        .any(|c| crate::plugins::instrument_plugin(&c.instrument).is_some())
+        || project.mixer.iter().any(|i| {
+            i.effects
+                .iter()
+                .any(|e| crate::plugins::effect_plugin(&e.effect).is_some())
+        })
 }
 
 /// See [`crate::render_offline`].
@@ -172,7 +196,15 @@ pub(crate) fn render_with(
         max_frames: block,
         quality: settings.quality,
     };
+    let offline_env = plugins.map(PluginEnv::offline);
+    let plugins = offline_env.as_ref();
     let mut off = Offline::new_with(project, s, assets, workers, plugins)?;
+    if let Some(env) = plugins
+        && !env.settle().is_zero()
+        && has_plugins(project)
+    {
+        off.settle(env.settle(), block, s.sample_rate);
+    }
     let bar = project.settings.time_signature.ticks_per_bar();
     let (a, b) = settings.range.unwrap_or(match settings.mode {
         PlayMode::Song => (0, project.song_length()),
