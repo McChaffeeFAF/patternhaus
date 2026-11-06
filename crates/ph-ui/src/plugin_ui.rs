@@ -70,6 +70,8 @@ pub struct OpenEditor {
     pub size: EditorSize,
     /// Where the frame was last placed.
     pub rect: Option<[i32; 4]>,
+    /// Whether its window has been grown to fit it (once, when it opens).
+    pub fitted: bool,
 }
 
 /// The open plugin editors, by where their plugin sits.
@@ -121,6 +123,7 @@ impl PluginEditors {
                 frame,
                 size,
                 rect: None,
+                fitted: false,
             },
         );
         Ok(size)
@@ -151,6 +154,17 @@ impl PluginEditors {
             .get(&slot)
             .filter(|e| e.frame.is_some())
             .map(|e| e.size)
+    }
+
+    /// True once per opened embedded editor: its window should grow to fit it.
+    pub fn take_fit(&mut self, slot: PluginSlot) -> bool {
+        match self.open.get_mut(&slot) {
+            Some(e) if e.frame.is_some() && !e.fitted => {
+                e.fitted = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Moves every embedded editor to where its window drew it this frame; hides the ones
@@ -348,6 +362,9 @@ pub fn plugin_panel(ui: &mut Ui, core: &mut AppCore, target: PluginTarget) {
             egui::vec2(size.width as f32 / ppp, size.height as f32 / ppp),
             egui::Sense::hover(),
         );
+        if core.plugins.editors.take_fit(slot) {
+            core.fit_window = true;
+        }
         let visible = rect.intersect(ui.clip_rect());
         if visible.area() > 0.0 {
             core.plugins.drawn.insert(

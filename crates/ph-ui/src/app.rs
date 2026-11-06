@@ -584,8 +584,9 @@ impl PhApp {
                 egui::ViewportId::from_hash_of(("panel", id)),
                 builder,
                 |ui, _class| {
-                    egui::CentralPanel::default()
-                        .show(ui, |ui| windows::show_content(ui, &mut self.core, id));
+                    egui::CentralPanel::default().show(ui, |ui| {
+                        windows::show_content(ui, &mut self.core, id);
+                    });
                     if ui.input(|i| i.viewport().close_requested()) {
                         close = true;
                     }
