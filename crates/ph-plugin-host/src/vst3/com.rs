@@ -398,7 +398,8 @@ impl IComponentHandlerTrait for Handler {
 // ------------------------------------------------------------------------------- plug frame
 
 pub struct Frame {
-    pub size: Mutex<Option<(i32, i32)>>,
+    /// The size the plugin last asked for (`resizeView`), shared with its editor handle.
+    pub size: std::sync::Arc<Mutex<Option<(i32, i32)>>>,
 }
 
 impl Class for Frame {

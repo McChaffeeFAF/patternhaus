@@ -106,7 +106,10 @@ pub fn title_of(core: &AppCore, id: WindowId) -> String {
 /// The contents of a window; the panels are unchanged from the docked shell. Windows whose
 /// content can outgrow them sit in a scroll area, so nothing is cut off. The piano roll, the
 /// playlist and the channel rack (its step grid) pan and zoom on their own.
-pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
+///
+/// Returns how much the window should grow (width, height) when a panel asked for it to fit
+/// its content (`AppCore::fit_window`).
+pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) -> Option<Vec2> {
     let zone = match id {
         WindowId::ChannelRack => Some(crate::dnd::DropZone::Rack),
         WindowId::Playlist => Some(crate::dnd::DropZone::Playlist),
@@ -140,8 +143,9 @@ pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
     };
     let Some(x) = scroll_x else {
         show_raw(ui, core, id);
-        return;
+        return None;
     };
+    core.fit_window = false;
     core.view_size = ui.available_size();
     let out = egui::ScrollArea::new([x, true])
         .auto_shrink(false)
@@ -155,6 +159,11 @@ pub fn show_content(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
             viewport: out.inner_rect.size(),
         },
     );
+    if !std::mem::take(&mut core.fit_window) {
+        return None;
+    }
+    let grow = (out.content_size - out.inner_rect.size()).max(Vec2::ZERO);
+    (grow.x > 0.5 || grow.y > 0.5).then_some(grow)
 }
 
 fn show_raw(ui: &mut Ui, core: &mut AppCore, id: WindowId) {
@@ -356,7 +365,13 @@ fn show_window(
                         .layout(Layout::top_down(Align::Min)),
                 );
                 child.set_clip_rect(content.intersect(clip));
-                show_content(&mut child, core, id);
+                if let Some(g) = show_content(&mut child, core, id) {
+                    let mut want = model_rect;
+                    want.w += g.x + 2.0;
+                    want.h += g.y + 2.0;
+                    ev.resize =
+                        Some((crate::workspace::Edges::new(false, true, false, true), want));
+                }
             }
             p.rect_stroke(
                 win,

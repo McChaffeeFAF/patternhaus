@@ -310,6 +310,9 @@ pub struct AppCore {
     /// Size of the window content currently being drawn (windows that scroll give their
     /// panels an unbounded `available_size`, so panels that lay out to a size read this).
     pub view_size: egui::Vec2,
+    /// Set by a panel whose content just grew past its window (an embedded plugin editor
+    /// opening): the window grows to fit it once.
+    pub fit_window: bool,
     /// Last scroll state of each scrolling window: offset, content size and viewport size.
     pub scrolls: HashMap<crate::workspace::WindowId, ScrollInfo>,
     /// Effect moves and removals the UI performed itself, for the windows to follow.
@@ -479,6 +482,7 @@ impl AppCore {
             now: 0.0,
             dirty: false,
             view_size: egui::Vec2::ZERO,
+            fit_window: false,
             scrolls: HashMap::new(),
             effect_edits: Vec::new(),
             project_replaced: false,
