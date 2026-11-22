@@ -9,11 +9,13 @@
 //! - [`health`]: clipping, DC offset, phase correlation, mono compatibility, energy per bar.
 //! - [`onsets`]: onset detection with `bar.beat.tick` positions.
 //! - [`tempo`]: BPM, loop length and onsets of audio material (sample registry, slicer).
+//! - [`beatgrid`]: tempo, first-beat offset, downbeat and drift of a render or an audio file.
 //! - [`music`]: key and chord estimation from notes (exact) and from audio (chroma).
 //! - [`masking`]: spectral masking between stems and note clashes.
 //! - [`reference`]: tonal balance, loudness and stereo width against a reference track.
 //! - [`image`]: spectrogram, waveform, piano roll and playlist PNGs.
 
+pub mod beatgrid;
 pub mod health;
 pub mod image;
 pub mod loudness;

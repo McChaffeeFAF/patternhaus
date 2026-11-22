@@ -339,3 +339,94 @@ fn key_from_audio_survives_tuned_808_kick() {
         assert_eq!(key.key, "A minor", "kick tuned to midi {tuning}");
     }
 }
+
+/// Four bars in 4/4: C, F, Am, then bar 4 is Dm on beats 1-2 and G on beats 3-4.
+fn mid_bar_change_notes() -> Vec<SongNote> {
+    let t = timing();
+    let bar = t.ticks_per_bar();
+    let half = bar / 2;
+    let voice = |start: Tick, len: Tick, root: u8, q: &str| {
+        let mut v = vec![n(36 + root, start, len)];
+        v.extend(ivs(q).into_iter().map(|i| n(60 + root + i, start, len)));
+        v
+    };
+    let mut notes = voice(0, bar, 0, "");
+    notes.extend(voice(bar, bar, 5, ""));
+    notes.extend(voice(2 * bar, bar, 9, "m"));
+    notes.extend(voice(3 * bar, half, 2, "m"));
+    notes.extend(voice(3 * bar + half, half, 7, ""));
+    notes
+}
+
+#[test]
+fn half_bar_resolution_marks_a_change_on_beat_three() {
+    let t = timing();
+    let notes = mid_bar_change_notes();
+    let spans = merge_within_bars(chords_from_notes(&notes, &t, 1, 4, ChordGrain::HalfBar));
+    let names: Vec<String> = spans
+        .iter()
+        .map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol))
+        .collect();
+    assert_eq!(
+        names,
+        ["1.1 C", "2.1 F", "3.1 Am", "4.1 Dm", "4.3 G"],
+        "{names:?}"
+    );
+    assert_eq!(mid_bar_changes(&spans, &t), ["4.3 G"]);
+    // a whole-bar reading of the same notes sees only one chord in bar 4
+    let bars = chords_from_notes(&notes, &t, 1, 4, ChordGrain::Bar);
+    assert_eq!(bars.len(), 4);
+    // steady bars merge back into one span of a whole bar
+    assert_eq!(spans[0].length_ticks, t.ticks_per_bar());
+    assert_eq!(spans[3].length_ticks, t.ticks_per_bar() / 2);
+}
+
+#[test]
+fn half_bar_resolution_reads_the_change_from_audio() {
+    let t = timing();
+    let sr = 44_100;
+    let audio = render(&mid_bar_change_notes(), sr, 8.0);
+    let spans = merge_within_bars(chords_from_audio(&audio, sr, &t, 1, ChordGrain::HalfBar));
+    let names: Vec<String> = spans
+        .iter()
+        .map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol))
+        .collect();
+    assert_eq!(
+        names,
+        ["1.1 C", "2.1 F", "3.1 Am", "4.1 Dm", "4.3 G"],
+        "{names:?}"
+    );
+    // beat resolution agrees and does not invent extra changes
+    let beats = merge_within_bars(chords_from_audio(&audio, sr, &t, 1, ChordGrain::Beat));
+    let bn: Vec<String> = beats
+        .iter()
+        .map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol))
+        .collect();
+    assert_eq!(bn, names, "{bn:?}");
+}
+
+#[test]
+fn audio_chords_follow_a_grid_that_starts_late() {
+    let t = timing();
+    let sr = 44_100;
+    let lead = 0.37; // seconds of silence before the grid
+    let audio = render(&mid_bar_change_notes(), sr, 8.0);
+    let pad = vec![0.0f32; (lead * sr as f64) as usize];
+    let shifted: Vec<Vec<f32>> = audio
+        .iter()
+        .map(|c| pad.iter().chain(c).copied().collect())
+        .collect();
+    let spans = merge_within_bars(chords_from_audio_at(
+        &shifted,
+        sr,
+        &t,
+        1,
+        ChordGrain::HalfBar,
+        lead,
+    ));
+    let names: Vec<String> = spans
+        .iter()
+        .map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol))
+        .collect();
+    assert_eq!(names, ["1.1 C", "2.1 F", "3.1 Am", "4.1 Dm", "4.3 G"]);
+}

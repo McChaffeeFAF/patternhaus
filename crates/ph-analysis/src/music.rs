@@ -422,6 +422,8 @@ pub enum ChordGrain {
     Bar,
     /// One chord per beat.
     Beat,
+    /// Two chords per bar, one for each half (a change on beat 3 of a 4/4 bar shows).
+    HalfBar,
     /// One per bar, split at the half bar when both halves are clearly different chords.
     Auto,
 }
@@ -465,6 +467,15 @@ pub fn chords_from_notes(
                     t += bt;
                 }
             }
+            ChordGrain::HalfBar => {
+                let half = bar_ticks / 2;
+                push(start, half, chord_in_window(notes, start, start + half));
+                push(
+                    start + half,
+                    bar_ticks - half,
+                    chord_in_window(notes, start + half, start + bar_ticks),
+                );
+            }
             ChordGrain::Auto => {
                 let half = bar_ticks / 2;
                 let whole = chord_in_window(notes, start, start + bar_ticks);
@@ -483,6 +494,35 @@ pub fn chords_from_notes(
         }
     }
     out
+}
+
+/// Joins a span to the one before it when both lie in the same bar and name the same chord,
+/// so a finer grain (half bar, beat) lists a chord once per bar and again only where it
+/// changes inside the bar: `4.1 Ab`, `4.3 Gb`, then `5.1 Ab`.
+pub fn merge_within_bars(spans: Vec<ChordSpan>) -> Vec<ChordSpan> {
+    let mut out: Vec<ChordSpan> = Vec::with_capacity(spans.len());
+    for s in spans {
+        match out.last_mut() {
+            Some(prev)
+                if prev.bar == s.bar
+                    && prev.symbol == s.symbol
+                    && prev.start_tick + prev.length_ticks == s.start_tick =>
+            {
+                prev.length_ticks += s.length_ticks;
+            }
+            _ => out.push(s),
+        }
+    }
+    out
+}
+
+/// The chords that begin inside a bar rather than on its first beat (`"4.3 Gb"`).
+pub fn mid_bar_changes(spans: &[ChordSpan], timing: &Timing) -> Vec<String> {
+    spans
+        .iter()
+        .filter(|s| s.start_tick % timing.ticks_per_bar() != 0)
+        .map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol))
+        .collect()
 }
 
 /// `"Am - F - C - G"`: consecutive repeats are folded to `Am x2`.
@@ -744,7 +784,8 @@ pub fn key_from_audio(
     key_from_chroma_hint(&chroma_of_audio(&mono, sample_rate, 0.0, secs), hint)
 }
 
-/// Chords of rendered audio, one per bar (or per beat).
+/// Chords of rendered audio, one per bar (or per half bar, or per beat), on the project's
+/// grid: bar 1 starts at the first sample.
 pub fn chords_from_audio(
     channels: &[Vec<f32>],
     sample_rate: u32,
@@ -752,25 +793,35 @@ pub fn chords_from_audio(
     first_bar: u32,
     grain: ChordGrain,
 ) -> Vec<ChordSpan> {
+    chords_from_audio_at(channels, sample_rate, timing, first_bar, grain, 0.0)
+}
+
+/// [`chords_from_audio`] on a grid whose bar 1 starts `start_s` seconds into the audio (the
+/// measured first downbeat of a sample, from [`crate::beatgrid`]); the audio before it is
+/// not read.
+pub fn chords_from_audio_at(
+    channels: &[Vec<f32>],
+    sample_rate: u32,
+    timing: &Timing,
+    first_bar: u32,
+    grain: ChordGrain,
+    start_s: f64,
+) -> Vec<ChordSpan> {
     let mono = mono_mix(channels);
     let secs = mono.len() as f64 / sample_rate as f64;
-    let (step_ticks, bars) = match grain {
-        ChordGrain::Beat => (
-            timing.ticks_per_beat(),
-            (secs / timing.seconds_per_bar()).ceil() as u32,
-        ),
-        _ => (
-            timing.ticks_per_bar(),
-            (secs / timing.seconds_per_bar()).ceil() as u32,
-        ),
+    let step_ticks = match grain {
+        ChordGrain::Beat => timing.ticks_per_beat(),
+        ChordGrain::HalfBar => (timing.ticks_per_bar() / 2).max(1),
+        _ => timing.ticks_per_bar(),
     };
+    let bars = ((secs - start_s).max(0.0) / timing.seconds_per_bar()).ceil() as u32;
     let mut out = Vec::new();
     let total_ticks = timing.ticks_per_bar() * bars as Tick;
     let mut t = 0;
     while t < total_ticks {
         let (s0, s1) = (
-            timing.ticks_to_seconds(t),
-            timing.ticks_to_seconds(t + step_ticks),
+            start_s + timing.ticks_to_seconds(t),
+            start_s + timing.ticks_to_seconds(t + step_ticks),
         );
         if s0 >= secs {
             break;

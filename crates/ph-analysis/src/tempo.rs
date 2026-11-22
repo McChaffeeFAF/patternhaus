@@ -66,6 +66,17 @@ pub struct Alternative {
 /// Estimates the tempo of audio (`[channel][frame]`). `None` for material shorter than a
 /// second or without onsets.
 pub fn estimate(channels: &[Vec<f32>], sample_rate: f64) -> Option<TempoEstimate> {
+    estimate_full(channels, sample_rate, true).map(|(e, _)| e)
+}
+
+/// [`estimate`] with the onset-strength envelope it was read from, and a switch for the loop
+/// snap (step 5 of the method): the beat-grid analysis of a song or a window of one turns it
+/// off, because a slice that happens to span a whole number of beats is not a loop.
+pub fn estimate_full(
+    channels: &[Vec<f32>],
+    sample_rate: f64,
+    snap_loops: bool,
+) -> Option<(TempoEstimate, onset::Strength)> {
     let x = onset::mono(channels);
     let sr = sample_rate.max(1.0);
     if (x.len() as f64) < sr {
@@ -136,7 +147,7 @@ pub fn estimate(channels: &[Vec<f32>], sample_rate: f64) -> Option<TempoEstimate
     let beats = seconds * bpm / 60.0;
     if let Some(&b) = LOOP_BEATS
         .iter()
-        .filter(|&&b| ((beats - b as f64) / b as f64).abs() < 0.02)
+        .filter(|&&b| snap_loops && ((beats - b as f64) / b as f64).abs() < 0.02)
         .min_by(|a, b| {
             let da = (beats - **a as f64).abs();
             let db = (beats - **b as f64).abs();
@@ -169,13 +180,16 @@ pub fn estimate(channels: &[Vec<f32>], sample_rate: f64) -> Option<TempoEstimate
     let confidence =
         (prominence * (0.5 + 0.5 * clarity) * if loop_beats.is_some() { 1.0 } else { 0.85 })
             .clamp(0.0, 1.0);
-    Some(TempoEstimate {
-        bpm: round3(bpm),
-        confidence: round3(confidence),
-        loop_beats,
-        alternatives,
-        onsets,
-    })
+    Some((
+        TempoEstimate {
+            bpm: round3(bpm),
+            confidence: round3(confidence),
+            loop_beats,
+            alternatives,
+            onsets,
+        },
+        s,
+    ))
 }
 
 /// Transients of audio (`[channel][frame]`), in frames: the slicer's points. `sensitivity`
