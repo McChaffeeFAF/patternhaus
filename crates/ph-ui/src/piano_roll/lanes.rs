@@ -31,7 +31,7 @@ use ph_core::{
     AutomationPoint, CcPoint, CcPointSpec, ChannelId, Controller, CurveKind, PatternId, PointId,
     Project, Tick,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Height of the strip with the lane selector and tabs.
 pub const HEADER_H: f32 = 22.0;
@@ -148,10 +148,18 @@ enum LDrag {
         min_tick: Tick,
         dt: i64,
         dv: f64,
+        /// Where the press landed; a press that stays within [`SLOP`] is a click, not a move.
+        start: Vec2,
+        moved: bool,
     },
-    /// A freehand stroke: one sample per grid tick, in time order.
+    /// A freehand stroke: one sample per grid tick, kept in time order whichever way the
+    /// pointer travels (drawing back over the stroke replaces what is under it).
     Draw {
-        samples: Vec<(Tick, f64)>,
+        samples: BTreeMap<Tick, f64>,
+        /// The sample at the press: a still click adds just this point.
+        first: (Tick, f64),
+        /// The tick of the newest sample.
+        last: Tick,
         start: Vec2,
         moved: bool,
     },
@@ -173,6 +181,10 @@ enum LDrag {
         a: f64,
         b: f64,
         t_h: f64,
+        /// Pointer value minus the diamond's, so a grab off centre does not jump.
+        grab_dv: f64,
+        start: Vec2,
+        moved: bool,
     },
 }
 
@@ -506,12 +518,16 @@ impl LaneState {
                             min_tick,
                             dt: 0,
                             dv: 0.0,
+                            start: pos,
+                            moved: false,
                         };
                     }
                 } else if let Some(id) = self.handle_at(env, pos) {
                     if let Some(a) = self.points.iter().position(|p| p.id == id) {
                         let (pa, pb) = (&self.points[a], self.points.get(a + 1));
                         if let (Some(t_h), Some(pb)) = (handle_t(pa.curve), pb) {
+                            let at_handle =
+                                pa.value + (pb.value - pa.value) * pa.curve.shape(pa.tension, t_h);
                             self.drag = LDrag::Tension {
                                 id,
                                 base: pa.tension,
@@ -520,6 +536,9 @@ impl LaneState {
                                 a: pa.value,
                                 b: pb.value,
                                 t_h,
+                                grab_dv: self.value_at_y(c, pos.y) - at_handle,
+                                start: pos,
+                                moved: false,
                             };
                         }
                     }
@@ -536,7 +555,9 @@ impl LaneState {
                     } else {
                         self.selection.clear();
                         self.drag = LDrag::Draw {
-                            samples: vec![s],
+                            samples: BTreeMap::from([s]),
+                            first: s,
+                            last: s.0,
                             start: pos,
                             moved: false,
                         };
@@ -566,8 +587,15 @@ impl LaneState {
                 min_tick,
                 dt,
                 dv,
+                start,
+                moved,
                 ..
             } => {
+                // a press that barely moves is a click: it selects, it does not rewrite
+                if !*moved && (pos - *start).length() <= SLOP {
+                    return;
+                }
+                *moved = true;
                 let grid = Self::grid_for(env, mods);
                 let target = snap_tick((tick_here - *grab_dt).max(0.0), grid) as i64;
                 let lowest = -(*min_tick as i64);
@@ -576,20 +604,27 @@ impl LaneState {
             }
             LDrag::Draw {
                 samples,
+                last,
                 start,
                 moved,
+                ..
             } => {
                 if (pos - *start).length() > SLOP {
                     *moved = true;
                 }
-                // drawing back over the stroke replaces what is under it
-                while samples.last().is_some_and(|l| l.0 >= sample.0) && samples.len() > 1 {
-                    samples.pop();
+                // whichever way the pointer travels, the stroke stays in time order: drawing
+                // back over it replaces what is under the new stretch
+                let (lo, hi) = (sample.0.min(*last), sample.0.max(*last));
+                let under: Vec<Tick> = samples
+                    .range(lo..=hi)
+                    .map(|(t, _)| *t)
+                    .filter(|t| t != last)
+                    .collect();
+                for t in under {
+                    samples.remove(&t);
                 }
-                if samples.last().is_some_and(|l| l.0 == sample.0) {
-                    samples.pop();
-                }
-                samples.push(sample);
+                samples.insert(sample.0, sample.1);
+                *last = sample.0;
             }
             LDrag::Line { to, .. } => *to = sample,
             LDrag::Boxed { to, .. } => *to = pos,
@@ -599,9 +634,16 @@ impl LaneState {
                 a,
                 b,
                 t_h,
+                grab_dv,
+                start,
+                moved,
                 ..
             } => {
-                *tension = tension_for(*kind, *a, *b, *t_h, value_here);
+                if !*moved && (pos - *start).length() <= SLOP {
+                    return;
+                }
+                *moved = true;
+                *tension = tension_for(*kind, *a, *b, *t_h, value_here - *grab_dv);
             }
             LDrag::None => {}
         }
@@ -639,14 +681,15 @@ impl LaneState {
                 vec![self.rewrite(env, c, &moved)]
             }
             LDrag::Draw {
-                samples,
+                first,
                 moved: false,
                 ..
             } => {
-                let (t, v) = samples[0];
+                let (t, v) = first;
                 vec![PrOut::Cmd(mapping::cc_add_points(p, ch, c, &[spec(t, v)]))]
             }
             LDrag::Draw { samples, .. } => {
+                let samples: Vec<(Tick, f64)> = samples.into_iter().collect();
                 let kept = self.thin(env, c, &samples);
                 let (t0, t1) = (kept[0].0, kept[kept.len() - 1].0);
                 let pts: Vec<CcPointSpec> = kept.iter().map(|(t, v)| spec(*t, *v)).collect();
@@ -814,7 +857,7 @@ impl LaneState {
             return String::new();
         };
         let (t, v) = match &self.drag {
-            LDrag::Draw { samples, .. } => *samples.last().unwrap_or(&(0, 0.0)),
+            LDrag::Draw { samples, last, .. } => (*last, samples.get(last).copied().unwrap_or(0.0)),
             LDrag::Line { to, .. } => *to,
             LDrag::Move {
                 anchor_tick,

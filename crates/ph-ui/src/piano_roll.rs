@@ -1953,11 +1953,6 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             r.context_menu(|ui| chosen = st.lane.menu(ui, &env, cx.theme));
             out.extend(chosen);
         }
-        if lane_resp.as_ref().is_some_and(|r| r.hovered())
-            && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace))
-        {
-            out.extend(st.lane.delete_selected(&env));
-        }
     }
     if lane_open && st.lane.controller().is_none() {
         let lp = painter.with_clip_rect(lane_rect);

@@ -826,3 +826,77 @@ fn lane_snapshots() {
         }
     }
 }
+
+#[test]
+fn a_stroke_drawn_right_to_left_is_ordered_and_written() {
+    let (mut h, ..) = start();
+    h.state_mut().core.roll.snap = 60;
+    show_lane(&mut h, MOD);
+    let mut path = Vec::new();
+    for i in 0..=36 {
+        let t = 1920 - i * 40;
+        path.push(at(&h, MOD, t, 0.2 + 0.6 * i as f64 / 36.0));
+    }
+    stroke(&mut h, &path);
+    until(&mut h, "the stroke", |a| {
+        a.core.project.patterns.values().any(|p| p.cc_count() > 0)
+    });
+    let p = pts(&h, MOD);
+    assert_eq!(p.len(), 2, "a straight stroke is two points either way");
+    assert_eq!((p[0].tick, p[1].tick), (480, 1920));
+    assert!(near(p[0].value, 0.8) && near(p[1].value, 0.2), "{p:?}");
+    // drawing back over a stroke replaces what is under it, still in order
+    let mut path = Vec::new();
+    for t in [600u64, 900, 1200, 1500, 1200, 900, 700] {
+        path.push(at(&h, MOD, t, 0.5));
+    }
+    stroke(&mut h, &path);
+    until(&mut h, "the second stroke", |a| {
+        let p = a.core.sel.pattern.unwrap();
+        let ch = a.core.sel.channel.unwrap();
+        a.core
+            .project
+            .pattern(p)
+            .unwrap()
+            .lane(ch, MOD)
+            .points
+            .iter()
+            .any(|x| x.tick == 600)
+    });
+    let p = pts(&h, MOD);
+    assert!(p.windows(2).all(|w| w[0].tick < w[1].tick), "{p:?}");
+}
+
+#[test]
+fn a_still_click_on_a_point_selects_it_and_writes_nothing() {
+    let (mut h, ..) = start();
+    // 0.2 is not a whole CC step (25.4 / 127): a rewrite would change it
+    add(&mut h, MOD, &[(0, 0.2), (960, 0.6)]);
+    show_lane(&mut h, MOD);
+    let ids: Vec<_> = pts(&h, MOD).iter().map(|p| p.id).collect();
+    let sent = h.state().core.dispatch.sent;
+    let p = at(&h, MOD, 960, 0.6);
+    click(&mut h, p);
+    assert_eq!(h.state().core.roll.lane.selection.len(), 1);
+    assert_eq!(h.state().core.dispatch.sent, sent, "a click is not an edit");
+    // pressing a tension diamond without dragging is not an edit either
+    let handle = {
+        let roll = &h.state().core.roll;
+        let env = roll.lane_env().unwrap();
+        roll.lane.body.min + roll.lane.handles(&env)[0].1
+    };
+    click(&mut h, handle + Vec2::new(2.0, 2.0));
+    assert_eq!(h.state().core.dispatch.sent, sent);
+    // the panel itself does not act on Delete: the keymap routes it (once) through the roll
+    h.event(Event::Key {
+        key: egui::Key::Delete,
+        physical_key: Some(egui::Key::Delete),
+        pressed: true,
+        repeat: false,
+        modifiers: Modifiers::NONE,
+    });
+    frames(&mut h, 2);
+    assert_eq!(h.state().core.dispatch.sent, sent);
+    let after: Vec<_> = pts(&h, MOD).iter().map(|p| p.id).collect();
+    assert_eq!(after, ids, "same points, same ids");
+}
