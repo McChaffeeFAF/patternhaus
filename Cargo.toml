@@ -42,6 +42,8 @@ rtrb = "0.4"
 midir = "0.11"
 hound = "3.5"
 flacenc = { version = "0.5", default-features = false }
+# Ogg Vorbis export: bindings to libvorbis (aoTuV), BSD-3-Clause; the C source is built by cc
+vorbis_rs = { version = "0.5", default-features = false }
 egui = { version = "0.36", default-features = false }
 eframe = { version = "0.36", default-features = false, features = ["wgpu", "wayland", "x11"] }
 egui_kittest = { version = "0.36", features = ["wgpu", "snapshot"] }

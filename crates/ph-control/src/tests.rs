@@ -95,6 +95,83 @@ fn edits_reach_the_engine_and_export_renders_audio() {
 }
 
 #[test]
+fn export_to_ogg_vorbis_is_small_and_decodes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let s = studio(dir.path());
+    let agent = Caller::agent("claude", Grant(vec![Scope::Full]));
+    let pat = s.run(&agent, "pattern.add", json!({})).unwrap().result["pattern"].clone();
+    let ch = s
+        .run(&agent, "channel.add", json!({
+            "name": "Kick",
+            "instrument": { "kind": "sampler", "sample": "factory:drums/haus808/kick", "root_key": 60 }
+        }))
+        .unwrap()
+        .result["channel"]
+        .clone();
+    let notes: Vec<_> = (0..4)
+        .map(|i| json!({ "key": 60, "start": i * 960, "length": 240, "velocity": 1.0 }))
+        .collect();
+    s.run(
+        &agent,
+        "note.add",
+        json!({ "pattern": pat, "channel": ch, "notes": notes }),
+    )
+    .unwrap();
+    s.run(
+        &agent,
+        "playlist.add_clip",
+        json!({ "track": 0, "pattern": pat, "start": 0 }),
+    )
+    .unwrap();
+    wait_for(|| s.project().clips.len() == 1);
+    let wav = s
+        .run(
+            &agent,
+            "file.export_audio",
+            json!({ "path": "k.wav", "bit_depth": 16 }),
+        )
+        .unwrap();
+    let ogg = s
+        .run(
+            &agent,
+            "file.export_audio",
+            json!({ "path": "k.ogg", "quality": 0.3 }),
+        )
+        .unwrap();
+    let bytes = std::fs::read(dir.path().join("k.ogg")).unwrap();
+    assert_eq!(&bytes[..4], b"OggS");
+    assert!(bytes.len() < std::fs::metadata(dir.path().join("k.wav")).unwrap().len() as usize);
+    let d = ph_formats::decode::decode_bytes(&bytes, Some("ogg")).unwrap();
+    let secs = d.frames() as f64 / d.sample_rate;
+    let want = ogg.result["seconds"].as_f64().unwrap();
+    assert!(
+        (secs - want).abs() < 0.05,
+        "decoded {secs} s, rendered {want} s"
+    );
+    assert!((want - wav.result["seconds"].as_f64().unwrap()).abs() < 1e-9);
+    // the same peak level, within lossy coding error
+    let peak = d
+        .channels
+        .iter()
+        .flatten()
+        .fold(0f32, |m, v| m.max(v.abs()));
+    let want_peak = 10f64.powf(ogg.result["peak_dbfs"].as_f64().unwrap() / 20.0);
+    assert!(
+        (peak as f64 / want_peak - 1.0).abs() < 0.25,
+        "{peak} vs {want_peak}"
+    );
+    // a bad quality is refused
+    assert!(
+        s.run(
+            &agent,
+            "file.export_audio",
+            json!({ "path": "bad.ogg", "quality": 3.0 })
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn file_access_is_confined() {
     let dir = tempfile::tempdir().unwrap();
     let s = studio(dir.path());

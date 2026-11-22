@@ -171,7 +171,8 @@ fn yes() -> bool {
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ExportAudio {
-    /// Output file; the extension picks the format (`.wav` or `.flac`).
+    /// Output file; the extension picks the format (`.wav`, `.flac`, or `.ogg` for lossy Ogg
+    /// Vorbis, small enough to send as a preview).
     path: String,
     /// `[start, end]` in ticks; omit for the whole song (or the current pattern in pattern mode).
     #[serde(default)]
@@ -179,9 +180,13 @@ struct ExportAudio {
     /// Sample rate in Hz, default 48000.
     #[serde(default = "rate")]
     sample_rate: u32,
-    /// Bit depth, default 24.
+    /// Bit depth, default 24. Ignored for `.ogg`.
     #[serde(default = "bits")]
     bit_depth: u16,
+    /// Ogg Vorbis quality, -0.1 to 1.0, default 0.5 (about 160 kbit/s: a five-minute stereo
+    /// render is around 6 MB). Only for `.ogg`.
+    #[serde(default)]
+    quality: Option<f32>,
     /// Use the high-quality offline mode, default true.
     #[serde(default = "yes")]
     high_quality: bool,
@@ -209,6 +214,7 @@ fn export_audio(ctx: &mut CommandCtx<'_>, p: ExportAudio) -> CmdResult<CommandOu
         bit_depth: p.bit_depth,
         high_quality: p.high_quality,
         include_tail: p.include_tail,
+        quality: p.quality,
     };
     let report = ctx.host.render(ctx.project, &req)?;
     Ok(CommandOutput::value(report))

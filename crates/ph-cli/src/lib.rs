@@ -101,6 +101,9 @@ enum Cmd {
         format: String,
         #[arg(long)]
         bit_depth: Option<u32>,
+        /// Ogg Vorbis quality, -0.1 to 1.0 (default 0.5); with `--format ogg`
+        #[arg(long, allow_negative_numbers = true)]
+        quality: Option<f64>,
         #[arg(long)]
         from_bar: Option<u32>,
         #[arg(long)]
@@ -455,6 +458,7 @@ async fn dispatch(cmd: Cmd, importers: &Importers) -> Result<bool, String> {
             name,
             format,
             bit_depth,
+            quality,
             from_bar,
             to_bar,
             common,
@@ -464,6 +468,9 @@ async fn dispatch(cmd: Cmd, importers: &Importers) -> Result<bool, String> {
                 json!({ "name": name, "format": format, "range": range(from_bar, to_bar) });
             if let Some(d) = bit_depth {
                 args["bit_depth"] = json!(d);
+            }
+            if let Some(q) = quality {
+                args["quality"] = json!(q);
             }
             let r = b.call("render", args).await?;
             Ok(print_result(&r, None))

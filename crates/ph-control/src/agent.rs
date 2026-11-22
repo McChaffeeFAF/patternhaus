@@ -19,7 +19,9 @@ use ph_analysis::{health, loudness, masking, onsets, spectrum};
 use ph_commands::{Author, Caller, CmdError, CommandSpec, Executed, Request, UndoMode};
 use ph_core::{ChannelId, ClipId, PatternId, Project, SampleId, Tick, ticks_to_seconds};
 use ph_engine::{AudioBuffer, PlayMode, RenderSettings};
-use ph_formats::encode::{FlacDepth, WavFormat, write_flac, write_wav};
+use ph_formats::encode::{
+    FlacDepth, VORBIS_DEFAULT_QUALITY, WavFormat, write_flac, write_vorbis, write_wav,
+};
 use ph_node::Quality;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -269,9 +271,10 @@ impl Agent {
             ),
             tool(
                 "render",
-                "Render the song (or the first pattern when the playlist is empty) offline to a WAV or FLAC under the project's renders folder. Returns the file path and a quick analysis (loudness, true peak, clipping, key). range: { from_bar, to_bar } (1-based, inclusive). With listen: true it also returns a short excerpt as audio content (16-bit WAV, 24 kHz) for models that can hear: at most 15 seconds and 1.5 MB, default 8 s from the start of range; choose the part with listen_range { from_bar, to_bar } and the length with listen_seconds.",
+                "Render the song (or the first pattern when the playlist is empty) offline to a WAV, FLAC or Ogg Vorbis file (format ogg: lossy, about 6 MB for five stereo minutes, small enough to send as a preview; quality -0.1..1.0, default 0.5) under the project's renders folder. Returns the file path and a quick analysis (loudness, true peak, clipping, key). range: { from_bar, to_bar } (1-based, inclusive). With listen: true it also returns a short excerpt as audio content (16-bit WAV, 24 kHz) for models that can hear: at most 15 seconds and 1.5 MB, default 8 s from the start of range; choose the part with listen_range { from_bar, to_bar } and the length with listen_seconds.",
                 json!({ "type": "object", "properties": {
-                    "range": range_schema(), "format": { "type": "string", "enum": ["wav", "flac"] },
+                    "range": range_schema(), "format": { "type": "string", "enum": ["wav", "flac", "ogg"] },
+                    "quality": { "type": "number", "description": "Ogg Vorbis quality -0.1..1.0 (default 0.5, about 160 kbit/s); only for format ogg" },
                     "listen": { "type": "boolean", "description": "also return a short audio excerpt as audio content (max 15 s / 1.5 MB)" },
                     "listen_range": range_schema(),
                     "listen_seconds": { "type": "number", "description": "excerpt length in seconds, 0.5-15, default 8" },
@@ -891,8 +894,20 @@ impl Agent {
             ("wav", 32) => write_wav(&path, &a.channels, a.sample_rate, WavFormat::Float32),
             ("flac", 16) => write_flac(&path, &a.channels, a.sample_rate, FlacDepth::Bits16),
             ("flac", 24) => write_flac(&path, &a.channels, a.sample_rate, FlacDepth::Bits24),
+            ("ogg", _) => {
+                let q = match args.get("quality") {
+                    None | Some(Value::Null) => VORBIS_DEFAULT_QUALITY,
+                    Some(v) => match v.as_f64() {
+                        Some(q) => q as f32,
+                        None => return ToolOutput::error("quality must be a number"),
+                    },
+                };
+                write_vorbis(&path, &a.channels, a.sample_rate, q)
+            }
             _ => {
-                return ToolOutput::error("unsupported format: wav 16/24/32 or flac 16/24");
+                return ToolOutput::error(
+                    "unsupported format: wav 16/24/32, flac 16/24 or ogg (quality -0.1..1.0)",
+                );
             }
         };
         if let Err(e) = written {

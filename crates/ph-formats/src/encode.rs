@@ -1,5 +1,6 @@
-//! Audio export: WAV (16-bit, 24-bit, 32-bit float, via `hound`) and FLAC (16/24-bit, via
-//! `flacenc`).
+//! Audio export: WAV (16-bit, 24-bit, 32-bit float, via `hound`), FLAC (16/24-bit, via
+//! `flacenc`) and Ogg Vorbis (lossy, via `vorbis_rs`: bindings to libvorbis with the aoTuV
+//! patches, BSD-3-Clause; the C source is compiled by the crate, nothing is installed).
 //!
 //! Input is planar float audio (`[channel][frame]`, nominally -1.0..=1.0). Integer formats
 //! clip at full scale. Reducing to 16 bits applies TPDF dither (two uniform random values
@@ -42,6 +43,85 @@ pub enum FlacDepth {
     /// 16-bit, TPDF-dithered.
     Bits16,
     Bits24,
+}
+
+/// Default Ogg Vorbis quality: about 160 kbit/s for stereo music, so a five-minute stereo
+/// render is roughly 6 MB.
+pub const VORBIS_DEFAULT_QUALITY: f32 = 0.5;
+/// Lowest and highest Ogg Vorbis quality (libvorbis VBR scale).
+pub const VORBIS_QUALITY_RANGE: (f32, f32) = (-0.1, 1.0);
+/// Fixed Ogg stream serial, so an export is reproducible bit for bit.
+const VORBIS_SERIAL: i32 = 0x5048_4155;
+
+/// Encodes planar audio as an Ogg Vorbis file in memory. `quality` is the libvorbis VBR
+/// scale, -0.1 (about 45 kbit/s) to 1.0 (about 500 kbit/s); 0.5 is the default.
+pub fn encode_vorbis<C: AsRef<[f32]>>(
+    channels: &[C],
+    sample_rate: u32,
+    quality: f32,
+) -> EncodeResult<Vec<u8>> {
+    use std::num::{NonZeroU8, NonZeroU32};
+    use vorbis_rs::{VorbisBitrateManagementStrategy, VorbisEncoderBuilder};
+    let frames = check(channels, sample_rate)?;
+    if channels.len() > 8 {
+        return Err(EncodeError::Unsupported(format!(
+            "Ogg Vorbis supports at most 8 channels, got {}",
+            channels.len()
+        )));
+    }
+    if !quality.is_finite() || quality < VORBIS_QUALITY_RANGE.0 || quality > VORBIS_QUALITY_RANGE.1
+    {
+        return Err(EncodeError::Unsupported(format!(
+            "Ogg Vorbis quality must be between {} and {}, got {quality}",
+            VORBIS_QUALITY_RANGE.0, VORBIS_QUALITY_RANGE.1
+        )));
+    }
+    let enc = |e: vorbis_rs::VorbisError| EncodeError::Encoder(e.to_string());
+    let mut builder = VorbisEncoderBuilder::new_with_serial(
+        NonZeroU32::new(sample_rate).expect("checked above"),
+        NonZeroU8::new(channels.len() as u8).expect("checked above"),
+        Vec::with_capacity(frames / 4 + 4096),
+        VORBIS_SERIAL,
+    );
+    builder.bitrate_management_strategy(VorbisBitrateManagementStrategy::QualityVbr {
+        target_quality: quality,
+    });
+    let mut encoder = builder.build().map_err(enc)?;
+    // blocks of about a second: the encoder copies each block into its own buffers
+    const BLOCK: usize = 4096;
+    let mut start = 0;
+    while start < frames {
+        let end = (start + BLOCK).min(frames);
+        let block: Vec<Vec<f32>> = channels
+            .iter()
+            .map(|c| {
+                c.as_ref()[start..end]
+                    .iter()
+                    .map(|v| {
+                        if v.is_finite() {
+                            v.clamp(-1.0, 1.0)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        encoder.encode_audio_block(&block).map_err(enc)?;
+        start = end;
+    }
+    encoder.finish().map_err(enc)
+}
+
+/// Writes an Ogg Vorbis file.
+pub fn write_vorbis<C: AsRef<[f32]>>(
+    path: &Path,
+    channels: &[C],
+    sample_rate: u32,
+    quality: f32,
+) -> EncodeResult<()> {
+    let bytes = encode_vorbis(channels, sample_rate, quality)?;
+    write_file(path, &bytes)
 }
 
 /// Default dither seed; any fixed value gives reproducible exports.
@@ -319,6 +399,99 @@ mod tests {
         assert!(d.channels[0][0] > 0.9999 && d.channels[0][0] <= 1.0);
         assert_eq!(d.channels[0][1], -1.0);
         assert_eq!(d.channels[0][4], 0.0);
+    }
+
+    /// Two seconds of a chord-like mix with a decaying noise burst each beat.
+    fn music(seconds: f32, sr: u32) -> Vec<Vec<f32>> {
+        let n = (seconds * sr as f32) as usize;
+        let mut seed = 12345u32;
+        let l: Vec<f32> = (0..n)
+            .map(|i| {
+                let t = i as f32 / sr as f32;
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                let noise = (seed >> 8) as f32 / 8_388_608.0 - 1.0;
+                let env = (-((t * 2.0).fract()) * 12.0).exp();
+                0.25 * (t * 220.0 * std::f32::consts::TAU).sin()
+                    + 0.2 * (t * 277.2 * std::f32::consts::TAU).sin()
+                    + 0.2 * (t * 329.6 * std::f32::consts::TAU).sin()
+                    + 0.2 * noise * env
+            })
+            .collect();
+        let r: Vec<f32> = l.iter().rev().map(|v| v * 0.8).collect();
+        vec![l, r]
+    }
+
+    fn rms(c: &[f32]) -> f64 {
+        (c.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / c.len().max(1) as f64).sqrt()
+    }
+
+    #[test]
+    fn vorbis_round_trips_with_matching_level_and_duration() {
+        let a = music(4.0, 48000);
+        let bytes = encode_vorbis(&a, 48000, VORBIS_DEFAULT_QUALITY).unwrap();
+        assert_eq!(&bytes[..4], b"OggS");
+        let d = decode_bytes(&bytes, Some("ogg")).unwrap();
+        assert_eq!(d.sample_rate, 48000.0);
+        assert_eq!(d.channels.len(), 2);
+        // duration within one Vorbis block of the source
+        let diff = (d.frames() as i64 - a[0].len() as i64).abs();
+        assert!(diff <= 2048, "frames {} vs {}", d.frames(), a[0].len());
+        for (src, dec) in a.iter().zip(&d.channels) {
+            let (rs, rd) = (rms(src), rms(dec));
+            let db = 20.0 * (rd / rs).log10();
+            assert!(db.abs() < 0.5, "level moved by {db} dB");
+        }
+    }
+
+    #[test]
+    fn vorbis_is_reproducible_and_quality_sets_the_size() {
+        let a = music(4.0, 44100);
+        let q5 = encode_vorbis(&a, 44100, 0.5).unwrap();
+        assert_eq!(q5, encode_vorbis(&a, 44100, 0.5).unwrap(), "same bytes");
+        let q0 = encode_vorbis(&a, 44100, 0.0).unwrap();
+        let q9 = encode_vorbis(&a, 44100, 0.9).unwrap();
+        assert!(
+            q0.len() < q5.len() && q5.len() < q9.len(),
+            "{} {} {}",
+            q0.len(),
+            q5.len(),
+            q9.len()
+        );
+        // far smaller than the 16-bit WAV (4 s x 44.1 kHz x 2 ch x 2 B = 705 kB)
+        assert!(q5.len() < 705_600 / 4, "{} bytes", q5.len());
+    }
+
+    #[test]
+    fn vorbis_default_quality_stays_within_a_few_megabytes_per_five_minutes() {
+        // bytes per second of the default quality, extrapolated to 300 s
+        let a = music(8.0, 48000);
+        let per_second = encode_vorbis(&a, 48000, VORBIS_DEFAULT_QUALITY)
+            .unwrap()
+            .len() as f64
+            / 8.0;
+        let five_minutes = per_second * 300.0 / 1e6;
+        assert!(
+            (1.0..=12.0).contains(&five_minutes),
+            "five minutes would be {five_minutes} MB"
+        );
+    }
+
+    #[test]
+    fn vorbis_rejects_bad_settings() {
+        let a = music(0.5, 48000);
+        assert!(matches!(
+            encode_vorbis(&a, 48000, 1.5),
+            Err(EncodeError::Unsupported(_))
+        ));
+        assert!(matches!(
+            encode_vorbis(&a, 48000, f32::NAN),
+            Err(EncodeError::Unsupported(_))
+        ));
+        let none: Vec<Vec<f32>> = vec![];
+        assert!(matches!(
+            encode_vorbis(&none, 48000, 0.5),
+            Err(EncodeError::Empty(_))
+        ));
     }
 
     #[test]

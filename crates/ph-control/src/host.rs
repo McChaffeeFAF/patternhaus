@@ -3,7 +3,9 @@ use ph_commands::*;
 use ph_core::Project;
 use ph_engine::plugins::{ListedPlugin, PluginSlot};
 use ph_engine::{Engine, PlayMode, RenderSettings, TransportCommand, TransportStatus};
-use ph_formats::encode::{FlacDepth, WavFormat, write_flac, write_wav};
+use ph_formats::encode::{
+    FlacDepth, VORBIS_DEFAULT_QUALITY, WavFormat, write_flac, write_vorbis, write_wav,
+};
 use ph_node::{AssetResolver, Quality};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -260,9 +262,15 @@ impl Host for EngineHost {
             ("flac", 24) => {
                 write_flac(&path, &audio.channels, audio.sample_rate, FlacDepth::Bits24)
             }
+            ("ogg", _) => write_vorbis(
+                &path,
+                &audio.channels,
+                audio.sample_rate,
+                req.quality.unwrap_or(VORBIS_DEFAULT_QUALITY),
+            ),
             (e, b) => {
                 return Err(CmdError::Host(format!(
-                    "unsupported export format .{e} at {b}-bit (use .wav 16/24/32 or .flac 16/24)"
+                    "unsupported export format .{e} at {b}-bit (use .wav 16/24/32, .flac 16/24 or .ogg)"
                 )));
             }
         };

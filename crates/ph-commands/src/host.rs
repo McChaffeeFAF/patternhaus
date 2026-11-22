@@ -682,7 +682,7 @@ impl Default for TransportState {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RenderRequest {
-    /// Output file; extension picks the format (`.wav`, `.flac`).
+    /// Output file; extension picks the format (`.wav`, `.flac`, `.ogg`).
     pub path: String,
     /// `None` = whole song (or the current pattern in pattern mode).
     pub range: Option<(Tick, Tick)>,
@@ -696,6 +696,10 @@ pub struct RenderRequest {
     /// Render reverb/delay tails past the end.
     #[serde(default = "yes")]
     pub include_tail: bool,
+    /// Ogg Vorbis quality, -0.1 to 1.0 (default 0.5, about 160 kbit/s); other formats
+    /// ignore it.
+    #[serde(default)]
+    pub quality: Option<f32>,
 }
 
 fn default_sr() -> u32 {
