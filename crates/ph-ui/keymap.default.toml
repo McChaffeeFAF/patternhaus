@@ -178,6 +178,8 @@ command = "app.roll.zoom"
 params = { step = -1 }
 context = "piano_roll"
 
+# Ctrl+A and Delete (Backspace) act on the controller lane's points instead of the notes
+# when the lane under the roll has focus (M3/T11).
 [[bind]]
 key = "Ctrl+A"
 command = "app.roll.select_all"

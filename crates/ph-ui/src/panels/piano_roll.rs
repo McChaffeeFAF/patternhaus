@@ -99,6 +99,16 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         })
         .collect();
     let flashes = core.flashes.clone();
+    let cc_touched: std::collections::BTreeSet<ph_core::PointId> = core
+        .touches
+        .keys()
+        .filter_map(|p| match p {
+            ph_core::ObjectPath::CcPoint(pt, ch, id) if *pt == pattern && *ch == channel => {
+                Some(*id)
+            }
+            _ => None,
+        })
+        .collect();
     let previews = crate::proposals::roll_previews(&core.proposals, pattern);
     let cx = DrawCtx {
         project: &project,
@@ -108,6 +118,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
         now: core.now,
         agent_selected: &agent_notes,
         previews: &previews,
+        cc_touched: &cc_touched,
     };
     let outs = piano_roll::show(ui, &mut core.roll, &cx);
     if !outs.is_empty() {

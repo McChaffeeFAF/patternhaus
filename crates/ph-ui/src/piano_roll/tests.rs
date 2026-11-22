@@ -324,6 +324,7 @@ fn run_frame(
             previews: &[],
             now: i as f64 / 60.0,
             agent_selected: &agent,
+            cc_touched: &Default::default(),
         };
         let _ = show(ui, st, &cx);
     });
