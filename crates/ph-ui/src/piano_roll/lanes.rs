@@ -1175,8 +1175,10 @@ impl LaneState {
                 "chooses the controller lane under the notes",
             );
         for k in self.tab_kinds() {
-            let r = ui.selectable_label(self.kind == k, k.short());
-            let r = r.on_hover_text(k.label());
+            let r = ui
+                .selectable_label(self.kind == k, k.short())
+                .on_hover_text(k.label());
+            let r = r.hint(&k.label(), "", "click to show this lane");
             if r.clicked() {
                 chosen = Some(k);
             }
