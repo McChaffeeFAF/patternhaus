@@ -12,10 +12,10 @@ use crate::grants::{Grants, grant_text};
 use crate::views;
 use ph_analysis::image::{self, PianoRollSpec, PlaylistClipBox, PlaylistSpec, PlaylistTrackRow};
 use ph_analysis::music::{
-    ChordGrain, SongNote, chords_from_audio, chords_from_notes, key_from_audio, key_from_notes,
-    progression, song_notes,
+    ChordGrain, SongNote, chords_from_audio_at, chords_from_notes, key_from_audio, key_from_notes,
+    merge_within_bars, mid_bar_changes, progression, song_notes,
 };
-use ph_analysis::{health, loudness, masking, onsets, spectrum};
+use ph_analysis::{beatgrid, health, loudness, masking, onsets, spectrum};
 use ph_commands::{Author, Caller, CmdError, CommandSpec, Executed, Request, UndoMode};
 use ph_core::{ChannelId, ClipId, PatternId, Project, SampleId, Tick, ticks_to_seconds};
 use ph_engine::{AudioBuffer, PlayMode, RenderSettings};
@@ -285,10 +285,13 @@ impl Agent {
             ),
             tool(
                 "analyze",
-                "Hear the result as numbers. what: any of loudness (LUFS integrated/short-term, true peak, RMS, crest), spectrum (7 bands + centroid), health (clipping, DC, phase, mono loss, energy per bar), onsets, key, chords, clashes (semitone note clashes), masking (per-channel spectral overlap), reference (compare the mix with a reference track you supply in `reference`: tonal balance per band in dB, integrated and short-term loudness, stereo width and correlation, plain-language suggestions), or \"all\" (not reference). Default: loudness, spectrum, health, key, chords, clashes.",
+                "Hear the result as numbers. what: any of loudness (LUFS integrated/short-term, true peak, RMS, crest), spectrum (7 bands + centroid), health (clipping, DC, phase, mono loss, energy per bar), onsets, key, chords (one per bar; resolution half_bar or beat also marks changes inside a bar, e.g. \"4.1 Ab\", \"4.3 Gb\"), tempo (BPM with confidence and half/double alternatives, first-beat offset in seconds, downbeat guess, drift per ~30 s window, and for a project render a comparison with the project tempo), clashes (semitone note clashes), masking (per-channel spectral overlap), reference (compare the mix with a reference track you supply in `reference`: tonal balance per band in dB, integrated and short-term loudness, stereo width and correlation, plain-language suggestions), or \"all\" (not reference). Default: loudness, spectrum, health, key, chords, clashes, tempo. Give `sample` (a registered sample id or an audio file) or `clip` (an audio clip id) to analyse that audio instead of rendering the project: chords and onsets then follow the beat grid measured from it (bar 1 at the first downbeat); clashes and masking need the project.",
                 json!({ "type": "object", "properties": {
                     "range": range_schema(),
                     "what": { "type": "array", "items": { "type": "string" } },
+                    "resolution": { "type": "string", "enum": ["bar", "half_bar", "beat"], "description": "chords: window size, default bar. half_bar and beat list a chord at each bar start and wherever it changes inside the bar (also reported in mid_bar_changes)" },
+                    "sample": { "description": "analyse this audio instead of the project: a registered sample id (get_state view audio) or an audio file inside the project or library folders; read, never copied" },
+                    "clip": { "type": "integer", "description": "analyse the part of its file this audio clip plays (before stretching and gain), instead of the project" },
                     "reference": { "description": "for what: [\"reference\"]: a registered sample id (get_state view audio) or an audio file inside the project or library folders; it is read, never copied" } } }),
                 true,
             ),
@@ -949,6 +952,25 @@ impl Agent {
             Ok(r) => r,
             Err(e) => return ToolOutput::error(e),
         };
+        let grain = match args["resolution"].as_str() {
+            None | Some("bar") => ChordGrain::Bar,
+            Some("half_bar") => ChordGrain::HalfBar,
+            Some("beat") => ChordGrain::Beat,
+            Some(o) => {
+                return ToolOutput::error(format!(
+                    "unknown resolution {o:?}: bar, half_bar or beat"
+                ));
+            }
+        };
+        let source = match self.analysis_source(&p, args) {
+            Ok(s) => s,
+            Err(e) => return ToolOutput::error(e),
+        };
+        if source.is_some() && !args["range"].is_null() {
+            return ToolOutput::error(
+                "range selects bars of the project render; with `sample` or `clip` it does not apply",
+            );
+        }
         let mut what: Vec<String> = args["what"]
             .as_array()
             .map(|a| {
@@ -958,24 +980,37 @@ impl Agent {
             })
             .unwrap_or_default();
         if what.is_empty() {
-            what = ["loudness", "spectrum", "health", "key", "chords", "clashes"]
+            what = if source.is_some() {
+                ["loudness", "spectrum", "key", "chords", "tempo"]
+                    .map(String::from)
+                    .to_vec()
+            } else {
+                [
+                    "loudness", "spectrum", "health", "key", "chords", "clashes", "tempo",
+                ]
                 .map(String::from)
-                .to_vec();
+                .to_vec()
+            };
         }
         if what.iter().any(|w| w == "all") {
             what = [
-                "loudness", "spectrum", "health", "onsets", "key", "chords", "clashes", "masking",
+                "loudness", "spectrum", "health", "onsets", "key", "chords", "tempo", "clashes",
+                "masking",
             ]
             .map(String::from)
             .to_vec();
+            if source.is_some() {
+                what.retain(|w| w != "clashes" && w != "masking");
+            }
         }
-        const KNOWN: [&str; 9] = [
+        const KNOWN: [&str; 10] = [
             "loudness",
             "spectrum",
             "health",
             "onsets",
             "key",
             "chords",
+            "tempo",
             "clashes",
             "masking",
             "reference",
@@ -984,6 +1019,14 @@ impl Agent {
             return ToolOutput::error(format!(
                 "unknown analysis {bad:?}: {} or all",
                 KNOWN.join(", ")
+            ));
+        }
+        if let Some(bad) = what
+            .iter()
+            .find(|w| source.is_some() && matches!(w.as_str(), "clashes" | "masking"))
+        {
+            return ToolOutput::error(format!(
+                "{bad} reads the project's notes and channels; with `sample` or `clip` use loudness, spectrum, health, onsets, key, chords, tempo or reference"
             ));
         }
         let reference = if what.iter().any(|w| w == "reference") {
@@ -995,9 +1038,17 @@ impl Agent {
             None
         };
         let needs_audio = what.iter().any(|w| !matches!(w.as_str(), "clashes"));
-        let timing = views::timing(&p);
+        let mut timing = views::timing(&p);
         let sr = 48_000;
-        let rendered = if needs_audio {
+        let rendered = if let Some((_, src)) = &source {
+            Some(Arc::new(Rendered {
+                audio: AudioBuffer {
+                    sample_rate: src.rate,
+                    channels: src.audio.clone(),
+                },
+                first_bar: 1,
+            }))
+        } else if needs_audio {
             match self.render_audio(&p, range, false, sr, None) {
                 Ok(r) => Some(r),
                 Err(e) => return ToolOutput::error(e),
@@ -1005,6 +1056,29 @@ impl Agent {
         } else {
             None
         };
+        // the beat grid: asked for as `tempo`, and the base of bar-aligned analysis of a
+        // sample (a project render is on the project's grid already)
+        let wants_grid = what.iter().any(|w| w == "tempo")
+            || (source.is_some()
+                && what
+                    .iter()
+                    .any(|w| matches!(w.as_str(), "chords" | "onsets" | "health")));
+        let grid = rendered.as_ref().filter(|_| wants_grid).and_then(|r| {
+            beatgrid::analyze(
+                &r.audio.channels,
+                r.audio.sample_rate as f64,
+                p.settings.time_signature.numerator as u32,
+                source.is_some(),
+            )
+        });
+        // bar 1 of a sample is its first downbeat, at the measured tempo
+        let mut bar_start_s = 0.0;
+        if source.is_some()
+            && let Some(g) = &grid
+        {
+            timing = ph_analysis::Timing::new(g.bpm, p.settings.time_signature);
+            bar_start_s = g.bar_start_s();
+        }
         let bar = timing.ticks_per_bar();
         let mut out = serde_json::Map::new();
         if let Some(r) = &rendered {
@@ -1014,6 +1088,22 @@ impl Agent {
                 json!({
                     "seconds": (a.frames() as f64 / a.sample_rate as f64 * 100.0).round() / 100.0,
                     "first_bar": r.first_bar,
+                }),
+            );
+        }
+        if let Some((kind, src)) = &source {
+            out.insert(
+                "source".into(),
+                json!({
+                    "kind": kind,
+                    "name": src.label,
+                    "seconds": (src.seconds * 100.0).round() / 100.0,
+                    "sample_rate": src.rate,
+                    "cut_to_first_seconds": src.truncated.then_some(900.0),
+                    "bars": match &grid {
+                        Some(g) => json!({ "bpm": g.bpm, "bar_1_at_s": g.bar_start_s(), "note": "onsets, health and chords count bars from the first downbeat of the measured grid" }),
+                        None => json!({ "note": "no beat grid found: onsets, health and chords count bars from the start at the project tempo" }),
+                    },
                 }),
             );
         }
@@ -1042,25 +1132,79 @@ impl Agent {
             let ch = rendered.as_ref().map(|r| &r.audio.channels[..]);
             let sr = rendered.as_ref().map_or(sr, |r| r.audio.sample_rate);
             let fb = rendered.as_ref().map_or(1, |r| r.first_bar);
+            // bar-aligned analyses of a sample start at its first downbeat
+            let aligned: Vec<Vec<f32>>;
+            let bar_ch = match ch {
+                Some(c) if bar_start_s > 0.0 => {
+                    aligned = ph_analysis::slice_seconds(c, sr, bar_start_s, f64::MAX / 4.0);
+                    Some(&aligned[..])
+                }
+                other => other,
+            };
             let v = match (w.as_str(), ch) {
                 ("loudness", Some(c)) => json!(loudness::analyze(c, sr)),
                 ("spectrum", Some(c)) => json!(spectrum::analyze(c, sr)),
-                ("health", Some(c)) => json!(health::analyze(c, sr, &timing, fb)),
-                ("onsets", Some(c)) => {
-                    let o = onsets::detect(c, sr, &timing, fb);
+                ("health", Some(_)) => {
+                    json!(health::analyze(bar_ch.unwrap_or(&[]), sr, &timing, fb))
+                }
+                ("tempo", Some(_)) => match &grid {
+                    Some(g) => {
+                        let mut v = json!(g);
+                        if source.is_none() {
+                            v["project"] = json!(g.compare_with_project(p.settings.bpm));
+                        }
+                        v
+                    }
+                    None => json!({
+                        "detected": false,
+                        "note": "no beat found: silence, under one second of audio, or no onsets",
+                    }),
+                },
+                ("onsets", Some(_)) => {
+                    let o = onsets::detect(bar_ch.unwrap_or(&[]), sr, &timing, fb);
                     json!({ "count": o.len(), "onsets": o.iter().take(200).collect::<Vec<_>>() })
                 }
                 ("key", Some(c)) => json!({
                     "from_notes": key_from_notes(&pitched, &timing),
                     "from_audio": key_from_audio(c, sr, &timing),
                 }),
-                ("chords", Some(c)) => {
-                    let n =
-                        chords_from_notes(&pitched, &timing, first_bar, last_bar, ChordGrain::Auto);
-                    let au = chords_from_audio(c, sr, &timing, fb, ChordGrain::Bar);
+                ("chords", Some(_)) => {
+                    let cap = if grain == ChordGrain::Bar { 64 } else { 256 };
+                    let listing = |spans: &[ph_analysis::music::ChordSpan]| {
+                        json!({
+                            "progression": progression(spans),
+                            "by_bar": spans.iter().take(cap).map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol)).collect::<Vec<_>>(),
+                            "mid_bar_changes": mid_bar_changes(spans, &timing).into_iter().take(cap).collect::<Vec<_>>(),
+                        })
+                    };
+                    let notes_side = if source.is_some() {
+                        Value::Null
+                    } else {
+                        let g = if grain == ChordGrain::Bar {
+                            ChordGrain::Auto
+                        } else {
+                            grain
+                        };
+                        listing(&merge_within_bars(chords_from_notes(
+                            &pitched, &timing, first_bar, last_bar, g,
+                        )))
+                    };
+                    let au = merge_within_bars(chords_from_audio_at(
+                        bar_ch.unwrap_or(&[]),
+                        sr,
+                        &timing,
+                        fb,
+                        grain,
+                        0.0,
+                    ));
                     json!({
-                        "from_notes": { "progression": progression(&n), "by_bar": n.iter().take(64).map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol)).collect::<Vec<_>>() },
-                        "from_audio": { "progression": progression(&au), "by_bar": au.iter().take(64).map(|s| format!("{}.{} {}", s.bar, s.beat, s.symbol)).collect::<Vec<_>>() },
+                        "resolution": match grain {
+                            ChordGrain::HalfBar => "half_bar",
+                            ChordGrain::Beat => "beat",
+                            _ => "bar",
+                        },
+                        "from_notes": notes_side,
+                        "from_audio": listing(&au),
                     })
                 }
                 ("clashes", _) => {

@@ -13,9 +13,10 @@
 //!    weighted by the square of their strength (relative to the strongest), so the kick and
 //!    snare outvote hi-hat subdivisions;
 //! 3. **downbeat:** each onset near a grid line is assigned to one of `beats_per_bar` beat
-//!    slots (grid beat index modulo the bar length). The slot whose beats carry the
-//!    strongest onsets on average (silent beats count as zero) is the guess for beat 1; its
-//!    confidence is the gap to the runner-up;
+//!    slots (grid beat index modulo the bar length). The slot whose beats are loudest (RMS of
+//!    the 50 ms after the onset, averaged; silent beats count as zero) is the guess for beat 1; its
+//!    confidence is the gap to the runner-up, and with no clear accent the first grid beat is
+//!    assumed to be beat 1;
 //! 4. **drift:** the same estimate on windows of about 30 s (the last one absorbs a
 //!    remainder shorter than half a window). A steady click spreads less than 0.5%; a live
 //!    performance drifts by a few percent; a tempo change shows as a step. Each window also
@@ -33,6 +34,9 @@ pub const DRIFT_WINDOW_S: f64 = 30.0;
 const STEADY_PCT: f64 = 0.5;
 /// Spread under which it is called drifting; beyond it the tempo changes.
 const DRIFT_PCT: f64 = 3.0;
+/// A beat of the bar must be at least this much stronger than the runner-up (relative to its
+/// own strength) to be taken as the downbeat.
+const MIN_ACCENT: f64 = 0.08;
 /// Windows below this confidence are left out of the spread (but still listed).
 const MIN_WINDOW_CONFIDENCE: f64 = 0.25;
 
@@ -65,6 +69,9 @@ pub struct Downbeat {
     pub first_downbeat_s: f64,
     /// 0..1: how much stronger the chosen beat is than the runner-up.
     pub confidence: f64,
+    /// `accent` (one beat of the bar is clearly stronger) or `assumed` (no clear accent: the
+    /// first grid beat is taken as beat 1).
+    pub basis: &'static str,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -108,7 +115,11 @@ pub struct ProjectComparison {
 /// Onset times (seconds) with weights.
 struct Pulse {
     t: Vec<f64>,
+    /// Weight for the phase: the squared relative onset strength.
     w: Vec<f64>,
+    /// Loudness (RMS of the 50 ms after the onset): what the downbeat is judged by, because
+    /// the onset strength is log-compressed and hides accents.
+    level: Vec<f64>,
 }
 
 /// Tempo and beat grid of audio (`[channel][frame]`). `beats_per_bar` is the numerator the
@@ -126,13 +137,11 @@ pub fn analyze(
     let seconds = x.len() as f64 / sr;
     let bpb = beats_per_bar.clamp(1, 16);
     let (est, strength) = tempo::estimate_full(channels, sr, snap_loops)?;
-    let pulse = pulse_of(&est.onsets, &strength, sr, 0.0);
-    // a loop snapped to whole beats is exact: keep it, but still read its phase
-    let bpm = if est.loop_beats.is_some() {
-        est.bpm
-    } else {
-        refine(&pulse, est.bpm).0
-    };
+    let pulse = pulse_of(&x, &est.onsets, &strength, sr, 0.0);
+    // a loop snapped to whole beats starts the search at its snapped tempo; the refinement
+    // only moves away from it when the onsets line up better (a lead-in before the first
+    // beat makes the file longer than its beats)
+    let bpm = refine(&pulse, est.bpm).0;
     let period = 60.0 / bpm;
     let phase = phase_of(&pulse, period).0.rem_euclid(period);
     let downbeat = downbeat_of(&pulse, period, phase, bpb, seconds);
@@ -217,10 +226,12 @@ fn round(x: f64, places: i32) -> f64 {
 
 /// Onsets with weights: the square of the strongest onset-strength value near the onset,
 /// relative to the global maximum. `offset_s` shifts times (a window inside a longer file).
-fn pulse_of(onsets: &[u64], s: &onset::Strength, sr: f64, offset_s: f64) -> Pulse {
+fn pulse_of(x: &[f32], onsets: &[u64], s: &onset::Strength, sr: f64, offset_s: f64) -> Pulse {
     let gmax = s.values.iter().copied().fold(0.0f32, f32::max).max(1e-9) as f64;
     let mut t = Vec::with_capacity(onsets.len());
     let mut w = Vec::with_capacity(onsets.len());
+    let mut level = Vec::with_capacity(onsets.len());
+    let span = (0.05 * sr) as usize;
     for &o in onsets {
         // frame k covers samples k·HOP .. k·HOP + FRAME, so the flux peak of an onset at
         // sample o lies a few frames before and one after o / HOP
@@ -236,8 +247,12 @@ fn pulse_of(onsets: &[u64], s: &onset::Strength, sr: f64, offset_s: f64) -> Puls
             / gmax;
         t.push(o as f64 / sr + offset_s);
         w.push(m * m);
+        let seg = &x[(o as usize).min(x.len())..(o as usize + span).min(x.len())];
+        level.push(
+            (seg.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / seg.len().max(1) as f64).sqrt(),
+        );
     }
-    Pulse { t, w }
+    Pulse { t, w, level }
 }
 
 /// Weighted circular mean of the onset times at `period`: (phase in seconds, in
@@ -293,7 +308,7 @@ fn downbeat_of(p: &Pulse, period: f64, phase: f64, bpb: u32, seconds: f64) -> Do
     let mut sum = vec![0.0f64; bpb_u];
     // only the strongest onset on each grid beat counts
     let mut on_beat: std::collections::BTreeMap<i64, f64> = Default::default();
-    for (t, w) in p.t.iter().zip(&p.w) {
+    for (t, w) in p.t.iter().zip(&p.level) {
         let n = ((t - phase) / period).round();
         if ((t - phase) - n * period).abs() <= 0.2 * period && n >= 0.0 {
             let e = on_beat.entry(n as i64).or_insert(0.0);
@@ -324,11 +339,18 @@ fn downbeat_of(p: &Pulse, period: f64, phase: f64, bpb: u32, seconds: f64) -> Do
     } else {
         ((top - second) / top).clamp(0.0, 1.0)
     };
+    // equal strengths (a kick on every beat) say nothing about the bar: keep the grid's start
+    let best = if confidence < MIN_ACCENT { 0 } else { best };
     Downbeat {
         beats_per_bar: bpb,
         first_beat_is_beat: ((bpb_u - best) % bpb_u) as u32 + 1,
         first_downbeat_s: round(phase + best as f64 * period, 4),
         confidence: round(confidence, 3),
+        basis: if confidence < MIN_ACCENT {
+            "assumed"
+        } else {
+            "accent"
+        },
     }
 }
 
@@ -355,7 +377,7 @@ fn drift_of(x: &[f32], sr: f64, bpm: f64, phase: f64, seconds: f64) -> Drift {
         let Some((est, strength)) = tempo::estimate_full(&[seg.to_vec()], sr, false) else {
             continue;
         };
-        let pulse = pulse_of(&est.onsets, &strength, sr, a);
+        let pulse = pulse_of(seg, &est.onsets, &strength, sr, a);
         let wbpm = refine(&pulse, est.bpm).0;
         let phase_ms = (pulse.t.len() >= 4).then(|| {
             // the window's mean onset phase at the *global* period, against the global phase

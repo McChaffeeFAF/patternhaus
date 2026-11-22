@@ -507,4 +507,6 @@ mod record_tests;
 #[cfg(test)]
 mod sampler_agent_tests;
 #[cfg(test)]
+mod t12_tests;
+#[cfg(test)]
 mod tests;

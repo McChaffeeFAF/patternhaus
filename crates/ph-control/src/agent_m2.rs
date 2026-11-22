@@ -66,11 +66,11 @@ pub(super) fn extra_tools() -> Vec<ToolSpec> {
 
 /// A reference track, loaded.
 pub(super) struct Reference {
-    label: String,
-    audio: Vec<Vec<f32>>,
-    rate: u32,
-    seconds: f64,
-    truncated: bool,
+    pub(super) label: String,
+    pub(super) audio: Vec<Vec<f32>>,
+    pub(super) rate: u32,
+    pub(super) seconds: f64,
+    pub(super) truncated: bool,
 }
 
 fn decided(p: &ProposalInfo) -> bool {
@@ -300,11 +300,29 @@ impl Agent {
     /// id), or a file reference such as `factory:...`, `samples/x.wav` or a path inside the
     /// folders agents may read. Nothing is copied anywhere.
     pub(super) fn load_reference(&self, p: &Project, v: &Value) -> Result<Reference, String> {
-        const HELP: &str = "analyze what: [\"reference\"] needs `reference`: a registered sample id (get_state view audio) or an audio file inside the project or library folders";
+        self.load_audio(p, v, "reference")
+    }
+
+    /// [`Self::load_reference`] for any argument name (`reference`, `sample`): the name only
+    /// words the messages.
+    pub(super) fn load_audio(
+        &self,
+        p: &Project,
+        v: &Value,
+        arg: &str,
+    ) -> Result<Reference, String> {
+        let help = if arg == "reference" {
+            "analyze what: [\"reference\"] needs `reference`: a registered sample id (get_state view audio) or an audio file inside the project or library folders".to_string()
+        } else {
+            format!(
+                "analyze `{arg}` is a registered sample id (get_state view audio) or an audio file inside the project or library folders"
+            )
+        };
+        let help = help.as_str();
         let (label, path) = match v {
-            Value::Null => return Err(HELP.into()),
+            Value::Null => return Err(help.into()),
             Value::Number(n) => {
-                let id = SampleId(n.as_u64().ok_or(HELP)? as u32);
+                let id = SampleId(n.as_u64().ok_or(help)? as u32);
                 let e = p.sample(id).map_err(|_| {
                     format!("no registered sample {id} (get_state view audio lists them)")
                 })?;
@@ -321,13 +339,13 @@ impl Agent {
                     s.clone(),
                 ),
             },
-            _ => return Err(HELP.into()),
+            _ => return Err(help.into()),
         };
         let d = self
             .studio
             .assets
             .sample(&path)
-            .map_err(|e| format!("cannot read the reference {path}: {e}"))?;
+            .map_err(|e| format!("cannot read the {arg} {path}: {e}"))?;
         let rate = d.sample_rate.round().max(1.0) as u32;
         let max_frames = (MAX_REFERENCE_SECONDS * rate as f64) as usize;
         let truncated = d.frames() > max_frames;
@@ -338,7 +356,7 @@ impl Agent {
             .collect();
         let seconds = audio.first().map_or(0, |c| c.len()) as f64 / rate as f64;
         if audio.is_empty() || seconds <= 0.0 {
-            return Err(format!("the reference {path} holds no audio"));
+            return Err(format!("the {arg} {path} holds no audio"));
         }
         Ok(Reference {
             label,
@@ -347,6 +365,66 @@ impl Agent {
             seconds,
             truncated,
         })
+    }
+
+    /// The audio `analyze` reads instead of a project render, when `sample` (a registered
+    /// sample id, or a file as for `reference`) or `clip` (an audio clip id: the part of its
+    /// file it plays, before stretching and gain) is given. `Ok(None)`: analyse the project.
+    pub(super) fn analysis_source(
+        &self,
+        p: &Project,
+        args: &Value,
+    ) -> Result<Option<(&'static str, Reference)>, String> {
+        let (sample, clip) = (&args["sample"], &args["clip"]);
+        match (sample.is_null(), clip.is_null()) {
+            (true, true) => Ok(None),
+            (false, false) => Err("give either `sample` or `clip`, not both".into()),
+            (false, true) => Ok(Some(("sample", self.load_audio(p, sample, "sample")?))),
+            (true, false) => {
+                let id = clip
+                    .as_u64()
+                    .or_else(|| clip.as_str().and_then(|s| s.parse().ok()))
+                    .ok_or("`clip` is an audio clip id (get_state view audio)")?;
+                let c = p
+                    .clip(ph_core::ClipId(id as u32))
+                    .map_err(|e| e.to_string())?;
+                let a = c
+                    .audio()
+                    .ok_or_else(|| format!("clip {id} is not an audio clip"))?;
+                let e = p.sample(a.sample).map_err(|e| e.to_string())?;
+                let d = self
+                    .studio
+                    .assets
+                    .sample(&e.path)
+                    .map_err(|er| format!("cannot read {}: {er}", e.path))?;
+                let rate = d.sample_rate.round().max(1.0) as u32;
+                let total = d.frames();
+                let from = (a.source_offset as usize).min(total);
+                let ratio = a.time_ratio(e, p.settings.bpm).max(1e-6);
+                let len =
+                    (ph_core::ticks_to_seconds(c.length, p.settings.bpm) * ratio * rate as f64)
+                        .round() as usize;
+                let to = (from + len).min(total);
+                if to <= from {
+                    return Err(format!("clip {id} plays no audio"));
+                }
+                let mut audio: Vec<Vec<f32>> =
+                    d.channels.iter().map(|ch| ch[from..to].to_vec()).collect();
+                if a.reverse {
+                    audio.iter_mut().for_each(|ch| ch.reverse());
+                }
+                Ok(Some((
+                    "clip",
+                    Reference {
+                        label: format!("clip {id} ({})", e.name),
+                        seconds: (to - from) as f64 / rate as f64,
+                        audio,
+                        rate,
+                        truncated: false,
+                    },
+                )))
+            }
+        }
     }
 
     /// The `reference` part of an `analyze` reply.
