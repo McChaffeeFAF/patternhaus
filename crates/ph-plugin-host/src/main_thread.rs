@@ -31,8 +31,14 @@ thread_local! {
 /// How often idle hooks run when no job arrives.
 const TICK: Duration = Duration::from_millis(10);
 
+static MAIN: OnceLock<MainThread> = OnceLock::new();
+
+/// Whether the plugins' main thread has been started (any plugin work happened).
+pub(crate) fn started() -> bool {
+    MAIN.get().is_some()
+}
+
 pub(crate) fn main_thread() -> &'static MainThread {
-    static MAIN: OnceLock<MainThread> = OnceLock::new();
     MAIN.get_or_init(|| {
         let (tx, rx) = channel::<Job>();
         let (id_tx, id_rx) = sync_channel(1);
@@ -70,7 +76,7 @@ fn run_loop(rx: Receiver<Job>) {
 }
 
 #[cfg(windows)]
-fn pump_messages() {
+pub(crate) fn pump_messages() {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage,
     };
@@ -85,7 +91,7 @@ fn pump_messages() {
 }
 
 #[cfg(not(windows))]
-fn pump_messages() {}
+pub(crate) fn pump_messages() {}
 
 /// Waits for a job's result on the calling thread.
 ///
@@ -150,6 +156,40 @@ impl MainThread {
             .send(job)
             .expect("the plugin main thread has stopped");
         wait(&rx)
+    }
+
+    /// Like [`MainThread::run`], but gives up after `timeout` (the job may still run later).
+    pub fn run_timeout<R: Send + 'static>(
+        &self,
+        f: impl FnOnce() -> R + Send + 'static,
+        timeout: Duration,
+    ) -> Option<R> {
+        if self.is_current() {
+            return Some(f());
+        }
+        let (tx, rx) = sync_channel(1);
+        let job: Job = Box::new(move || {
+            let _ = tx.send(f());
+        });
+        self.tx
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .send(job)
+            .ok()?;
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match rx.recv_timeout(Duration::from_millis(1)) {
+                Ok(r) => return Some(r),
+                Err(RecvTimeoutError::Disconnected) => return None,
+                Err(RecvTimeoutError::Timeout) => {
+                    if std::time::Instant::now() >= deadline {
+                        return None;
+                    }
+                    #[cfg(windows)]
+                    handle_sent_messages();
+                }
+            }
+        }
     }
 
     /// Queues `f` without waiting.
