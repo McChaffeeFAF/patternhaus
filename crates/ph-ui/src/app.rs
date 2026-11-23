@@ -1057,7 +1057,9 @@ impl PhApp {
                 mut overwrite,
             } => {
                 modal(ctx, "Export audio", |ui| {
-                    ui.label("File to write (.wav, .flac or .ogg), relative to the project folder:");
+                    ui.label(
+                        "File to write (.wav, .flac or .ogg), relative to the project folder:",
+                    );
                     ui.add(egui::TextEdit::singleline(&mut path).desired_width(420.0));
                     ui.checkbox(&mut overwrite, "Replace the file if it exists");
                     ui.label(
