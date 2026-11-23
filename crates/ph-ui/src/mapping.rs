@@ -361,6 +361,52 @@ pub fn automation_remove_points(clip: ClipId, points: &[PointId]) -> Request {
         json!({ "clip": clip, "points": points }),
     )
 }
+// ---- controller lanes (M3/T11) -----------------------------------------------------------
+
+fn cc_points_json(points: &[ph_core::CcPointSpec]) -> Vec<Value> {
+    points
+        .iter()
+        .map(
+            |p| json!({ "tick": p.tick, "value": p.value, "curve": p.curve, "tension": p.tension }),
+        )
+        .collect()
+}
+/// `cc.add_points`: points added to a lane, none touched.
+pub fn cc_add_points(
+    p: PatternId,
+    c: ChannelId,
+    controller: ph_core::Controller,
+    points: &[ph_core::CcPointSpec],
+) -> Request {
+    req(
+        "cc.add_points",
+        json!({ "pattern": p, "channel": c, "controller": controller,
+                "points": cc_points_json(points) }),
+    )
+}
+/// `cc.remove_points` by id.
+pub fn cc_remove_points(p: PatternId, c: ChannelId, ids: &[PointId]) -> Request {
+    req(
+        "cc.remove_points",
+        json!({ "pattern": p, "channel": c, "ids": ids }),
+    )
+}
+/// `cc.set`: replaces the lane's points in `[start, end)` (a freehand stroke or a line).
+pub fn cc_set(
+    p: PatternId,
+    c: ChannelId,
+    controller: ph_core::Controller,
+    start: Tick,
+    end: Tick,
+    points: &[ph_core::CcPointSpec],
+) -> Request {
+    req(
+        "cc.set",
+        json!({ "pattern": p, "channel": c, "controller": controller,
+                "start": start, "end": end, "points": cc_points_json(points) }),
+    )
+}
+
 /// Recorded knob movements (song ticks, plain values) as a new, thinned clip.
 pub fn automation_record(target: &ParamPath, samples: &[(Tick, f64)]) -> Request {
     let s: Vec<Value> = samples

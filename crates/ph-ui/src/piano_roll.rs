@@ -17,6 +17,8 @@ pub const KEYBOARD_W: f32 = 64.0;
 pub const RULER_H: f32 = 20.0;
 pub const VEL_LANE_H: f32 = 64.0;
 
+pub mod lanes;
+
 /// Snap choices: musical names and the grid in ticks (`0` = one bar, resolved from the time
 /// signature; `1` = off). 960 ticks are a quarter note. Beat and 1/4 are the same grid; Beat is
 /// the name FL users look for, 1/4 the musical one.
@@ -558,6 +560,8 @@ pub struct PianoRollState {
     /// Pattern length in ticks, for drawing the end marker.
     pub pattern_len: Tick,
     lane_h: f32,
+    /// The controller lane editor under the notes (M3/T11): selector, tabs, points.
+    pub lane: lanes::LaneState,
     needs_fit: bool,
     /// Where the note grid was drawn last frame (screen coordinates), for tests.
     pub last_grid: Rect,
@@ -585,6 +589,7 @@ impl Default for PianoRollState {
             ticks_per_bar: 3840,
             pattern_len: 3840,
             lane_h: VEL_LANE_H,
+            lane: lanes::LaneState::default(),
             needs_fit: true,
             last_grid: Rect::NOTHING,
             zoom_request: None,
@@ -598,6 +603,7 @@ impl PianoRollState {
     pub fn focus(&mut self, pattern: PatternId, channel: ChannelId) {
         if self.pattern != Some(pattern) || self.channel != Some(channel) {
             self.selection.clear();
+            self.lane.reset();
             self.drag = Drag::None;
             self.needs_fit = true;
         }
@@ -615,6 +621,7 @@ impl PianoRollState {
         self.pattern_len = project.pattern_length(p).unwrap_or(self.ticks_per_bar);
         let cache = &self.cache;
         self.selection.retain(|id| cache.get(*id).is_some());
+        self.lane.refresh(project, p, c);
         if !self.want.is_empty() {
             let found: Vec<NoteId> = self
                 .want
@@ -1127,6 +1134,40 @@ impl PianoRollState {
         out
     }
 
+    /// What the lane editor needs to know about the roll.
+    pub fn lane_env(&self) -> Option<lanes::Env> {
+        let (pattern, channel) = self.pc()?;
+        Some(lanes::Env {
+            view: self.view,
+            snap: self.grid(),
+            bar: self.ticks_per_bar,
+            pattern_len: self.pattern_len,
+            pattern,
+            channel,
+        })
+    }
+
+    /// A press in a controller lane (positions relative to the lane body's top-left).
+    pub fn lane_press(&mut self, pos: Vec2, btn: Btn, mods: Mods) -> Vec<PrOut> {
+        let Some(env) = self.lane_env() else {
+            return Vec::new();
+        };
+        self.lane.press(&env, pos, btn, mods)
+    }
+
+    pub fn lane_move(&mut self, pos: Vec2, mods: Mods) {
+        if let Some(env) = self.lane_env() {
+            self.lane.drag_to(&env, pos, mods);
+        }
+    }
+
+    pub fn lane_release(&mut self, pos: Vec2, mods: Mods) -> Vec<PrOut> {
+        let Some(env) = self.lane_env() else {
+            return Vec::new();
+        };
+        self.lane.release(&env, pos, mods)
+    }
+
     /// Velocity lane: press near a note's bar to start dragging its velocity.
     pub fn velocity_press(&mut self, lane_pos: Vec2, lane_h: f32) -> bool {
         let t = self.view.tick_at(lane_pos.x);
@@ -1166,6 +1207,21 @@ impl PianoRollState {
         let Some((p, c)) = self.pc() else {
             return out;
         };
+        if self.lane.focused && self.lane.controller().is_some() {
+            match a {
+                PrAction::SelectAll => {
+                    self.lane.select_all();
+                    return out;
+                }
+                PrAction::DeleteSelected => {
+                    if let Some(env) = self.lane_env() {
+                        out.extend(self.lane.delete_selected(&env));
+                    }
+                    return out;
+                }
+                _ => {}
+            }
+        }
         let ids: Vec<NoteId> = self.selection.iter().copied().collect();
         match a {
             PrAction::SetTool(t) => self.tool = t,
@@ -1302,6 +1358,8 @@ pub struct DrawCtx<'a> {
     pub agent_selected: &'a BTreeSet<NoteId>,
     /// Notes an agent proposed but nobody has accepted yet (M2/T9), drawn as ghosts.
     pub previews: &'a [crate::proposals::PreviewNote],
+    /// Controller lane points another author changed lately (M3/T11), ringed in the lane.
+    pub cc_touched: &'a BTreeSet<ph_core::PointId>,
 }
 
 pub const FLASH_SECS: f64 = 2.0;
@@ -1320,18 +1378,45 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
     let whole = resp.rect;
     painter.rect_filled(whole, CornerRadius::ZERO, col.bg0);
 
+    // the lane area: a divider, the header strip, and the body (none while collapsed)
+    let max_body =
+        (whole.height() - RULER_H - 90.0 - lanes::HEADER_H - lanes::DIVIDER_H).max(lanes::MIN_H);
+    let body_h = if st.lane.open {
+        st.lane.height.clamp(lanes::MIN_H, max_body)
+    } else {
+        0.0
+    };
     let grid_rect = Rect::from_min_max(
         Pos2::new(whole.left() + KEYBOARD_W, whole.top() + RULER_H),
         Pos2::new(
             whole.right(),
-            (whole.bottom() - VEL_LANE_H - 4.0).max(whole.top() + RULER_H + 20.0),
+            (whole.bottom() - body_h - lanes::HEADER_H - lanes::DIVIDER_H)
+                .max(whole.top() + RULER_H + 20.0),
         ),
     );
     st.last_grid = grid_rect;
-    let lane_rect = Rect::from_min_max(
-        Pos2::new(grid_rect.left(), grid_rect.bottom() + 4.0),
-        whole.max,
+    let divider_rect = Rect::from_min_size(
+        Pos2::new(whole.left(), grid_rect.bottom()),
+        Vec2::new(whole.width(), lanes::DIVIDER_H),
     );
+    let header_rect = Rect::from_min_size(
+        Pos2::new(whole.left(), divider_rect.bottom()),
+        Vec2::new(whole.width(), lanes::HEADER_H),
+    );
+    let lane_rect = Rect::from_min_max(
+        Pos2::new(grid_rect.left(), header_rect.bottom()),
+        Pos2::new(
+            whole.right(),
+            (header_rect.bottom() + body_h).min(whole.bottom()),
+        ),
+    );
+    let gutter_rect = Rect::from_min_max(
+        Pos2::new(whole.left(), header_rect.bottom()),
+        Pos2::new(grid_rect.left(), lane_rect.bottom()),
+    );
+    st.lane.h = lane_rect.height().max(1.0);
+    st.lane.body = lane_rect;
+    let lane_open = st.lane.open && lane_rect.height() > 1.0;
     let key_rect = Rect::from_min_max(
         Pos2::new(whole.left(), grid_rect.top()),
         Pos2::new(grid_rect.left(), grid_rect.bottom()),
@@ -1372,10 +1457,29 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             i.pointer.any_down(),
         )
     });
-    let hovered = resp.hovered() || st.is_dragging();
+    let lane_resp = lane_open.then(|| {
+        ui.interact(
+            lane_rect,
+            resp.id.with("lane_body"),
+            Sense::click_and_drag(),
+        )
+    });
+    let over = resp.hovered() || lane_resp.as_ref().is_some_and(|r| r.hovered());
+    let hovered = over || st.is_dragging() || st.lane.is_dragging();
+    // the divider above the lane area resizes it
+    if st.lane.open {
+        let div = ui.interact(divider_rect, resp.id.with("lane_divider"), Sense::drag());
+        if div.hovered() || div.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        if div.dragged() {
+            st.lane.height =
+                (st.lane.height - div.drag_delta().y).clamp(lanes::MIN_H, lanes::MAX_H);
+        }
+    }
     if let Some(pp) = pointer {
         let rel = pp - grid_rect.min;
-        if resp.hovered() && (scroll.x != 0.0 || scroll.y != 0.0) && whole.contains(pp) {
+        if over && (scroll.x != 0.0 || scroll.y != 0.0) && whole.contains(pp) {
             if mods.ctrl {
                 st.view
                     .zoom_x(1.0 + scroll.y as f64 * 0.002, rel.x.max(0.0));
@@ -1394,9 +1498,16 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
             let btns = [Btn::Primary, Btn::Secondary, Btn::Middle];
             for (k, b) in btns.iter().enumerate() {
                 if pressed[k] {
-                    if grid_rect.contains(pp) && !st.is_dragging() {
+                    if grid_rect.contains(pp) && !st.is_dragging() && !st.lane.is_dragging() {
+                        st.lane.focused = false;
                         out.extend(st.pointer_press(rel, *b, mods));
-                    } else if lane_rect.contains(pp) && *b == Btn::Primary {
+                    } else if lane_open && lane_rect.contains(pp) && st.lane.controller().is_some()
+                    {
+                        if !st.is_dragging() && !st.lane.is_dragging() {
+                            out.extend(st.lane_press(pp - lane_rect.min, *b, mods));
+                        }
+                    } else if lane_open && lane_rect.contains(pp) && *b == Btn::Primary {
+                        st.lane.focused = false;
                         st.velocity_press(pp - lane_rect.min, lane_rect.height());
                     } else if key_rect.contains(pp) && *b == Btn::Primary {
                         let key = st.view.key_at(pp.y - grid_rect.top()).clamp(0, 127) as u8;
@@ -1408,7 +1519,16 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                     }
                 }
             }
-            if down && st.is_dragging() {
+            if st.lane.is_dragging() {
+                if down {
+                    st.lane_move(pp - lane_rect.min, mods);
+                }
+                for r in released {
+                    if r {
+                        out.extend(st.lane_release(pp - lane_rect.min, mods));
+                    }
+                }
+            } else if down && st.is_dragging() {
                 let lane_rel = pp - lane_rect.min;
                 let moved = if matches!(st.drag, Drag::Velocity { .. }) {
                     st.pointer_move(Vec2::new(lane_rel.x, lane_rel.y), mods)
@@ -1418,7 +1538,7 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
                 out.extend(moved);
             }
             for (k, _) in btns.iter().enumerate() {
-                if released[k] && st.is_dragging() {
+                if released[k] && st.is_dragging() && !st.lane.is_dragging() {
                     out.extend(st.pointer_release(rel, mods));
                 }
             }
@@ -1793,46 +1913,88 @@ pub fn show(ui: &mut egui::Ui, st: &mut PianoRollState, cx: &DrawCtx<'_>) -> Vec
         );
     }
 
-    // ---- velocity lane -------------------------------------------------------------------
-    let lp = painter.with_clip_rect(lane_rect);
-    lp.rect_filled(lane_rect, CornerRadius::ZERO, col.bg2);
-    let vel_override: Option<(&Vec<NoteId>, f32)> = match &st.drag {
-        Drag::Velocity { ids, value } => Some((ids, *value)),
-        _ => None,
-    };
-    let mut mesh = egui::Mesh::default();
-    let range = st.cache.visible_range(t0, t1);
-    for n in &st.cache.notes[range] {
-        let x = lane_rect.left() + view.x_of(n.start as f64);
-        if x < lane_rect.left() - 2.0 || x > lane_rect.right() {
-            continue;
+    // ---- lane area: header, then the velocity bars or a controller lane ----------------------
+    let env = st.lane_env().unwrap_or(lanes::Env {
+        view,
+        snap: st.grid(),
+        bar: st.ticks_per_bar,
+        pattern_len: st.pattern_len,
+        pattern,
+        channel,
+    });
+    let readout = match (pointer, st.lane.controller()) {
+        (Some(pp), Some(_)) if lane_open && (lane_rect.contains(pp) || st.lane.is_dragging()) => {
+            st.lane.readout(&env, pp - lane_rect.min, mods, cx.project)
         }
-        let v = match vel_override {
-            Some((ids, val)) if ids.contains(&n.id) => val,
-            _ => n.velocity,
+        _ => String::new(),
+    };
+    st.lane.show_header(
+        ui,
+        header_rect,
+        cx.project,
+        pattern,
+        channel,
+        cx.theme,
+        &readout,
+    );
+    if lane_open && let Some(c) = st.lane.controller() {
+        let _ = c;
+        st.lane.paint(
+            &painter,
+            lane_rect,
+            gutter_rect,
+            &env,
+            cx.theme,
+            cx.cc_touched,
+            lane_resp.as_ref().is_some_and(|r| r.hovered()),
+        );
+        if let Some(r) = &lane_resp {
+            let mut chosen = Vec::new();
+            r.context_menu(|ui| chosen = st.lane.menu(ui, &env, cx.theme));
+            out.extend(chosen);
+        }
+    }
+    if lane_open && st.lane.controller().is_none() {
+        let lp = painter.with_clip_rect(lane_rect);
+        lp.rect_filled(lane_rect, CornerRadius::ZERO, col.bg2);
+        let vel_override: Option<(&Vec<NoteId>, f32)> = match &st.drag {
+            Drag::Velocity { ids, value } => Some((ids, *value)),
+            _ => None,
         };
-        let h = v * (lane_rect.height() - 4.0);
-        let sel = st.selection.contains(&n.id);
-        mesh.add_colored_rect(
-            Rect::from_min_max(
-                Pos2::new(x, lane_rect.bottom() - h - 2.0),
-                Pos2::new(x + 3.0, lane_rect.bottom() - 2.0),
-            ),
-            if sel {
-                col.selection
-            } else {
-                lerp(ch_color.gamma_multiply(0.6), ch_color, v)
-            },
+        let mut mesh = egui::Mesh::default();
+        let range = st.cache.visible_range(t0, t1);
+        for n in &st.cache.notes[range] {
+            let x = lane_rect.left() + view.x_of(n.start as f64);
+            if x < lane_rect.left() - 2.0 || x > lane_rect.right() {
+                continue;
+            }
+            let v = match vel_override {
+                Some((ids, val)) if ids.contains(&n.id) => val,
+                _ => n.velocity,
+            };
+            let h = v * (lane_rect.height() - 4.0);
+            let sel = st.selection.contains(&n.id);
+            mesh.add_colored_rect(
+                Rect::from_min_max(
+                    Pos2::new(x, lane_rect.bottom() - h - 2.0),
+                    Pos2::new(x + 3.0, lane_rect.bottom() - 2.0),
+                ),
+                if sel {
+                    col.selection
+                } else {
+                    lerp(ch_color.gamma_multiply(0.6), ch_color, v)
+                },
+            );
+        }
+        lp.add(Shape::mesh(mesh));
+        lp.text(
+            lane_rect.left_top() + Vec2::new(4.0, 2.0),
+            Align2::LEFT_TOP,
+            "Velocity",
+            FontId::proportional(10.0),
+            col.dim,
         );
     }
-    lp.add(Shape::mesh(mesh));
-    lp.text(
-        lane_rect.left_top() + Vec2::new(4.0, 2.0),
-        Align2::LEFT_TOP,
-        "Velocity",
-        FontId::proportional(10.0),
-        col.dim,
-    );
     out
 }
 

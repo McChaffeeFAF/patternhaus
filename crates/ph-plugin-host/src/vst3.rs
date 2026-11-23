@@ -1249,8 +1249,8 @@ impl Vst3Instance {
                     self.sounding[(key & 0x7f) as usize] = -1;
                 }
                 EventKind::AllNotesOff => {
-                    for k in 0..128 {
-                        let id = self.sounding[k];
+                    for (k, slot) in self.sounding.iter_mut().enumerate() {
+                        let id = *slot;
                         if id >= 0 {
                             let mut ev = Self::event(t, Event_::EventTypes_::kNoteOffEvent as u32);
                             ev.__field0.noteOff = NoteOffEvent {
@@ -1261,7 +1261,7 @@ impl Vst3Instance {
                                 tuning: 0.0,
                             };
                             evs.push(ev);
-                            self.sounding[k] = -1;
+                            *slot = -1;
                         }
                     }
                 }

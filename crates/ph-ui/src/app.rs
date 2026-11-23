@@ -1057,7 +1057,7 @@ impl PhApp {
                 mut overwrite,
             } => {
                 modal(ctx, "Export audio", |ui| {
-                    ui.label("File to write (.wav or .flac), relative to the project folder:");
+                    ui.label("File to write (.wav, .flac or .ogg), relative to the project folder:");
                     ui.add(egui::TextEdit::singleline(&mut path).desired_width(420.0));
                     ui.checkbox(&mut overwrite, "Replace the file if it exists");
                     ui.label(
@@ -1162,6 +1162,10 @@ impl PhApp {
                     .default_width(560.0)
                     .show(ctx, |ui| {
                         ui.label("Click Rebind, then press the new key. Changes apply at once; Save writes your keymap file.");
+                        ui.label(
+                            RichText::new("In the piano roll, Ctrl+A and Delete act on the controller lane's points while the lane under the notes has focus (click in it), and on notes otherwise.")
+                                .color(self.core.theme.colors.dim),
+                        );
                         if let Some(i) = capturing
                             && let Some(chord) = captured_chord(ui) {
                                 if let Some(old) = self.core.keymap.bindings.get(i).cloned() {

@@ -350,6 +350,21 @@ mod tests {
             "app.roll.quantize"
         );
         assert!(look(Key::B, mods(true, false, false), Context::Global).is_none());
+        // the controller lane (M3/T11) is part of the roll: its select-all and delete are these
+        assert_eq!(
+            look(Key::A, mods(true, false, false), Context::PianoRoll)
+                .unwrap()
+                .0,
+            "app.roll.select_all"
+        );
+        for k in [Key::Delete, Key::Backspace] {
+            assert_eq!(
+                look(k, mods(false, false, false), Context::PianoRoll)
+                    .unwrap()
+                    .0,
+                "app.roll.delete"
+            );
+        }
         // the same chord in the playlist is the playlist's duplicate
         assert_eq!(
             look(Key::B, mods(true, false, false), Context::Playlist)
