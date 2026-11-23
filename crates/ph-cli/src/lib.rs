@@ -584,6 +584,8 @@ where
         Ok(c) => c,
         Err(e) => e.exit(),
     };
+    ph_engine::plugins::exit_diag::install();
+    ph_engine::plugins::exit_diag::stage("dispatch");
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -594,12 +596,28 @@ where
             return ExitCode::from(2);
         }
     };
-    match rt.block_on(dispatch(cli.cmd, &options.importers)) {
-        Ok(false) => ExitCode::SUCCESS,
-        Ok(true) => ExitCode::from(1),
+    let result = rt.block_on(dispatch(cli.cmd, &options.importers));
+    ph_engine::plugins::exit_diag::stage("dispatch returned");
+    drop(rt);
+    ph_engine::plugins::exit_diag::stage("runtime dropped");
+    let code: u8 = match result {
+        Ok(false) => 0,
+        Ok(true) => 1,
         Err(e) => {
             eprintln!("error: {e}");
-            ExitCode::from(2)
+            2
         }
+    };
+    // Hosted plugins are shut down in order before the process exits (see
+    // `ph_engine::plugins::shutdown`). If that cannot finish (a plugin's own teardown hangs or
+    // loops), the process ends without running any plugin's exit code: everything this
+    // program writes is already saved and flushed at this point, and letting the plugin's
+    // DLL detach run instead is what crashed (Kontakt 7, 2026-11).
+    if !ph_engine::plugins::shutdown(std::time::Duration::from_secs(10)) {
+        eprintln!("warning: a plugin did not shut down in time; exiting without its cleanup");
+        ph_engine::plugins::exit_diag::stage("hard exit");
+        ph_engine::plugins::hard_exit(code as i32);
     }
+    ph_engine::plugins::exit_diag::stage("returning from main");
+    ExitCode::from(code)
 }

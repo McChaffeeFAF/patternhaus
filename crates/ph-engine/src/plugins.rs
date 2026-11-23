@@ -26,6 +26,8 @@ pub use ph_plugin_host::{
     PluginInstance, PluginKind, PluginNode, PluginState, PluginStatus, RawWindowHandle,
     ScanFailure, ScanReport,
 };
+/// Process-exit plugin shutdown (re-exported for the front ends; see `ph_plugin_host::shutdown`).
+pub use ph_plugin_host::{exit_diag, hard_exit, shutdown};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};

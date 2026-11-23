@@ -31,6 +31,98 @@
 
 pub mod clap;
 pub mod embed;
+pub mod exit_diag;
+
+/// Ends the process now with `code`, without running exit handlers or any loaded module's
+/// shutdown code (Windows: `TerminateProcess`). Standard output and error are flushed first.
+/// Only for when [`shutdown`] could not finish: a plugin left loaded faults in its own DLL
+/// detach (Kontakt 7), which a normal exit would run.
+pub fn hard_exit(code: i32) -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    #[cfg(windows)]
+    // SAFETY: terminating our own process
+    unsafe {
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+        TerminateProcess(GetCurrentProcess(), code as u32);
+    }
+    std::process::exit(code)
+}
+
+/// Orderly plugin shutdown before the process exits: on the plugins' main thread, destroys
+/// every instance still alive and lets each VST3 module stop itself (`ExitDll`). Call it once,
+/// after the engine has stopped, as the last thing before returning from `main`. Returns
+/// false when the main thread did not finish within `timeout` (a hung plugin); the caller
+/// then exits anyway. Never starts the main thread just to stop it.
+pub fn shutdown(timeout: std::time::Duration) -> bool {
+    if !main_thread::started() {
+        return true;
+    }
+    // Order matters for Kontakt 7, which faulted on its own threads both when left loaded at
+    // exit and when its module was told to exit right after an instance was destroyed (it
+    // finishes tearing an instance down asynchronously). So: wait until the youngest
+    // instance has settled, destroy every instance, let the plugins' main thread run its
+    // normal loop for SETTLE after the last destruction (waiting here, on the caller's
+    // thread: a wait inside a main-thread job blocks that loop and faulted too), then call
+    // each module's ExitDll.
+    //
+    // With ten Kontakt instances, destroying them back to back still faulted, and the whole
+    // sequence outran a fixed 10 s budget (then ExitDll never ran and the original exit
+    // fault came back). So instances are destroyed one at a time, each followed by a short
+    // settle, and the budget grows with the number of instances.
+    use exit_diag::stage;
+    const MIN_AGE: std::time::Duration = std::time::Duration::from_millis(1500);
+    const SETTLE_EACH: std::time::Duration = std::time::Duration::from_millis(400);
+    const SETTLE: std::time::Duration = std::time::Duration::from_millis(1000);
+    const PER_INSTANCE: std::time::Duration = std::time::Duration::from_secs(3);
+    let main = main_thread::main_thread();
+    let count = main
+        .run_timeout(|| vst3::live_keys().len(), timeout)
+        .unwrap_or(0);
+    let deadline = std::time::Instant::now() + timeout + PER_INSTANCE * count as u32;
+    let left = || deadline.saturating_duration_since(std::time::Instant::now());
+    let wait_until = |age: Option<std::time::Duration>, need: std::time::Duration| {
+        if let Some(a) = age
+            && a < need
+        {
+            std::thread::sleep((need - a).min(left()));
+        }
+    };
+    stage("shutdown: waiting for young instances");
+    wait_until(
+        main.run_timeout(vst3::youngest_age, left()).flatten(),
+        MIN_AGE,
+    );
+    loop {
+        let Some(keys) = main.run_timeout(vst3::live_keys, left()) else {
+            return false;
+        };
+        let Some(&key) = keys.first() else { break };
+        stage("shutdown: destroying an instance");
+        if main
+            .run_timeout(move || vst3::destroy_slot(key), left())
+            .is_none()
+        {
+            return false;
+        }
+        stage("shutdown: settling after an instance");
+        std::thread::sleep(SETTLE_EACH.min(left()));
+    }
+    stage("shutdown: destroying CLAP instances");
+    if main.run_timeout(clap::shutdown_all, left()).is_none() {
+        return false;
+    }
+    stage("shutdown: settling");
+    wait_until(
+        main.run_timeout(vst3::since_last_destroy, left()).flatten(),
+        SETTLE,
+    );
+    stage("shutdown: exiting modules");
+    let done = main.run_timeout(vst3::exit_modules, left()).is_some();
+    stage("shutdown: done");
+    done
+}
 pub mod fake;
 pub mod guard;
 mod main_thread;

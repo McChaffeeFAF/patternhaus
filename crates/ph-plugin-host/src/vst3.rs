@@ -156,6 +156,8 @@ thread_local! {
         Default::default();
     static SLOTS: std::cell::RefCell<std::collections::HashMap<u64, Slot>> = Default::default();
     static NEXT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// When an instance was last destroyed (shutdown lets plugins settle after it).
+    static LAST_DESTROY: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
 
 type GetFactory = unsafe extern "system" fn() -> *mut IPluginFactory;
@@ -321,6 +323,8 @@ impl PluginFormatHost for Vst3Format {
 
 /// The main-thread side of one instance.
 struct Slot {
+    /// When the instance was created (shutdown waits for young instances to settle).
+    created: std::time::Instant,
     component: ComPtr<IComponent>,
     controller: Option<ComPtr<IEditController>>,
     /// The controller is the component itself (single-component plugins).
@@ -528,6 +532,7 @@ impl Built {
                     connected,
                     view: None,
                     frame: None,
+                    created: std::time::Instant::now(),
                     _host: host,
                     _handler: handler,
                     fault: fault.clone(),
@@ -670,10 +675,62 @@ unsafe fn read_controller(
 }
 
 /// Tears an instance down (main thread), unless it faulted.
-fn destroy_slot(key: u64) {
+/// Main thread: how long ago the youngest live instance was created (`None` when none).
+pub(crate) fn youngest_age() -> Option<std::time::Duration> {
+    SLOTS.with(|s| s.borrow().values().map(|s| s.created.elapsed()).min())
+}
+
+/// Main thread, at process shutdown: destroys every instance still alive. Then [`exit_modules`]
+/// releases each module's factory and calls its `ExitDll` (Windows), so plugins stop the
+/// threads they started in `InitDll` before the process tears down. The libraries stay loaded (unloading
+/// is what plugins handle worst). Kontakt 7 faulted at exit without this (null read on one
+/// of its own threads after `main` returned).
+/// Main thread: the keys of the live instances.
+pub(crate) fn live_keys() -> Vec<u64> {
+    SLOTS.with(|s| s.borrow().keys().copied().collect())
+}
+
+#[allow(dead_code)]
+pub(crate) fn destroy_all() {
+    let keys: Vec<u64> = SLOTS.with(|s| s.borrow().keys().copied().collect());
+    for key in keys {
+        destroy_slot(key);
+    }
+}
+
+/// Main thread: time since an instance was last destroyed (`None` if never).
+pub(crate) fn since_last_destroy() -> Option<std::time::Duration> {
+    LAST_DESTROY.with(|t| t.get()).map(|t| t.elapsed())
+}
+
+/// Main thread, at process shutdown, after [`destroy_all`] and a settle: releases each
+/// module's factory and calls its `ExitDll`. Libraries stay loaded.
+pub(crate) fn exit_modules() {
+    let modules: Vec<_> = MODULES.with(|m| m.borrow_mut().drain().map(|(_, v)| v).collect());
+    for m in modules {
+        // a module still shared (an instance that faulted and was leaked) is left alone
+        let Ok(Module { _lib: lib, factory }) = std::rc::Rc::try_unwrap(m) else {
+            continue;
+        };
+        let _ = guarded(move || {
+            drop(factory);
+            #[cfg(windows)]
+            // SAFETY: optional module exit of the VST3 Windows module ABI, paired with InitDll
+            unsafe {
+                if let Ok(exit) = lib.get::<unsafe extern "system" fn() -> bool>(b"ExitDll\0") {
+                    exit();
+                }
+            }
+            std::mem::forget(lib);
+        });
+    }
+}
+
+pub(crate) fn destroy_slot(key: u64) {
     let Some(slot) = SLOTS.with(|s| s.borrow_mut().remove(&key)) else {
         return;
     };
+    LAST_DESTROY.with(|t| t.set(Some(std::time::Instant::now())));
     if slot.fault.is_dead() {
         std::mem::forget(slot);
         return;

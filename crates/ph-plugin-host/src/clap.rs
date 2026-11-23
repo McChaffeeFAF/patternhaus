@@ -442,6 +442,14 @@ fn with_slot<R>(key: u64, f: impl FnOnce(&mut Slot) -> R) -> Option<R> {
     Some(r)
 }
 
+/// Main thread, at process shutdown: destroys every instance still alive. Entries stay loaded.
+pub(crate) fn shutdown_all() {
+    let keys: Vec<u64> = STORE.with(|s| s.borrow().slots.keys().copied().collect());
+    for key in keys {
+        destroy_slot(key);
+    }
+}
+
 /// Destroys the instance in `key` unless it faulted (then it is leaked). Main thread.
 fn destroy_slot(key: u64) {
     let slot = STORE.with(|s| s.borrow_mut().slots.remove(&key));

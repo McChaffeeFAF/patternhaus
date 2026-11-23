@@ -20,6 +20,11 @@
 
 use std::ffi::{c_char, c_void};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+/// Live plugin objects, so `ExitDll` can report whether the host destroyed every instance
+/// before telling the module to exit (the order Kontakt 7 needs; see the host's `shutdown`).
+static LIVE: AtomicUsize = AtomicUsize::new(0);
 use vst3::Steinberg::Vst::*;
 use vst3::Steinberg::*;
 use vst3::{Class, ComRef, ComWrapper, uid};
@@ -76,6 +81,12 @@ struct Inner {
     pos: usize,
 }
 
+impl Drop for Plugin {
+    fn drop(&mut self) {
+        LIVE.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 struct Plugin {
     kind: Kind,
     inner: Mutex<Inner>,
@@ -87,6 +98,7 @@ impl Class for Plugin {
 
 impl Plugin {
     fn new(kind: Kind) -> Self {
+        LIVE.fetch_add(1, Ordering::SeqCst);
         Self {
             kind,
             inner: Mutex::new(Inner {
@@ -581,6 +593,17 @@ extern "system" fn InitDll() -> bool {
 #[cfg(target_os = "windows")]
 #[unsafe(no_mangle)]
 extern "system" fn ExitDll() -> bool {
+    // tests: `PH_TEST_VST3_EXIT_LOG=<file>` records the call and the instances still alive
+    if let Some(p) = std::env::var_os("PH_TEST_VST3_EXIT_LOG") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+        {
+            let _ = writeln!(f, "exit live={}", LIVE.load(Ordering::SeqCst));
+        }
+    }
     true
 }
 

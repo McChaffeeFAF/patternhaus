@@ -161,7 +161,7 @@ pub fn run(options: Options) -> eframe::Result {
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         "Patternhaus",
         options,
         Box::new(move |cc| {
@@ -238,5 +238,12 @@ pub fn run(options: Options) -> eframe::Result {
             app.show_splash();
             Ok(Box::new(app))
         }),
-    )
+    );
+    // The window is closed and the app (with its studio and engine) dropped: shut hosted
+    // plugins down in order, or end without their exit code if they cannot (see ph-cli).
+    if !ph_engine::plugins::shutdown(std::time::Duration::from_secs(10)) {
+        eprintln!("warning: a plugin did not shut down in time; exiting without its cleanup");
+        ph_engine::plugins::hard_exit(if result.is_ok() { 0 } else { 1 });
+    }
+    result
 }
