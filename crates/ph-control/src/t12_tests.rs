@@ -137,6 +137,111 @@ fn analyze_reports_the_tempo_of_a_project_render_against_the_project() {
     assert!(d["tempo"]["bpm"].is_number(), "{d}");
 }
 
+/// A drum loop from factory one-shots (there are no factory loops): kick on 1 and 3, snare on
+/// 2 and 4, closed hats on the eighths.
+fn drum_loop_song(a: &Agent, bpm: f64, bars: u64) {
+    call(a, "set_tempo", json!({ "bpm": bpm }));
+    let pat = result_of(
+        &call(a, "add_pattern", json!({ "name": "Loop" })),
+        "pattern",
+    );
+    let lane = |name: &str, sample: &str, steps: Vec<u64>| {
+        let ch = result_of(
+            &call(
+                a,
+                "add_channel",
+                json!({ "name": name, "instrument": { "kind": "sampler", "sample": sample, "root_key": 60 } }),
+            ),
+            "channel",
+        );
+        let notes: Vec<Value> = (0..bars)
+            .flat_map(|b| {
+                steps.iter().map(move |s| {
+                    json!({ "key": 60, "start": b * 3840 + s * 240, "length": 120, "velocity": 1.0 })
+                })
+            })
+            .collect();
+        call(
+            a,
+            "add_notes",
+            json!({ "pattern": pat, "channel": ch, "notes": notes }),
+        );
+    };
+    lane("Kick", "factory:drums/haus808/kick", vec![0, 8]);
+    lane("Snare", "factory:drums/haus808/snare", vec![4, 12]);
+    lane(
+        "Hat",
+        "factory:drums/haus808/hat_closed",
+        (0..16).step_by(2).collect(),
+    );
+    call(
+        a,
+        "add_clip",
+        json!({ "track": 0, "pattern": pat, "start": 0 }),
+    );
+}
+
+#[test]
+fn analyze_finds_the_known_tempo_of_a_factory_drum_loop() {
+    for bpm in [100.0, 128.0, 140.0] {
+        let dir = tempfile::tempdir().unwrap();
+        let s = studio(dir.path());
+        let a = agent_for(&s);
+        drum_loop_song(&a, bpm, 8);
+        let v = call(&a, "analyze", json!({ "what": ["tempo"] }));
+        let t = &v["tempo"];
+        assert!((t["bpm"].as_f64().unwrap() - bpm).abs() < 0.5, "{bpm}: {t}");
+        assert_eq!(t["project"]["relation"], "matches", "{bpm}: {t}");
+        assert_eq!(t["drift"]["verdict"], "steady", "{bpm}: {t}");
+        assert!(
+            t["project"]["grid_offset_ms"].as_f64().unwrap().abs() < 25.0,
+            "{bpm}: {t}"
+        );
+        // the same loop as a file, read as a sample, with no project in the way
+        call(
+            &a,
+            "run",
+            json!({ "id": "file.export_audio", "params": { "path": "samples/drums.wav", "bit_depth": 16 } }),
+        );
+        let f = call(
+            &a,
+            "analyze",
+            json!({ "what": ["tempo"], "sample": "samples/drums.wav" }),
+        );
+        assert!(
+            (f["tempo"]["bpm"].as_f64().unwrap() - bpm).abs() < 0.5,
+            "{bpm}: {}",
+            f["tempo"]
+        );
+    }
+}
+
+#[test]
+fn analyze_moves_an_octave_the_estimator_took_too_fast_and_says_so() {
+    // eighth-note hats make the pulse rule take 186 BPM for a 93 BPM loop; its own comb
+    // score prefers 93, so that is reported, with a note naming both
+    let dir = tempfile::tempdir().unwrap();
+    let s = studio(dir.path());
+    let a = agent_for(&s);
+    drum_loop_song(&a, 93.0, 8);
+    let v = call(&a, "analyze", json!({ "what": ["tempo"] }));
+    let t = &v["tempo"];
+    assert!((t["bpm"].as_f64().unwrap() - 93.0).abs() < 0.5, "{t}");
+    assert_eq!(t["project"]["relation"], "matches", "{t}");
+    assert!(
+        t["octave_note"].as_str().unwrap().contains("pulse rule"),
+        "{t}"
+    );
+    assert!(
+        t["alternatives"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| (a["bpm"].as_f64().unwrap() - 186.0).abs() < 1.0),
+        "{t}"
+    );
+}
+
 #[test]
 fn analyze_reads_the_beat_grid_of_a_sample_and_a_clip() {
     let dir = tempfile::tempdir().unwrap();
@@ -158,6 +263,12 @@ fn analyze_reads_the_beat_grid_of_a_sample_and_a_clip() {
         "{t}"
     );
     assert_eq!(v["source"]["kind"], "sample");
+    // the loop starts on its accented downbeat, 12 ms in
+    assert_eq!(t["downbeat"]["first_beat_is_beat"], 1, "{t}");
+    assert!(
+        (v["source"]["bars"]["bar_1_at_s"].as_f64().unwrap() - 0.012).abs() < 0.01,
+        "{v}"
+    );
     assert!(
         t.get("project").is_none(),
         "no project comparison for a sample"

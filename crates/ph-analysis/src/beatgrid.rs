@@ -9,12 +9,13 @@
 //!    over the onsets is large exactly when they sit on a grid of that period. The search
 //!    covers ±1% around the estimate, coarse then fine (0.0005 BPM);
 //! 2. **first beat:** the angle of that mean is the grid phase, so `first_beat_s` is the time
-//!    of the first grid line (0 ≤ t < one beat) from the start of the audio. Onsets are
+//!    of the first grid line from the start of the audio (-¼ beat ≤ t < ¾ beat). Onsets are
 //!    weighted by the square of their strength (relative to the strongest), so the kick and
 //!    snare outvote hi-hat subdivisions;
-//! 3. **downbeat:** each onset near a grid line is assigned to one of `beats_per_bar` beat
-//!    slots (grid beat index modulo the bar length). The slot whose beats are loudest (RMS of
-//!    the 50 ms after the onset, averaged; silent beats count as zero) is the guess for beat 1; its
+//! 3. **downbeat:** each grid beat is assigned to one of `beats_per_bar` beat
+//!    slots (grid beat index modulo the bar length). The slot whose beats are loudest (RMS from
+//!    10 ms before to 50 ms after each grid line, averaged, read from the audio so a hit at
+//!    the very start of the file counts) is the guess for beat 1; its
 //!    confidence is the gap to the runner-up, and with no clear accent the first grid beat is
 //!    assumed to be beat 1;
 //! 4. **drift:** the same estimate on windows of about 30 s (the last one absorbs a
@@ -50,8 +51,16 @@ pub struct BeatGrid {
     pub alternatives: Vec<Alternative>,
     /// When the audio is a loop of a whole number of beats: that number (samples only).
     pub loop_beats: Option<u32>,
+    /// Set when the reading was moved an octave: the estimator takes the faster pulse when
+    /// hi-hats or eighth notes mark it clearly, and 8th-note hats put a 100 BPM loop at 200.
+    /// Where its own beat-comb score for the half or double reading is at least
+    /// [`OCTAVE_SWITCH`] times the winner's, that reading is reported instead, and the note
+    /// names both. The grid is right either way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub octave_note: Option<String>,
     pub beat_period_s: f64,
-    /// Time of the first grid beat, seconds from the start of the audio (0 up to one beat).
+    /// Time of the first grid beat, seconds from the start of the audio: 0 up to three
+    /// quarters of a beat, or slightly negative when the audio starts just after a beat.
     pub first_beat_s: f64,
     /// Time of the first detected onset, seconds.
     pub first_onset_s: f64,
@@ -112,14 +121,76 @@ pub struct ProjectComparison {
     pub summary: String,
 }
 
+/// The estimator's own beat-comb score for the half or double reading must be at least this
+/// many times the winner's for the grid to move an octave.
+const OCTAVE_SWITCH: f64 = 1.25;
+
+/// The tempo, alternatives and a note, after moving an octave where the estimator's own
+/// score says the other reading is clearly better than the one its pulse rule picked.
+fn resolve_octave(est: &tempo::TempoEstimate) -> Octave {
+    let best = est
+        .alternatives
+        .iter()
+        .filter(|a| a.score >= OCTAVE_SWITCH && (tempo::MIN_BPM..=tempo::MAX_BPM).contains(&a.bpm))
+        .max_by(|a, b| a.score.total_cmp(&b.score));
+    let unchanged = || Octave {
+        bpm: est.bpm,
+        alternatives: est.alternatives.clone(),
+        loop_beats: est.loop_beats,
+        note: None,
+    };
+    let Some(alt) = best else {
+        return unchanged();
+    };
+    // a loop snapped to whole beats keeps a whole number of beats at the new tempo
+    let loop_beats = match est.loop_beats {
+        None => None,
+        Some(b) => {
+            let nb = b as f64 * alt.bpm / est.bpm;
+            if nb >= 1.0 && (nb - nb.round()).abs() < 0.01 {
+                Some(nb.round() as u32)
+            } else {
+                return unchanged();
+            }
+        }
+    };
+    let mut alternatives = vec![Alternative {
+        bpm: est.bpm,
+        score: round(1.0 / alt.score, 3),
+    }];
+    alternatives.extend(
+        est.alternatives
+            .iter()
+            .filter(|a| a.bpm != alt.bpm)
+            .map(|a| Alternative {
+                bpm: a.bpm,
+                score: round(a.score / alt.score, 3),
+            }),
+    );
+    let note = format!(
+        "reads {} BPM, not the faster {} BPM the estimator's pulse rule picked: its beat-comb score is {:.2} times as high (hi-hats or eighth notes mark the faster pulse). If the music is felt at {} BPM, use that; the beat grid fits both",
+        alt.bpm, est.bpm, alt.score, est.bpm
+    );
+    Octave {
+        bpm: alt.bpm,
+        alternatives,
+        loop_beats,
+        note: Some(note),
+    }
+}
+
+struct Octave {
+    bpm: f64,
+    alternatives: Vec<Alternative>,
+    loop_beats: Option<u32>,
+    note: Option<String>,
+}
+
 /// Onset times (seconds) with weights.
 struct Pulse {
     t: Vec<f64>,
     /// Weight for the phase: the squared relative onset strength.
     w: Vec<f64>,
-    /// Loudness (RMS of the 50 ms after the onset): what the downbeat is judged by, because
-    /// the onset strength is log-compressed and hides accents.
-    level: Vec<f64>,
 }
 
 /// Tempo and beat grid of audio (`[channel][frame]`). `beats_per_bar` is the numerator the
@@ -137,20 +208,32 @@ pub fn analyze(
     let seconds = x.len() as f64 / sr;
     let bpb = beats_per_bar.clamp(1, 16);
     let (est, strength) = tempo::estimate_full(channels, sr, snap_loops)?;
-    let pulse = pulse_of(&x, &est.onsets, &strength, sr, 0.0);
+    let Octave {
+        bpm: est_bpm,
+        alternatives,
+        loop_beats,
+        note: octave_note,
+    } = resolve_octave(&est);
+    let pulse = pulse_of(&est.onsets, &strength, sr, 0.0);
     // a loop snapped to whole beats starts the search at its snapped tempo; the refinement
     // only moves away from it when the onsets line up better (a lead-in before the first
     // beat makes the file longer than its beats)
-    let bpm = refine(&pulse, est.bpm).0;
+    let bpm = refine(&pulse, est_bpm).0;
     let period = 60.0 / bpm;
-    let phase = phase_of(&pulse, period).0.rem_euclid(period);
-    let downbeat = downbeat_of(&pulse, period, phase, bpb, seconds);
-    let drift = drift_of(&x, sr, bpm, phase, seconds);
+    // a grid beat up to a quarter beat before the start of the audio (the file begins just
+    // after its first beat) is a small negative offset, not a late one a whole beat on
+    let phase = {
+        let p = phase_of(&pulse, period).0.rem_euclid(period);
+        if p >= 0.75 * period { p - period } else { p }
+    };
+    let downbeat = downbeat_of(&x, sr, period, phase, bpb);
+    let drift = drift_of(&x, sr, bpm, phase, seconds, est.confidence);
     Some(BeatGrid {
         bpm: round(bpm, 3),
         confidence: est.confidence,
-        alternatives: est.alternatives,
-        loop_beats: est.loop_beats,
+        octave_note,
+        alternatives,
+        loop_beats,
         beat_period_s: round(period, 5),
         first_beat_s: round(phase, 4),
         first_onset_s: round(est.onsets.first().map_or(0.0, |o| *o as f64 / sr), 4),
@@ -226,12 +309,10 @@ fn round(x: f64, places: i32) -> f64 {
 
 /// Onsets with weights: the square of the strongest onset-strength value near the onset,
 /// relative to the global maximum. `offset_s` shifts times (a window inside a longer file).
-fn pulse_of(x: &[f32], onsets: &[u64], s: &onset::Strength, sr: f64, offset_s: f64) -> Pulse {
+fn pulse_of(onsets: &[u64], s: &onset::Strength, sr: f64, offset_s: f64) -> Pulse {
     let gmax = s.values.iter().copied().fold(0.0f32, f32::max).max(1e-9) as f64;
     let mut t = Vec::with_capacity(onsets.len());
     let mut w = Vec::with_capacity(onsets.len());
-    let mut level = Vec::with_capacity(onsets.len());
-    let span = (0.05 * sr) as usize;
     for &o in onsets {
         // frame k covers samples k·HOP .. k·HOP + FRAME, so the flux peak of an onset at
         // sample o lies a few frames before and one after o / HOP
@@ -247,12 +328,8 @@ fn pulse_of(x: &[f32], onsets: &[u64], s: &onset::Strength, sr: f64, offset_s: f
             / gmax;
         t.push(o as f64 / sr + offset_s);
         w.push(m * m);
-        let seg = &x[(o as usize).min(x.len())..(o as usize + span).min(x.len())];
-        level.push(
-            (seg.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / seg.len().max(1) as f64).sqrt(),
-        );
     }
-    Pulse { t, w, level }
+    Pulse { t, w }
 }
 
 /// Weighted circular mean of the onset times at `period`: (phase in seconds, in
@@ -302,21 +379,22 @@ fn refine(p: &Pulse, bpm: f64) -> (f64, f64) {
     best
 }
 
-fn downbeat_of(p: &Pulse, period: f64, phase: f64, bpb: u32, seconds: f64) -> Downbeat {
+/// Loudness at every grid line (RMS from 10 ms before to 50 ms after it), averaged per beat
+/// slot. Read from the audio rather than from detected onsets, so a hit at the very start of
+/// the file (which no onset detector can see) still counts.
+fn downbeat_of(x: &[f32], sr: f64, period: f64, phase: f64, bpb: u32) -> Downbeat {
     let bpb_u = bpb as usize;
+    let seconds = x.len() as f64 / sr;
     let beats = (((seconds - phase) / period).floor().max(0.0) as usize) + 1;
     let mut sum = vec![0.0f64; bpb_u];
-    // only the strongest onset on each grid beat counts
-    let mut on_beat: std::collections::BTreeMap<i64, f64> = Default::default();
-    for (t, w) in p.t.iter().zip(&p.level) {
-        let n = ((t - phase) / period).round();
-        if ((t - phase) - n * period).abs() <= 0.2 * period && n >= 0.0 {
-            let e = on_beat.entry(n as i64).or_insert(0.0);
-            *e = e.max(*w);
+    for n in 0..beats {
+        let t = phase + n as f64 * period;
+        let a = (((t - 0.010).max(0.0)) * sr) as usize;
+        let b = (((t + 0.050) * sr) as usize).min(x.len());
+        if b > a {
+            let ms = x[a..b].iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / (b - a) as f64;
+            sum[n % bpb_u] += ms.sqrt();
         }
-    }
-    for (n, w) in on_beat {
-        sum[n as usize % bpb_u] += w;
     }
     // beats in each slot (the audio need not hold a whole number of bars)
     let count = |k: usize| (beats + bpb_u - 1 - k) / bpb_u;
@@ -354,7 +432,7 @@ fn downbeat_of(p: &Pulse, period: f64, phase: f64, bpb: u32, seconds: f64) -> Do
     }
 }
 
-fn drift_of(x: &[f32], sr: f64, bpm: f64, phase: f64, seconds: f64) -> Drift {
+fn drift_of(x: &[f32], sr: f64, bpm: f64, phase: f64, seconds: f64, confidence: f64) -> Drift {
     let w = DRIFT_WINDOW_S;
     // window edges: whole windows, the remainder joins the last one unless it is half a
     // window or more
@@ -371,13 +449,24 @@ fn drift_of(x: &[f32], sr: f64, bpm: f64, phase: f64, seconds: f64) -> Drift {
     }
     let period = 60.0 / bpm;
     let mut windows = Vec::new();
-    for pair in edges.windows(2) {
+    // one window is the whole audio: nothing to measure again
+    let whole = edges.len() == 2;
+    if whole {
+        windows.push(WindowTempo {
+            from_s: 0.0,
+            to_s: round(seconds, 2),
+            bpm: round(bpm, 3),
+            confidence,
+            phase_vs_grid_ms: Some(0.0),
+        });
+    }
+    for pair in edges.windows(2).filter(|_| !whole) {
         let (a, b) = (pair[0], pair[1]);
         let seg = &x[((a * sr) as usize).min(x.len())..((b * sr) as usize).min(x.len())];
         let Some((est, strength)) = tempo::estimate_full(&[seg.to_vec()], sr, false) else {
             continue;
         };
-        let pulse = pulse_of(seg, &est.onsets, &strength, sr, a);
+        let pulse = pulse_of(&est.onsets, &strength, sr, a);
         let wbpm = refine(&pulse, est.bpm).0;
         let phase_ms = (pulse.t.len() >= 4).then(|| {
             // the window's mean onset phase at the *global* period, against the global phase
@@ -503,6 +592,38 @@ mod tests {
             "{:?}",
             g.downbeat
         );
+    }
+
+    #[test]
+    fn a_two_bar_loop_that_starts_on_its_downbeat() {
+        // eight clicks at 100 BPM, the first 12 ms into the file and accented, then the
+        // fifth: the first click is at the very start, where no onset detector can see it
+        let period = 0.6;
+        let times: Vec<(f64, f32)> = (0..8)
+            .map(|i| {
+                (
+                    0.012 + i as f64 * period,
+                    if i % 4 == 0 { 0.9 } else { 0.4 },
+                )
+            })
+            .collect();
+        let a = vec![clicks(&times, 5.0)];
+        let g = analyze(&a, SR, 4, true).unwrap();
+        assert!((g.bpm - 100.0).abs() < 0.3, "{}", g.bpm);
+        assert!((g.first_beat_s - 0.012).abs() < 0.006, "{}", g.first_beat_s);
+        assert_eq!(g.downbeat.first_beat_is_beat, 1, "{:?}", g.downbeat);
+        assert!(g.downbeat.first_downbeat_s < 0.03, "{:?}", g.downbeat);
+        assert_eq!(g.downbeat.basis, "accent");
+    }
+
+    #[test]
+    fn equal_beats_assume_the_first_grid_beat_is_beat_one() {
+        let period = 60.0 / 120.0;
+        let times: Vec<(f64, f32)> = (0..32).map(|i| (0.3 + i as f64 * period, 0.6)).collect();
+        let a = vec![clicks(&times, 17.0)];
+        let g = analyze(&a, SR, 4, false).unwrap();
+        assert_eq!(g.downbeat.first_beat_is_beat, 1, "{:?}", g.downbeat);
+        assert_eq!(g.downbeat.basis, "assumed");
     }
 
     #[test]
