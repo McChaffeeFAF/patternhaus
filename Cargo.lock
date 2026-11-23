@@ -2955,7 +2955,6 @@ version = "0.1.0"
 dependencies = [
  "ph-core",
  "ph-dsp",
- "ph-node",
  "png",
  "serde",
  "serde_json",
