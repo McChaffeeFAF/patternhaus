@@ -745,11 +745,11 @@ impl Runtime {
                 let Some(sx) = (unsafe { plan.channel_mut(x) }) else {
                     continue;
                 };
-                for k in 0..sx.events.len() {
-                    let EventKind::NoteOn { .. } = sx.events[k].kind else {
+                for e in sx.events.iter() {
+                    let EventKind::NoteOn { .. } = e.kind else {
                         continue;
                     };
-                    let at = a + sx.events[k].frame as i64;
+                    let at = a + e.frame as i64;
                     for &y in members {
                         if y == x {
                             continue;
