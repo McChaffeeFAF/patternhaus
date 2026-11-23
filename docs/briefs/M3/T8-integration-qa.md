@@ -52,3 +52,26 @@
 - the gaps list;
 - the release-prep files;
 - the commit list.
+
+## Update (2026-11-23): what landed since this brief was written
+
+Read the AGENTS.md contract rows for these before starting; the release notes, the CHANGELOG, the README and the acceptance evidence must cover them as well:
+- **T10 controller lanes:** CC 0-119 and pitch bend per channel per pattern, the `cc.*` commands, engine playback with chase, MIDI import/export, and the "M3 controller lanes" CI step.
+- **T11 controller lane editor** under the piano roll.
+- **T12 analysis and export:**
+  - `analyze` tempo/beat grid;
+  - chord `resolution` (bar / half_bar / beat);
+  - `sample`/`clip` analysis sources;
+  - Ogg Vorbis export (`vorbis_rs`, BSD-3).
+- **Plugin shutdown at process exit:** `ph_plugin_host::shutdown` / `hard_exit` / `exit_diag`, called by `ph-cli` and `ph-app`.
+- **Fixes:**
+  - offline renders activate plugins in offline mode;
+  - optional `PATTERNHAUS_PLUGIN_SETTLE_SECONDS`;
+  - the embedded editor window fits its plugin and follows its resizes;
+  - the deadlock on opening an embedded editor.
+- **Maintenance:** `rmcp` 3.11 (RUSTSEC fixes) and the Rust 1.100 lint fixes.
+
+### Added scope
+9. **Read-only CLI commands should not load plugins.** Today `patternhaus-cli run project.get_settings` on a project with ten hosted plugins instantiates all of them (and must shut them down in order on exit, about 20 s with Kontakt). Make the headless studio build the engine plan, and so instantiate plugins, lazily: only when a command needs audio (play, render, export, probe, audition, plugin parameter or state commands). Keep MCP sessions and the app unchanged in behaviour. Add a test with the CLAP test synth that a read command on a project with a plugin channel instantiates nothing (the host's instance count stays 0).
+10. **Perf of the new paths:** run the `xtask perf` cases with controller lanes on a sampler channel (the T10 acceptance project is a good base) and report the cost of the lane event generation per block.
+11. **Release notes:** list the owner-visible changes since M2 in plain words, including the controller lanes and the lane editor, the plugin catalogue, Ogg export, and the exit-crash fix ("hosted plugins are now shut down in order when Patternhaus exits").
