@@ -156,6 +156,7 @@ impl Offline {
             let a = from + done;
             self.rt.process(&mut l[a..a + n], &mut r[a..a + n]);
             done += n;
+            ph_plugin_host::exit_diag::progress((from + done) as u64);
         }
         restore_fp(saved);
     }
@@ -198,7 +199,9 @@ pub(crate) fn render_with(
     };
     let offline_env = plugins.map(PluginEnv::offline);
     let plugins = offline_env.as_ref();
+    ph_plugin_host::exit_diag::stage("render: building the plan");
     let mut off = Offline::new_with(project, s, assets, workers, plugins)?;
+    ph_plugin_host::exit_diag::stage("render: plan built");
     if let Some(env) = plugins
         && !env.settle().is_zero()
         && has_plugins(project)
@@ -220,7 +223,9 @@ pub(crate) fn render_with(
     off.rt.tr.looping = false;
     off.rt.tr.end = Some(end);
     let frames = (end - start) as usize;
+    ph_plugin_host::exit_diag::stage("render: processing");
     let mut out = off.render(frames, block);
+    ph_plugin_host::exit_diag::stage("render: rendered");
     if settings.include_tail {
         let sr = s.sample_rate as f64;
         let max_tail = (TAIL_MAX_SECONDS * sr) as usize;

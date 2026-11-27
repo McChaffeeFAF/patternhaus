@@ -26,10 +26,45 @@ fn current_stage() -> &'static str {
     }
 }
 
-/// Installs the handler when `PATTERNHAUS_CRASH_LOG` is set (Windows only; a no-op elsewhere).
+static PROGRESS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Records a progress counter (e.g. frames rendered) next to the stage, for the watchdog.
+/// Real-time safe: one relaxed atomic store.
+pub fn progress(n: u64) {
+    PROGRESS.store(n, Ordering::Relaxed);
+}
+
+/// Installs the handler when `PATTERNHAUS_CRASH_LOG` is set (Windows only; a no-op elsewhere),
+/// and a watchdog thread that appends the current stage and progress counter to the same
+/// file every 30 s, so a hang leaves a trail of where it stopped.
 pub fn install() {
     #[cfg(windows)]
     win::install();
+    if let Some(p) = std::env::var_os("PATTERNHAUS_CRASH_LOG") {
+        let path = std::path::PathBuf::from(p);
+        let start = std::time::Instant::now();
+        let _ = std::thread::Builder::new()
+            .name("ph-diag-watchdog".into())
+            .spawn(move || {
+                use std::io::Write;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
+                        let _ = writeln!(
+                            f,
+                            "watchdog {:.0} s: stage {} progress {}",
+                            start.elapsed().as_secs_f64(),
+                            current_stage(),
+                            PROGRESS.load(Ordering::Relaxed)
+                        );
+                    }
+                }
+            });
+    }
 }
 
 #[cfg(windows)]
