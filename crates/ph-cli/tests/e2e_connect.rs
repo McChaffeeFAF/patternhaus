@@ -95,7 +95,7 @@ async fn proxy_attaches_to_the_running_app_with_grants_and_live_events() {
     let grants_file = dir.path().join("agents.json");
     let grants = Grants::per_client(Some(grants_file.clone()), None);
     let endpoint = if cfg!(windows) {
-        format!(r"\\.\pipe\patternhaus-test-{}", std::process::id())
+        format!(r"\\.\pipe\beast-studio-test-{}", std::process::id())
     } else {
         dir.path().join("ph.sock").to_string_lossy().into_owned()
     };
@@ -103,6 +103,21 @@ async fn proxy_attaches_to_the_running_app_with_grants_and_live_events() {
 
     let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_beast-studio-cli"));
     cmd.args(["mcp", "--connect", "--endpoint", &endpoint]);
+    // a private home: the CLI copies old settings folders on its first start, and must never
+    // reach the real %APPDATA% / %LOCALAPPDATA% from a test
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    for k in [
+        "APPDATA",
+        "LOCALAPPDATA",
+        "USERPROFILE",
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ] {
+        cmd.env(k, &home);
+    }
     let watcher = Watcher::default();
     let c = watcher
         .clone()

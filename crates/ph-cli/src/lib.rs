@@ -584,6 +584,9 @@ pub struct Options {
 
 /// Runs the CLI on this process's arguments: the whole of `beast-studio-cli`.
 pub fn run(options: Options) -> ExitCode {
+    // settings from before the rename are copied to their new folders once (never moved). Only
+    // the real process entry does this: `run_from` is what tests call in-process.
+    ph_control::userdirs::migrate_user_dirs_and_report();
     run_from(options, std::env::args_os())
 }
 
@@ -597,8 +600,6 @@ where
         Ok(c) => c,
         Err(e) => e.exit(),
     };
-    // settings from before the rename are copied to their new folders once (never moved)
-    ph_control::userdirs::migrate_user_dirs_and_report();
     ph_engine::plugins::exit_diag::install();
     ph_engine::plugins::exit_diag::stage("dispatch");
     let rt = match tokio::runtime::Builder::new_multi_thread()

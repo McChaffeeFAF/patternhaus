@@ -308,7 +308,7 @@ async fn a_waiting_prompt_does_not_stall_other_clients_and_connections_are_liste
     );
     grants.set("known", Grant(vec![Scope::Read]));
     let endpoint = if cfg!(windows) {
-        format!(r"\\.\pipe\patternhaus-test-ctl-{}", std::process::id())
+        format!(r"\\.\pipe\beast-studio-test-ctl-{}", std::process::id())
     } else {
         dir.path().join("ph.sock").to_string_lossy().into_owned()
     };

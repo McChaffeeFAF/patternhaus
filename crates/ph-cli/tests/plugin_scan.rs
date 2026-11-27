@@ -2,7 +2,23 @@
 //! each file in the helper process, fills the cache, blocks a file that is not a plugin, and
 //! writes the markdown compatibility report.
 
+use std::path::Path;
 use std::process::Command;
+
+/// The per-user folder variables, pointed at a private folder so the spawned CLI never reaches
+/// the real `%APPDATA%` / `%LOCALAPPDATA%` (it copies old settings folders on its first start).
+fn private_home(under: &Path) -> [&'static str; 7] {
+    std::fs::create_dir_all(under.join("home")).unwrap();
+    [
+        "APPDATA",
+        "LOCALAPPDATA",
+        "USERPROFILE",
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ]
+}
 
 #[test]
 fn plugin_scan_writes_a_report_and_a_cache() {
@@ -35,8 +51,10 @@ fn plugin_scan_writes_a_report_and_a_cache() {
     if plugins.clap.is_dir() {
         args.insert(1, plugins.clap.to_string_lossy().into_owned());
     }
+    let home = private_home(tmp.path());
     let out = Command::new(env!("CARGO_BIN_EXE_beast-studio-cli"))
         .args(&args)
+        .envs(home.iter().map(|k| (k, tmp.path().join("home"))))
         .env("BEAST_STUDIO_PLUGIN_SCAN", &plugins.scan_helper)
         .output()
         .unwrap();
@@ -66,6 +84,7 @@ fn plugin_scan_writes_a_report_and_a_cache() {
     // which is still read
     let again = Command::new(env!("CARGO_BIN_EXE_beast-studio-cli"))
         .args(&args)
+        .envs(home.iter().map(|k| (k, tmp.path().join("home"))))
         .env("PATTERNHAUS_PLUGIN_SCAN", &plugins.scan_helper)
         .output()
         .unwrap();
