@@ -24,15 +24,32 @@ impl ClientHandler for Agent {
 
 pub type Client = RunningService<RoleClient, Agent>;
 
+/// Points every per-user folder the server process could read or write (settings, catalogue,
+/// plugin cache) at a private folder beside the test project, so a test run never reaches the
+/// real `%APPDATA%`, `%LOCALAPPDATA%`, `~/.config` or friends. Callers' own `env` pairs are
+/// applied afterwards and win.
+fn isolate_user_dirs(cmd: &mut tokio::process::Command, project: &Path) {
+    let name = project
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "project".into());
+    let home = project.with_file_name(format!("{name}-test-home"));
+    std::fs::create_dir_all(&home).expect("private home folder");
+    for k in [
+        "APPDATA",
+        "LOCALAPPDATA",
+        "USERPROFILE",
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+    ] {
+        cmd.env(k, &home);
+    }
+}
+
 pub async fn connect(project: &Path, extra: &[&str]) -> Client {
-    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_patternhaus-cli"));
-    cmd.args(["mcp", "--headless", "--project"])
-        .arg(project)
-        .args(extra);
-    Agent
-        .serve(TokioChildProcess::new(cmd).expect("spawn patternhaus-cli"))
-        .await
-        .expect("MCP initialize")
+    connect_with_env(project, extra, &[]).await
 }
 
 /// [`connect`] with extra environment for the server process (M2: a private plugin cache and
@@ -42,6 +59,7 @@ pub async fn connect_with_env(project: &Path, extra: &[&str], env: &[(&str, &Pat
     cmd.args(["mcp", "--headless", "--project"])
         .arg(project)
         .args(extra);
+    isolate_user_dirs(&mut cmd, project);
     for (k, v) in env {
         cmd.env(k, v);
     }
