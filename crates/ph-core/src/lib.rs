@@ -1,4 +1,4 @@
-//! Patternhaus project model.
+//! Beast Studio project model.
 //!
 //! Pure data. Nothing here touches audio devices, files, threads or UI.
 //!

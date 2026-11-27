@@ -2,7 +2,7 @@
 //!
 //! Pipeline: bytes → text (UTF-8, else Latin-1) → comments stripped, `#include`s expanded
 //! (paths relative to the main file's folder, never leaving it) → `#define`s substituted in
-//! stream order → tokens → headers and inheritance ([`tree`]) → the Haus Sampler model
+//! stream order → tokens → headers and inheritance ([`tree`]) → the Beast Sampler model
 //! ([`map`]). Every opcode is either mapped, reported as approximated, skipped or kept, or
 //! listed as not understood; nothing is dropped silently. The importer never panics.
 

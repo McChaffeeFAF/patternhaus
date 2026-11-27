@@ -1,5 +1,5 @@
 //! `sampler.load`, `sampler.save_native`, `sampler.collect` and `sampler.import` (M3/T3):
-//! the commands that move Haus Sampler instruments between files and the project
+//! the commands that move Beast Sampler instruments between files and the project
 //! (`docs/formats/haus-instrument.md` §2).
 //!
 //! - The zone map always lives in the project; samples are **linked** (the instrument's

@@ -1,4 +1,4 @@
-//! The musical diff for Haus Sampler edits (M3/T7): instruments, groups, zones, articulations
+//! The musical diff for Beast Sampler edits (M3/T7): instruments, groups, zones, articulations
 //! and the modulation matrix, in words, e.g. "Strings: moved zone c4_f.wav to C4-D4 vel
 //! 81-127" or "Strings: added articulation Staccato on C0 (12)". The same lines reach other
 //! agents through `while_you_worked` blocks and the events resource, which diff the project
@@ -27,7 +27,7 @@ fn trigger_text(t: &ArticulationTrigger) -> String {
     }
 }
 
-/// A channel that now plays a Haus instrument, named; `None` for other instrument changes.
+/// A channel that now plays a Beast Sampler instrument, named; `None` for other instrument changes.
 pub fn channel_instrument_line(
     after: &Project,
     old: &InstrumentSpec,
@@ -49,7 +49,7 @@ pub fn channel_instrument_line(
         .get(i)
         .map_or_else(|| format!("instrument {i}"), |x| x.name.clone());
     Some(format!(
-        "{channel}: now plays Haus instrument {name} (id {i})"
+        "{channel}: now plays Beast Sampler instrument {name} (id {i})"
     ))
 }
 
@@ -59,7 +59,7 @@ fn span(i: &HausInstrument) -> Option<String> {
     Some(key_span(lo, hi))
 }
 
-/// Appends the lines for Haus Sampler instruments.
+/// Appends the lines for Beast Sampler instruments.
 pub fn m3_lines(before: &Project, after: &Project, lines: &mut Vec<String>) {
     for (id, n) in after.instruments.iter() {
         match before.instruments.get(id) {
@@ -441,7 +441,7 @@ mod tests {
             "{d}"
         );
         assert!(
-            d.contains("now plays Haus instrument Strings (id 0)"),
+            d.contains("now plays Beast Sampler instrument Strings (id 0)"),
             "{d}"
         );
 

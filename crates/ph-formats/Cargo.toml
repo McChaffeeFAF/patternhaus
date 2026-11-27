@@ -1,6 +1,6 @@
 [package]
 name = "ph-formats"
-description = "Patternhaus file formats: project folder save/load with migrations, MIDI import/export, audio decoding."
+description = "Beast Studio file formats: project folder save/load with migrations, MIDI import/export, audio decoding."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

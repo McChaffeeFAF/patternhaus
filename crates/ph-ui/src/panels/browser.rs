@@ -392,7 +392,7 @@ fn tree_row(
             "click to read its playing guide, double-click or drag to the rack to add; right-click edits the guide"
         }
         Kind::Instrument { .. } => {
-            "click to hear a few notes, double-click or drag to the rack to import it as a Haus Sampler"
+            "click to hear a few notes, double-click or drag to the rack to import it as a Beast Sampler"
         }
     };
     let kind_name = match &n.kind {

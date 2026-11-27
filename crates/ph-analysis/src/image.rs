@@ -786,7 +786,7 @@ pub fn playlist(spec: &PlaylistSpec) -> Vec<u8> {
 // -------------------------------------------------------------------------------------
 // zone map (M3/T7)
 
-/// One zone of a Haus Sampler zone map.
+/// One zone of a Beast Sampler zone map.
 #[derive(Clone)]
 pub struct ZoneBox {
     /// Inclusive key range.

@@ -96,9 +96,9 @@ impl ClapFormat {
 
 fn host_info() -> HostInfo {
     HostInfo::new(
-        "Patternhaus",
-        "Patternhaus",
-        "https://github.com/McChaffeeFAF/patternhaus",
+        "Beast Studio",
+        "Beast Studio",
+        "https://github.com/McChaffeeFAF/beast-studio",
         env!("CARGO_PKG_VERSION"),
     )
     .expect("static host info")

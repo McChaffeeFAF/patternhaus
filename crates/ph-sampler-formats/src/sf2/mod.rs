@@ -3,7 +3,7 @@
 //!
 //! Pipeline: RIFF and hydra records with the structural rejection rules ([`riff`]) →
 //! zones with the generator ordering rules, summing and the modulator hierarchy ([`gens`])
-//! → one preset to the Haus Sampler model ([`map`]). A file holds many presets; an import
+//! → one preset to the Beast Sampler model ([`map`]). A file holds many presets; an import
 //! reads **one** ([`PresetChoice`], default the first by bank then program) and the report
 //! lists them all ([`crate::ImportReport::presets`]).
 //!

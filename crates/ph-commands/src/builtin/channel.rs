@@ -18,7 +18,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "channel.remove",
-        "Remove a channel and all of its notes and controller lanes (undoable); optionally its now-unused Haus Sampler instrument.",
+        "Remove a channel and all of its notes and controller lanes (undoable); optionally its now-unused Beast Sampler instrument.",
         Scope::Compose,
         MUTATES,
         remove,
@@ -149,7 +149,7 @@ struct ChannelOnly {
 struct Remove {
     /// Channel id.
     channel: ChannelId,
-    /// Also remove the Haus Sampler instrument the channel plays, when no other channel plays
+    /// Also remove the Beast Sampler instrument the channel plays, when no other channel plays
     /// it (default false: the instrument stays, and the result names it as unused).
     #[serde(default)]
     remove_instrument: bool,

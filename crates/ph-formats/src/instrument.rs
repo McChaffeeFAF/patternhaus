@@ -1,4 +1,4 @@
-//! The native Haus Sampler instrument format (M3): a folder with `instrument.toml`.
+//! The native Beast Sampler instrument format (M3): a folder with `instrument.toml`.
 //!
 //! ```text
 //! <Name>/
@@ -83,7 +83,7 @@ fn migrate(table: &mut toml::Table) -> FormatResult<()> {
         Some(INSTRUMENT_FORMAT_NAME) => {}
         Some(other) => {
             return Err(invalid(format!(
-                "not a Patternhaus instrument (format = {other:?})"
+                "not a Beast Studio instrument (format = {other:?})"
             )));
         }
         None => return Err(invalid("instrument.toml has no `format` key")),
@@ -478,7 +478,7 @@ root_key = 60
             (ok.replace("version = 1", "version = 0"), "not valid"),
             (
                 ok.replace("patternhaus-instrument", "other"),
-                "not a Patternhaus",
+                "not a Beast Studio",
             ),
             (ok.replace("samples/rel.wav", "../rel.wav"), "relative"),
             (ok.replace("samples/rel.wav", "C:/x.wav"), "relative"),

@@ -1,4 +1,4 @@
-//! `sampler.*`: the Haus Sampler (M3). Instruments, groups, zones, keyswitches and the
+//! `sampler.*`: the Beast Sampler (M3). Instruments, groups, zones, keyswitches and the
 //! modulation matrix are project objects (`ph_core::HausInstrument`), so every edit here is an
 //! ordinary undoable patch set; see `docs/formats/haus-instrument.md`.
 //!
@@ -19,21 +19,21 @@ use serde_json::{Map, Value, json};
 pub fn register(r: &mut Registry) {
     r.register(typed(
         "sampler.new",
-        "Create an empty Haus Sampler instrument with one group, on a new channel or replacing a channel's instrument.",
+        "Create an empty Beast Sampler instrument with one group, on a new channel or replacing a channel's instrument.",
         Scope::Compose,
         MUTATES,
         new,
     ));
     r.register(typed(
         "sampler.set",
-        "Rename a Haus Sampler instrument or change its global settings.",
+        "Rename a Beast Sampler instrument or change its global settings.",
         Scope::Compose,
         MUTATES,
         set_instrument,
     ));
     r.register(typed(
         "sampler.group_add",
-        "Add a group to a Haus Sampler instrument.",
+        "Add a group to a Beast Sampler instrument.",
         Scope::Compose,
         MUTATES,
         group_add,
@@ -75,7 +75,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "sampler.zone_remove",
-        "Remove zones from a Haus Sampler instrument.",
+        "Remove zones from a Beast Sampler instrument.",
         Scope::Compose,
         MUTATES,
         zone_remove,
@@ -89,21 +89,21 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "sampler.modulation_set",
-        "Replace a Haus Sampler instrument's modulation matrix.",
+        "Replace a Beast Sampler instrument's modulation matrix.",
         Scope::Compose,
         MUTATES,
         modulation_set,
     ));
     r.register(typed(
         "sampler.report",
-        "Describe a Haus Sampler instrument: where it came from, its groups and zone counts, and what its import approximated or skipped.",
+        "Describe a Beast Sampler instrument: where it came from, its groups and zone counts, and what its import approximated or skipped.",
         Scope::Read,
         READ,
         report,
     ));
     r.register(typed(
         "sampler.prune",
-        "Remove Haus Sampler instruments that no channel plays, as one undo step.",
+        "Remove Beast Sampler instruments that no channel plays, as one undo step.",
         Scope::Compose,
         MUTATES,
         prune,
@@ -111,7 +111,7 @@ pub fn register(r: &mut Registry) {
     // ---- stubs (final ids and schemas)
     r.register(typed(
         "sampler.load",
-        "Load a native Haus Sampler instrument folder (instrument.toml) onto a channel.",
+        "Load a native Beast Sampler instrument folder (instrument.toml) onto a channel.",
         Scope::Full,
         MUTATES,
         load,
@@ -125,7 +125,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "sampler.save_native",
-        "Save a Haus Sampler instrument as a native instrument folder (instrument.toml and its samples).",
+        "Save a Beast Sampler instrument as a native instrument folder (instrument.toml and its samples).",
         Scope::Full,
         READ,
         save_native,

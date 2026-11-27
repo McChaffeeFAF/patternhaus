@@ -1,6 +1,6 @@
 [package]
 name = "flp-probe"
-description = "Patternhaus FLP analysis instrument: prints the event stream and aggregate statistics, and runs the local corpus check of the importer (not shipped)."
+description = "Beast Studio FLP analysis instrument: prints the event stream and aggregate statistics, and runs the local corpus check of the importer (not shipped)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

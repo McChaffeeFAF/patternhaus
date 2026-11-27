@@ -1,4 +1,4 @@
-//! M3/T0: the Haus Sampler instrument model, its object paths, patches and invariants.
+//! M3/T0: the Beast Sampler instrument model, its object paths, patches and invariants.
 
 use crate::*;
 use serde_json::json;

@@ -8,10 +8,10 @@ use crate::theme::Theme;
 /// The licence paragraphs of the About box.
 pub fn licence_text(asio: bool) -> Vec<String> {
     let mut out = vec![
-        format!("Patternhaus {}", env!("CARGO_PKG_VERSION")),
-        "Copyright the Patternhaus contributors. Source: https://github.com/McChaffeeFAF/patternhaus"
+        format!("Beast Studio {}", env!("CARGO_PKG_VERSION")),
+        "Copyright the Beast Studio contributors. Source: https://github.com/McChaffeeFAF/beast-studio"
             .into(),
-        "Patternhaus is licensed under the MIT licence or the Apache License 2.0, at your option \
+        "Beast Studio is licensed under the MIT licence or the Apache License 2.0, at your option \
          (LICENSE-MIT, LICENSE-APACHE)."
             .into(),
     ];
@@ -20,7 +20,7 @@ pub fn licence_text(asio: bool) -> Vec<String> {
             "This build includes ASIO support. ASIO is a trademark and software of Steinberg Media \
              Technologies GmbH. Because it is built with the ASIO SDK under the GPL, this binary \
              as a whole is distributed under the GNU General Public License, version 3 (GPLv3). \
-             The Patternhaus source code itself remains MIT OR Apache-2.0; builds without the \
+             The Beast Studio source code itself remains MIT OR Apache-2.0; builds without the \
              asio feature are not GPL."
                 .into(),
         );
@@ -30,7 +30,7 @@ pub fn licence_text(asio: bool) -> Vec<String> {
             .into(),
     );
     out.push(
-        "FL Studio is a trademark of Image-Line. Patternhaus is not affiliated with Image-Line; \
+        "FL Studio is a trademark of Image-Line. Beast Studio is not affiliated with Image-Line; \
          it is an independent, clean-room project."
             .into(),
     );
@@ -42,12 +42,12 @@ pub fn asio_build() -> bool {
     ph_engine::ASIO_BUILD
 }
 
-/// Draws the About window in the Patternhaus look. Returns false when the user closes it.
+/// Draws the About window in the Beast Studio look. Returns false when the user closes it.
 pub fn show(ctx: &egui::Context, theme: &Theme) -> bool {
     let c = &theme.colors;
     let open = !ctx.input(|i| i.key_pressed(egui::Key::Escape));
     let mut close = false;
-    egui::Window::new("About Patternhaus")
+    egui::Window::new("About Beast Studio")
         .title_bar(false)
         .collapsible(false)
         .resizable(false)

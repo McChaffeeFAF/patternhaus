@@ -262,7 +262,7 @@ impl PhApp {
         }
     }
 
-    /// A new Haus Sampler window starts big enough for its zone map and tabs.
+    /// A new Beast Sampler window starts big enough for its zone map and tabs.
     fn size_new_window(&mut self, w: WindowId) {
         let WindowId::Instrument(c) = w else {
             return;
@@ -576,7 +576,7 @@ impl PhApp {
             let mut close = false;
             let builder = egui::ViewportBuilder::default()
                 .with_title(format!(
-                    "Patternhaus - {}",
+                    "Beast Studio - {}",
                     windows::title_of(&self.core, id)
                 ))
                 .with_inner_size([960.0, 620.0]);
@@ -757,7 +757,7 @@ impl PhApp {
                     }
                 });
                 crate::widgets::menu_button_rich(ui, "Help", m("Help"), |ui| {
-                    if menu_item(ui, "About Patternhaus…", "").clicked() {
+                    if menu_item(ui, "About Beast Studio…", "").clicked() {
                         self.core.dialog = Some(Dialog::About);
                         ui.close();
                     }
@@ -942,7 +942,7 @@ impl PhApp {
         match dialog {
             Dialog::Unsaved { then } => {
                 let title = match &then {
-                    AfterPrompt::Quit => "Quit Patternhaus",
+                    AfterPrompt::Quit => "Quit Beast Studio",
                     AfterPrompt::NewProject => "New project",
                     AfterPrompt::OpenProject { .. } => "Open project",
                     AfterPrompt::ImportFlp { .. } => "Import FL Studio project",
@@ -972,7 +972,7 @@ impl PhApp {
             Dialog::ImportFlp { path } => {
                 modal(ctx, "Import FL Studio project", |ui| {
                     ui.label(format!(
-                        "Import {} as a new Patternhaus project?",
+                        "Import {} as a new Beast Studio project?",
                         crate::paint::ellipsize_middle(&path, 60)
                     ));
                     ui.label(
@@ -980,7 +980,7 @@ impl PhApp {
                             .color(self.core.theme.colors.dim),
                     );
                     ui.horizontal(|ui| {
-                        if btn(ui, "Import into Patternhaus Projects").clicked() {
+                        if btn(ui, "Import into Beast Studio Projects").clicked() {
                             self.core.ask_or_do(AfterPrompt::ImportFlp {
                                 path: path.clone(),
                                 next_to_flp: false,
@@ -1302,7 +1302,7 @@ pub const TITLE_MAX_FRACTION: f32 = 0.3;
 /// product.
 pub fn window_title(project: &str, dirty: bool) -> String {
     format!(
-        "{project}{} \u{2014} Patternhaus",
+        "{project}{} \u{2014} Beast Studio",
         if dirty { " \u{2022}" } else { "" }
     )
 }

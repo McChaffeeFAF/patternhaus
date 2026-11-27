@@ -1,6 +1,6 @@
 [package]
 name = "ph-core"
-description = "Patternhaus project model and patches: pure data, no audio, no UI, no I/O."
+description = "Beast Studio project model and patches: pure data, no audio, no UI, no I/O."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -125,7 +125,7 @@ pub enum Audition {
     },
     /// Decoded audio the caller holds, such as the audio editor's selection.
     Data(Arc<ph_node::SampleData>),
-    /// An instrument file the Haus Sampler imports (`.sfz`, `.sf2`, ...): a few notes of it,
+    /// An instrument file the Beast Sampler imports (`.sfz`, `.sf2`, ...): a few notes of it,
     /// rendered offline from a throw-away import (M3/T5).
     /// An instrument file, with the session's importers that read it.
     InstrumentFile(std::path::PathBuf, ph_sampler_formats::Importers),

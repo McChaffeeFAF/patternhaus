@@ -22,7 +22,7 @@ impl FakeFormat {
             format: PluginFormat::Clap,
             id: FAKE_ID.into(),
             name: "Test Gain".into(),
-            vendor: "Patternhaus".into(),
+            vendor: "Beast Studio".into(),
             version: "1.0.0".into(),
             kind: PluginKind::Effect,
             path: path.to_path_buf(),

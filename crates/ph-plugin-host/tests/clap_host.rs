@@ -134,7 +134,7 @@ fn scan_finds_the_three_test_plugins_in_and_out_of_process() {
     assert_eq!(ids, [SYNTH_ID, GAIN_ID, CRASH_ID]);
     assert_eq!(found[0].kind, PluginKind::Instrument);
     assert_eq!(found[1].kind, PluginKind::Effect);
-    assert_eq!(found[0].vendor, "Patternhaus");
+    assert_eq!(found[0].vendor, "Beast Studio");
     assert_eq!(found[0].version, "1.0.0");
     assert!(
         found

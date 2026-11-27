@@ -1,4 +1,4 @@
-//! Time-stretch and pitch-shift for Patternhaus: a thin binding of
+//! Time-stretch and pitch-shift for Beast Studio: a thin binding of
 //! [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch) (MIT).
 //!
 //! # How it is built

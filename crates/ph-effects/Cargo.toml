@@ -1,6 +1,6 @@
 [package]
 name = "ph-effects"
-description = "Patternhaus built-in effects: EQ, compressor, limiter, reverb, delay, filter, saturator."
+description = "Beast Studio built-in effects: EQ, compressor, limiter, reverb, delay, filter, saturator."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

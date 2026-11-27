@@ -1,4 +1,4 @@
-//! The Haus Sampler instrument model (M3/T0).
+//! The Beast Sampler instrument model (M3/T0).
 //!
 //! A [`HausInstrument`] is a multi-sample instrument: [`Zone`]s (one sample each, mapped to a
 //! key and velocity range) collected in [`Group`]s (shared envelopes, filter, LFOs, voice
@@ -50,7 +50,7 @@ pub const INSTRUMENT_MODEL_VERSION: u32 = 1;
 /// Most output buses an instrument may use: the main output (0) plus 15 extra stereo outs.
 pub const MAX_OUTPUT_BUSES: u32 = 16;
 
-/// A Haus Sampler instrument. See the module docs for the object layout.
+/// A Beast Sampler instrument. See the module docs for the object layout.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HausInstrument {
     pub id: InstrumentId,
@@ -68,7 +68,7 @@ pub struct HausInstrument {
     /// The modulation matrix, applied in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modulation: Vec<ModRoute>,
-    /// Where the instrument came from. `None` = made in Patternhaus.
+    /// Where the instrument came from. `None` = made in Beast Studio.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<InstrumentSource>,
     /// What an importer approximated, skipped or kept without using.

@@ -1,4 +1,4 @@
-//! M3/T0: the Haus Sampler (`ph.haus_sampler`) wired into the engine. A project instrument
+//! M3/T0: the Beast Sampler (`ph.haus_sampler`) wired into the engine. A project instrument
 //! with velocity layers, random round robins, a keyswitch and a release trigger plays through
 //! the plan; the simulated device is bit-identical to the offline render across buffer and
 //! block sizes, thread counts, a stop/start and a zone-map edit mid-song (which rebuilds the

@@ -1,4 +1,4 @@
-//! The Haus Sampler engine (M3): `ph.haus_sampler`, a [`Processor`] that plays a
+//! The Beast Sampler engine (M3): `ph.haus_sampler`, a [`Processor`] that plays a
 //! [`HausInstrument`] from the project model.
 //!
 //! - [`Plan`] is the immutable real-time plan an instrument compiles to (zone lookup by key,
@@ -105,7 +105,7 @@ pub fn descriptor(max_output: u32) -> NodeDescriptor {
     }
     NodeDescriptor {
         id: ID.into(),
-        name: "Haus Sampler".into(),
+        name: "Beast Sampler".into(),
         kind: NodeKind::Instrument,
         audio_inputs: Vec::new(),
         audio_outputs: outputs,
@@ -124,7 +124,7 @@ pub fn create(
 ) -> Result<(HausSampler, Vec<String>), String> {
     let inst = project
         .instrument(id)
-        .map_err(|e| format!("Haus Sampler: {e}"))?;
+        .map_err(|e| format!("Beast Sampler: {e}"))?;
     let (samples, warnings) = load_samples(project, inst, assets);
     Ok((HausSampler::new(inst, samples), warnings))
 }
@@ -147,7 +147,7 @@ pub fn create_streamed(
 ) -> Result<(HausSampler, Vec<String>), String> {
     let inst = project
         .instrument(id)
-        .map_err(|e| format!("Haus Sampler: {e}"))?;
+        .map_err(|e| format!("Beast Sampler: {e}"))?;
     let (mut samples, warnings, streams) = load_samples_streamed(project, inst, assets);
     if !streams.is_empty() {
         samples.streams = attach(streams, voice_slots(inst));

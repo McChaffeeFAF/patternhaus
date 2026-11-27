@@ -125,7 +125,7 @@ pub enum AfterPrompt {
     /// Import an FL Studio project (`.flp`) as a new project.
     ImportFlp {
         path: String,
-        /// Put the project beside the `.flp` instead of in the Patternhaus projects folder.
+        /// Put the project beside the `.flp` instead of in the Beast Studio projects folder.
         next_to_flp: bool,
     },
 }
@@ -170,9 +170,9 @@ pub enum Dialog {
     SamplerFolder(crate::sampler_ui::FolderForm),
     /// An SF2/SF3 with several presets: which one to import (M3/T5).
     SamplerPreset(crate::sampler_ui::PresetForm),
-    /// "Save as Haus instrument…" (M3/T5).
+    /// "Save as Beast Sampler instrument…" (M3/T5).
     SamplerSave(crate::sampler_ui::SaveForm),
-    /// "Load Haus instrument…" (M3/T5).
+    /// "Load Beast Sampler instrument…" (M3/T5).
     SamplerLoad(crate::sampler_ui::LoadForm),
 }
 
@@ -356,7 +356,7 @@ pub struct AppCore {
     pub midi: crate::midi::MidiUi,
     /// The recorder popup and its settings (M2/T8).
     pub rec: crate::recorder::RecorderUi,
-    /// The Haus Sampler windows' view state, by instrument (M3/T5).
+    /// The Beast Sampler windows' view state, by instrument (M3/T5).
     pub sampler: HashMap<ph_core::InstrumentId, crate::sampler_ui::SamplerView>,
 }
 

@@ -1,7 +1,7 @@
 //! Standard MIDI file import and export (`midly`).
 //!
 //! Import never trusts the file: every length and time is checked, and garbage returns an
-//! error rather than panicking. Times are converted to Patternhaus ticks (960 per quarter).
+//! error rather than panicking. Times are converted to Beast Studio ticks (960 per quarter).
 
 use crate::{FormatError, FormatResult};
 use midly::num::{u4, u7, u15, u24, u28};
@@ -41,7 +41,7 @@ pub struct MidiImport {
     pub time_signature: Option<TimeSignature>,
 }
 
-/// One note read from a file, in Patternhaus ticks.
+/// One note read from a file, in Beast Studio ticks.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParsedNote {
     pub key: u8,
@@ -50,7 +50,7 @@ pub struct ParsedNote {
     pub velocity: f32,
 }
 
-/// One controller message read from a file, in Patternhaus ticks.
+/// One controller message read from a file, in Beast Studio ticks.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParsedController {
     pub controller: Controller,

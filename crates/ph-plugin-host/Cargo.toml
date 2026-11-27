@@ -1,6 +1,6 @@
 [package]
 name = "ph-plugin-host"
-description = "Patternhaus plugin hosting: CLAP and VST3 hosts, the scanner and its cache, plugin instances as processors, state, editors and the crash-catch boundary."
+description = "Beast Studio plugin hosting: CLAP and VST3 hosts, the scanner and its cache, plugin instances as processors, state, editors and the crash-catch boundary."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

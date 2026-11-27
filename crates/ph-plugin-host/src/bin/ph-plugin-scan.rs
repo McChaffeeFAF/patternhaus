@@ -1,5 +1,5 @@
 //! `ph-plugin-scan <clap|vst3> <path>`: scans one plugin file in its own process for the
-//! Patternhaus plugin scanner (`ph_plugin_host::scan`), so a plugin that crashes or hangs while
+//! Beast Studio plugin scanner (`ph_plugin_host::scan`), so a plugin that crashes or hangs while
 //! loading only takes this helper down. Prints one `PH-SCAN-RESULT:{json}` line.
 
 use ph_plugin_host::{

@@ -1,6 +1,6 @@
-// Patternhaus: a minimal C ABI over Signalsmith Stretch (MIT, vendored in ../vendor).
+// Beast Studio: a minimal C ABI over Signalsmith Stretch (MIT, vendored in ../vendor).
 //
-// Written for Patternhaus (MIT OR Apache-2.0); the Rust side declares these functions by
+// Written for Beast Studio (MIT OR Apache-2.0); the Rust side declares these functions by
 // hand (crates/ph-stretch/src/lib.rs). Channel buffers are passed as arrays of pointers
 // (non-interleaved), so no copy or allocation happens per call.
 //

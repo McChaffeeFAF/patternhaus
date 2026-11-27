@@ -1,4 +1,4 @@
-//! Patternhaus audio engine — public API contract (T0), implemented in T3.
+//! Beast Studio audio engine — public API contract (T0), implemented in T3.
 //!
 //! - The control thread hands the engine `Arc<Project>` snapshots. The engine compiles each
 //!   into a render plan *off* the audio thread and swaps it in lock-free; old plans are freed

@@ -1,6 +1,6 @@
 [package]
 name = "ph-commands"
-description = "Patternhaus command registry, session, history and per-author undo."
+description = "Beast Studio command registry, session, history and per-author undo."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

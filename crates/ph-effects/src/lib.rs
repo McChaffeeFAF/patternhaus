@@ -1,4 +1,4 @@
-//! Patternhaus built-in effects (DESIGN §7, M1 essentials and M2 additions).
+//! Beast Studio built-in effects (DESIGN §7, M1 essentials and M2 additions).
 //!
 //! | id | effect |
 //! |---|---|

@@ -13,7 +13,7 @@ struct FakeHost {
     inner: NullHost,
     ui: Vec<UiRequest>,
     renders: Vec<RenderRequest>,
-    /// The Patternhaus projects folder (an absolute temp folder), if the test has one.
+    /// The Beast Studio projects folder (an absolute temp folder), if the test has one.
     projects: Option<PathBuf>,
     /// Absolute folders agents may not write (to model a read-only place).
     unwritable: Vec<PathBuf>,
@@ -1243,7 +1243,7 @@ fn file_import_flp_defaults_to_the_projects_folder_and_never_overwrites() {
     let report = std::fs::read_to_string(dir.join("import-report.md")).unwrap();
     assert!(report.contains("## Skipped"));
     // nothing was written beside the .flp
-    assert!(!r.dir().join("song (Patternhaus)").exists());
+    assert!(!r.dir().join("song (Beast Studio)").exists());
     // importing again never overwrites: numbered folders
     let again = r.confirmed("file.import_flp", params.clone());
     assert_eq!(
@@ -1275,14 +1275,14 @@ fn file_import_flp_next_to_the_flp_when_asked() {
     let (mut r, projects, src) = flp_rig();
     let params = json!({ "path": src.to_string_lossy(), "placement": "next_to_flp" });
     let out = r.confirmed("file.import_flp", params.clone());
-    let dir = r.dir().join("song (Patternhaus)");
+    let dir = r.dir().join("song (Beast Studio)");
     assert_eq!(out.result["path"], json!(dir));
     assert!(out.result["placement_note"].is_null());
     assert!(dir.join("project.json").is_file());
     let again = r.confirmed("file.import_flp", params);
     assert_eq!(
         again.result["path"],
-        json!(r.dir().join("song (Patternhaus) (2)"))
+        json!(r.dir().join("song (Beast Studio) (2)"))
     );
     assert_eq!(std::fs::read_dir(projects.path()).unwrap().count(), 0);
 }
@@ -1302,7 +1302,7 @@ fn file_import_flp_falls_back_to_the_projects_folder_when_unwritable() {
     assert!(out.result["placement_note"].is_string());
     let report = std::fs::read_to_string(dir.join("import-report.md")).unwrap();
     assert!(report.contains("## Placement"), "{report}");
-    assert!(!r.dir().join("song (Patternhaus)").exists());
+    assert!(!r.dir().join("song (Beast Studio)").exists());
 }
 
 #[test]

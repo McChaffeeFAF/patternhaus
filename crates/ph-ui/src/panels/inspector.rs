@@ -138,7 +138,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
             RichText::new(match &ch.instrument {
                 InstrumentSpec::Sampler { .. } => "Sampler",
                 InstrumentSpec::Synth { .. } => "Haus Synth",
-                InstrumentSpec::MultiSampler { .. } => "Haus Sampler",
+                InstrumentSpec::MultiSampler { .. } => "Beast Sampler",
                 InstrumentSpec::Plugin { .. } => "Plugin",
             })
             .color(theme.colors.dim),

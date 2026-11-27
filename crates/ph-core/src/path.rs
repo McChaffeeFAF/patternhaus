@@ -39,9 +39,9 @@ pub enum ObjectPath {
     Point(ClipId, PointId),
     /// Value: [`HausInstrument`] without its groups and zones.
     Instrument(InstrumentId),
-    /// Value: [`Group`] of a Haus Sampler instrument.
+    /// Value: [`Group`] of a Beast Sampler instrument.
     Group(InstrumentId, GroupId),
-    /// Value: [`Zone`] of a Haus Sampler instrument.
+    /// Value: [`Zone`] of a Beast Sampler instrument.
     Zone(InstrumentId, ZoneId),
 }
 

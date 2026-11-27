@@ -551,7 +551,7 @@ fn an_flp_file_asks_where_to_import_then_asks_about_unsaved_changes() {
     r.settle();
     assert_eq!(r.app().core.project.settings.title, "Synthetic song");
     assert_eq!(r.app().core.project.channels.len(), 3);
-    let imported = r.drops.path().join("song (Patternhaus)");
+    let imported = r.drops.path().join("song (Beast Studio)");
     assert!(imported.join("import-report.md").is_file());
     // the UI's project folder followed the import
     assert_eq!(r.app().core.paths.project_dir, imported);

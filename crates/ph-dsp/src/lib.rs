@@ -1,4 +1,4 @@
-//! Patternhaus DSP primitives.
+//! Beast Studio DSP primitives.
 //!
 //! Small, allocation-free building blocks shared by the built-in instruments and effects.
 //! Everything that runs per sample is real-time safe: constructors and `prepare`-style

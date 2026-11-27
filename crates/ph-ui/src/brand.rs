@@ -1,4 +1,4 @@
-//! The Patternhaus mark and wordmark: a four-by-four pad grid with a few pads lit, and the
+//! The Beast Studio mark and wordmark: a four-by-four pad grid with a few pads lit, and the
 //! name in the condensed face. Drawn from theme tokens, so it follows the theme; the app icon
 //! (`icon.rs`) is the same drawing rasterised.
 
@@ -51,7 +51,11 @@ pub fn paint_mark(p: &Painter, rect: Rect, theme: &Theme, glow: f32, alpha: f32)
     }
 }
 
-/// The wordmark: PATTERN in text colour, HAUS in the accent, in the condensed face with wide
+/// The two words of the wordmark: the first in text colour, the second in the accent.
+const FIRST: &str = "BEAST";
+const SECOND: &str = "STUDIO";
+
+/// The wordmark: BEAST in text colour, STUDIO in the accent, in the condensed face with wide
 /// tracking, after a small mark.
 pub fn wordmark(ui: &mut Ui, theme: &Theme) {
     let c = &theme.colors;
@@ -61,13 +65,13 @@ pub fn wordmark(ui: &mut Ui, theme: &Theme) {
         paint_mark(ui.painter(), rect, theme, 0.6, 1.0);
         ui.add_space(7.0);
         ui.label(
-            egui::RichText::new("PATTERN")
+            egui::RichText::new("BEAST")
                 .font(FontId::new(15.0, crate::fonts::cond_bold()))
                 .extra_letter_spacing(2.2)
                 .color(c.text),
         );
         ui.label(
-            egui::RichText::new("HAUS")
+            egui::RichText::new("STUDIO")
                 .font(FontId::new(15.0, crate::fonts::cond_bold()))
                 .extra_letter_spacing(2.2)
                 .color(c.accent),
@@ -85,24 +89,24 @@ pub fn paint_logo(p: &Painter, centre: Pos2, scale: f32, theme: &Theme, alpha: f
     paint_mark(p, mark, theme, 1.0, alpha);
     let y = centre.y + 32.0 * scale;
     let font = FontId::new(34.0 * scale, crate::fonts::cond_bold());
-    let a = p.layout_no_wrap("PATTERN".into(), font.clone(), c.text);
-    let b = p.layout_no_wrap("HAUS".into(), font.clone(), c.accent);
+    let a = p.layout_no_wrap(FIRST.into(), font.clone(), c.text);
+    let b = p.layout_no_wrap(SECOND.into(), font.clone(), c.accent);
     let track = 7.0 * scale;
-    let wa = a.size().x + track * 7.0;
-    let wb = b.size().x + track * 4.0;
+    let wa = a.size().x + track * FIRST.chars().count() as f32;
+    let wb = b.size().x + track * SECOND.chars().count() as f32;
     let x0 = centre.x - (wa + wb) / 2.0;
-    for (i, ch) in "PATTERN".chars().enumerate() {
+    for (i, ch) in FIRST.chars().enumerate() {
         let g = p.layout_no_wrap(ch.to_string(), font.clone(), c.text.gamma_multiply(alpha));
-        let x = x0 + i as f32 * track + prefix_width(p, "PATTERN", i, &font);
+        let x = x0 + i as f32 * track + prefix_width(p, FIRST, i, &font);
         p.galley(
             Pos2::new(x, y - g.size().y / 2.0),
             g,
             c.text.gamma_multiply(alpha),
         );
     }
-    for (i, ch) in "HAUS".chars().enumerate() {
+    for (i, ch) in SECOND.chars().enumerate() {
         let g = p.layout_no_wrap(ch.to_string(), font.clone(), c.accent.gamma_multiply(alpha));
-        let x = x0 + wa + i as f32 * track + prefix_width(p, "HAUS", i, &font);
+        let x = x0 + wa + i as f32 * track + prefix_width(p, SECOND, i, &font);
         p.galley(
             Pos2::new(x, y - g.size().y / 2.0),
             g,

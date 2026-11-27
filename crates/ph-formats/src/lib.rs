@@ -1,4 +1,4 @@
-//! Patternhaus file formats.
+//! Beast Studio file formats.
 //!
 //! - the native project folder (DESIGN §10): save/load with migrations;
 //! - MIDI file import/export;
@@ -28,7 +28,7 @@ pub enum FormatError {
     #[error("project.json is not valid: {0}")]
     Json(String),
     #[error(
-        "project format version {found} is newer than this build understands ({supported}); update Patternhaus"
+        "project format version {found} is newer than this build understands ({supported}); update Beast Studio"
     )]
     TooNew { found: u64, supported: u32 },
     #[error("project format version {0} is not valid")]

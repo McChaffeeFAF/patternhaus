@@ -562,10 +562,10 @@ fn instrument_identity(spec: &InstrumentSpec, project: &Project) -> Option<Strin
     }
 }
 
-/// Builds a built-in instrument for a channel: the Haus Sampler from the project's
+/// Builds a built-in instrument for a channel: the Beast Sampler from the project's
 /// instrument model, everything else through `ph_instruments`. Off the audio thread.
 ///
-/// A Haus Sampler streams its long samples through a cache from `audio` (the plan's
+/// A Beast Sampler streams its long samples through a cache from `audio` (the plan's
 /// streaming context: policy, prefetch thread, underrun counter). Without one (warnings
 /// only) it reads just the heads and plays nothing past them. Its groups' effect chains are
 /// built here from the built-in effects (`ph-sampler` cannot depend on `ph-effects`: see
@@ -622,7 +622,7 @@ pub(crate) fn create_instrument(
             Ok((Box::new(p), warnings))
         }
         InstrumentSpec::MultiSampler { .. } => {
-            Err("this Haus Sampler channel has no instrument (load or import one)".into())
+            Err("this Beast Sampler channel has no instrument (load or import one)".into())
         }
         other => ph_instruments::create(other, assets).map(|p| (p, Vec::new())),
     }

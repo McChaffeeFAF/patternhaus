@@ -1,4 +1,4 @@
-# Neon Slate: the default Patternhaus theme (DESIGN section 9, approved 2026-10-10).
+# Neon Slate: the default Beast Studio theme (DESIGN section 9, approved 2026-10-10).
 # Every colour is a token; widgets never use colour literals. See docs/theming.md.
 id = "neon-slate"
 name = "Neon Slate"

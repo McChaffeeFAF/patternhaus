@@ -1,4 +1,4 @@
-//! M3 criterion 4: Haus Sampler disk streaming under load.
+//! M3 criterion 4: Beast Sampler disk streaming under load.
 //!
 //! A generated library of WAV files is written to a temporary folder and played as one
 //! instrument: 128 voices at 48 kHz in 256-frame buffers, every voice streaming its own file

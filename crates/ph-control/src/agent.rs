@@ -234,7 +234,7 @@ impl Agent {
         let mut v = vec![
             tool(
                 "list_commands",
-                "Discover commands. Every operation in Patternhaus is a command (pattern.add_note, mixer.add_effect, ...). `filter` matches ids and summaries; lists everything when empty. Then use describe_command and run.",
+                "Discover commands. Every operation in Beast Studio is a command (pattern.add_note, mixer.add_effect, ...). `filter` matches ids and summaries; lists everything when empty. Then use describe_command and run.",
                 json!({ "type": "object", "properties": { "filter": { "type": "string", "description": "substring of the command id or summary, e.g. \"mixer\" or \"note\"" } } }),
                 true,
             ),
@@ -264,7 +264,7 @@ impl Agent {
             ),
             tool(
                 "get_state",
-                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances; channels added from the plugin catalogue show their playing guide: range, keyswitches, CCs), catalogue (the plugin instrument catalogue: saved instruments with plugin status), zones (Haus Sampler instruments: a playing guide like the catalogue's (range, keyswitches, CCs, velocity layers) and the zone map: groups, key and velocity ranges with note names, roots, round robins, release zones, gaps; args instrument, offset, limit (default 256 zones), zones: false for summaries only), report (one Haus instrument's import report and summary; args instrument), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
+                "Readable views of the project. view: overview (default), notes (names and bar.beat.tick; args pattern, channel, from_bar, to_bar), pattern (channels, ranges, chords per bar; args pattern), sections (arrangement map), mixer, channels, audio (audio clips: file, range, mode, bpm; the sample registry), automation (automation clips: target, points, range), plugins (plugin instances; channels added from the plugin catalogue show their playing guide: range, keyswitches, CCs), catalogue (the plugin instrument catalogue: saved instruments with plugin status), zones (Beast Sampler instruments: a playing guide like the catalogue's (range, keyswitches, CCs, velocity layers) and the zone map: groups, key and velocity ranges with note names, roots, round robins, release zones, gaps; args instrument, offset, limit (default 256 zones), zones: false for summaries only), report (one Beast Sampler instrument's import report and summary; args instrument), proposals (your pending and decided proposals), transport, session (who you are and what you may do), ui (the hint the UI is showing: name, value, gestures of the control under the pointer), events (args since), warnings, raw (args query: a query.* command id, params).",
                 json!({ "type": "object", "properties": {
                     "view": { "type": "string" }, "args": { "type": "object" } } }),
                 true,
@@ -297,10 +297,10 @@ impl Agent {
             ),
             tool(
                 "snapshot",
-                "See the result: returns a PNG image. kind: waveform (the rendered mix; with clip or sample, the audio of that audio clip as it is set up in the playlist, or of that registered sample), spectrogram, piano_roll (args pattern, channels[], range; all channels coloured; a pattern's controller lanes, CC and pitch bend, are drawn as strips under the notes unless lanes is false; lanes can list controllers, e.g. [1, 11] or names like expression), playlist (arrangement overview; audio clips show their waveform), zone_map (a Haus Sampler instrument's zones, keys across and velocity up, coloured by group as in the sampler window; arg instrument, default the first). Optional save: true also writes the PNG under renders/.",
+                "See the result: returns a PNG image. kind: waveform (the rendered mix; with clip or sample, the audio of that audio clip as it is set up in the playlist, or of that registered sample), spectrogram, piano_roll (args pattern, channels[], range; all channels coloured; a pattern's controller lanes, CC and pitch bend, are drawn as strips under the notes unless lanes is false; lanes can list controllers, e.g. [1, 11] or names like expression), playlist (arrangement overview; audio clips show their waveform), zone_map (a Beast Sampler instrument's zones, keys across and velocity up, coloured by group as in the sampler window; arg instrument, default the first). Optional save: true also writes the PNG under renders/.",
                 json!({ "type": "object", "properties": {
                     "kind": { "type": "string", "enum": ["waveform", "spectrogram", "piano_roll", "playlist", "zone_map"] },
-                    "instrument": { "type": "integer", "description": "Haus Sampler instrument id (zone_map); get_state view zones lists them" },
+                    "instrument": { "type": "integer", "description": "Beast Sampler instrument id (zone_map); get_state view zones lists them" },
                     "pattern": { "description": "pattern id or name (piano_roll)" },
                     "clip": { "type": "integer", "description": "audio clip id (waveform): its played range with gain, fades and direction applied" },
                     "sample": { "type": "integer", "description": "registry sample id (waveform): the whole file" },
@@ -478,7 +478,7 @@ impl Agent {
 
     // ---- running ----------------------------------------------------------------------
 
-    /// Ids and names of the project's Haus Sampler instruments (the MCP resource list).
+    /// Ids and names of the project's Beast Sampler instruments (the MCP resource list).
     pub fn instrument_names(&self) -> Vec<(u32, String)> {
         self.current()
             .instruments
@@ -1508,7 +1508,7 @@ impl Agent {
                     }
                     None => {
                         return ToolOutput::error(
-                            "the project has no Haus Sampler instrument yet (sampler.import, sampler.load or sampler.new)",
+                            "the project has no Beast Sampler instrument yet (sampler.import, sampler.load or sampler.new)",
                         );
                     }
                 }
@@ -1599,7 +1599,7 @@ impl Agent {
         }
     }
 
-    /// `get_state { view: report }` and `patternhaus://instrument/<id>/report`: what
+    /// `get_state { view: report }` and `beast-studio://instrument/<id>/report`: what
     /// `sampler.report` says, the playing guide, and the import report the import wrote
     /// beside a collected instrument (`import-report.md`).
     fn instrument_report(&self, caller: &Caller, p: &Project, a: &Value) -> Result<Value, String> {

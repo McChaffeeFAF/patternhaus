@@ -1,4 +1,4 @@
-//! Patternhaus VST3 test plugins (M2/T3): one module (this cdylib, renamed
+//! Beast Studio VST3 test plugins (M2/T3): one module (this cdylib, renamed
 //! `ph-test-vst3.vst3`) with two single-component classes (`IComponent`, `IAudioProcessor` and
 //! `IEditController` on one object), so the VST3 host is tested without third-party plugins:
 //!
@@ -526,8 +526,11 @@ fn class_info(index: i32) -> Option<(TUID, &'static str, &'static str)> {
 impl IPluginFactoryTrait for Factory {
     unsafe fn getFactoryInfo(&self, info: *mut PFactoryInfo) -> tresult {
         let info = unsafe { &mut *info };
-        copy_cstring("Patternhaus", &mut info.vendor);
-        copy_cstring("https://github.com/McChaffeeFAF/patternhaus", &mut info.url);
+        copy_cstring("Beast Studio", &mut info.vendor);
+        copy_cstring(
+            "https://github.com/McChaffeeFAF/beast-studio",
+            &mut info.url,
+        );
         copy_cstring("", &mut info.email);
         info.flags = PFactoryInfo_::FactoryFlags_::kUnicode as int32;
         kResultOk
@@ -577,7 +580,7 @@ impl IPluginFactory2Trait for Factory {
         copy_cstring(name, &mut info.name);
         info.classFlags = 0;
         copy_cstring(subs, &mut info.subCategories);
-        copy_cstring("Patternhaus", &mut info.vendor);
+        copy_cstring("Beast Studio", &mut info.vendor);
         copy_cstring("1.0.0", &mut info.version);
         copy_cstring("VST 3.7", &mut info.sdkVersion);
         kResultOk

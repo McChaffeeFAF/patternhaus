@@ -1,4 +1,4 @@
-//! The Haus Sampler window (M3/T5), offscreen through real egui events: the zone map's drags
+//! The Beast Sampler window (M3/T5), offscreen through real egui events: the zone map's drags
 //! (move, resize, several zones, rubber band) each become one undoable `sampler.zone_move`,
 //! the inspector edits through `sampler.zone_set`, the keyboard strip switches articulation,
 //! and drops of a generated SFZ, a sample folder (with its auto-map preview) and a two-preset
@@ -101,7 +101,7 @@ fn gpu_available() -> bool {
     .is_ok()
 }
 
-/// A project with one Haus Sampler channel: two velocity layers, a middle zone, two round
+/// A project with one Beast Sampler channel: two velocity layers, a middle zone, two round
 /// robins, a release zone over the middle, two groups and two keyswitched articulations. The
 /// sampler window is open and nothing else but the rack.
 fn start_with(w: f32, hgt: f32, gpu: bool) -> Rig {
@@ -638,11 +638,11 @@ fn a_dropped_sfz_becomes_a_sampler_channel_with_its_window() {
     let sfz = r.file("Lib/Piano.sfz", SFZ.as_bytes());
     let pos = r.rack_point();
     let text = r.hover(&[&sfz], pos);
-    assert!(text.contains("Haus Sampler"), "{text}");
+    assert!(text.contains("Beast Sampler"), "{text}");
     let before = r.sampler_channels().len();
     r.drop_at(&[&sfz], pos);
     let list = r.sampler_channels();
-    assert_eq!(list.len(), before + 1, "a new Haus Sampler channel");
+    assert_eq!(list.len(), before + 1, "a new Beast Sampler channel");
     let (ch, inst) = *list.last().unwrap();
     let i = r.app().core.project.instruments[&inst].clone();
     assert_eq!(i.zones.len(), 2);
@@ -663,7 +663,7 @@ fn a_dropped_sample_folder_shows_the_automap_preview_then_imports() {
     let folder = r.drops.path().join("Pads");
     let pos = r.rack_point();
     let text = r.hover(&[&folder], pos);
-    assert!(text.contains("Haus Sampler"), "{text}");
+    assert!(text.contains("Beast Sampler"), "{text}");
     let before = r.sampler_channels().len();
     r.drop_at(&[&folder], pos);
     let form = match &r.app().core.dialog {
@@ -794,10 +794,10 @@ fn a_registered_importer_lists_in_the_browser_and_imports_on_drop() {
     let audio = ph_ui::sampler_ui::preview_audio(&toy, &importers).expect("preview renders");
     assert!(audio.channels[0].iter().any(|v| v.abs() > 0.01));
 
-    // dropped on the rack, it becomes a Haus Sampler channel through sampler.import
+    // dropped on the rack, it becomes a Beast Sampler channel through sampler.import
     let pos = r.rack_point();
     let text = r.hover(&[&toy], pos);
-    assert!(text.contains("Haus Sampler"), "{text}");
+    assert!(text.contains("Beast Sampler"), "{text}");
     let before = r.sampler_channels().len();
     r.drop_at(&[&toy], pos);
     r.settle();
@@ -848,8 +848,12 @@ fn save_as_native_and_collect_into_the_project() {
     r.app().core.sel.channel = Some(ch);
     r.frames(4);
 
-    // Save as Haus instrument… (the dialog the button opens)
-    assert!(r.h.query_all_by_label("Save as Haus instrument…").count() >= 1);
+    // Save as Beast Sampler instrument… (the dialog the button opens)
+    assert!(
+        r.h.query_all_by_label("Save as Beast Sampler instrument…")
+            .count()
+            >= 1
+    );
     r.app().core.dialog = Some(Dialog::SamplerSave(ph_ui::sampler_ui::SaveForm {
         instrument: inst,
         path: "saved instruments/Piano".into(),
@@ -877,7 +881,7 @@ fn save_as_native_and_collect_into_the_project() {
     assert!(folder.starts_with("instruments/"), "collected: {folder}");
     assert!(r.dir.path().join(&folder).join("samples").is_dir());
 
-    // and Load Haus instrument… puts the saved one on a new channel
+    // and Load Beast Sampler instrument… puts the saved one on a new channel
     let before = r.sampler_channels().len();
     r.app().core.dialog = Some(Dialog::SamplerLoad(ph_ui::sampler_ui::LoadForm {
         channel: None,

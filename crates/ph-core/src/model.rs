@@ -32,7 +32,7 @@ pub struct Project {
     /// Absent in format 1 files; omitted when empty.
     #[serde(default, skip_serializing_if = "is_empty_map")]
     pub samples: Arc<BTreeMap<SampleId, SampleEntry>>,
-    /// Haus Sampler instruments (M3, format 3), with their groups and zones. Absent in
+    /// Beast Sampler instruments (M3, format 3), with their groups and zones. Absent in
     /// older files; omitted when empty. See [`crate::HausInstrument`].
     #[serde(default, skip_serializing_if = "is_empty_map")]
     pub instruments: Arc<BTreeMap<InstrumentId, HausInstrument>>,
@@ -43,7 +43,7 @@ pub struct Project {
 
 /// Version 2 (M2) adds audio and automation clips, the sample registry and automation
 /// points; every addition has a serde default, so the 1 → 2 migration only bumps the number.
-/// Version 3 (M3) adds Haus Sampler instruments (`instruments`, the `instrument`/`group`/
+/// Version 3 (M3) adds Beast Sampler instruments (`instruments`, the `instrument`/`group`/
 /// `zone` id counters and `MultiSampler.instrument`), again all defaulted.
 pub const FORMAT_VERSION: u32 = 3;
 pub const MIXER_INSERTS: usize = 32;
@@ -133,7 +133,7 @@ pub enum InstrumentSpec {
         #[serde(default)]
         params: BTreeMap<String, f64>,
     },
-    /// Haus Sampler (M3, `ph.haus_sampler`). `instrument` is the project's
+    /// Beast Sampler (M3, `ph.haus_sampler`). `instrument` is the project's
     /// [`HausInstrument`] it plays (format 3); the zone map always lives in the project,
     /// whether its samples are linked from a library folder or collected into the project
     /// (see `docs/formats/haus-instrument.md`, "How a project refers to an instrument").

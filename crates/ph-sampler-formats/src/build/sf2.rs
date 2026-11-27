@@ -296,7 +296,7 @@ impl Sf2Builder {
         if let Some(r) = &self.rom {
             info.push((*b"irom", zstr(r)));
         }
-        info.push((*b"ISFT", zstr("Patternhaus Sf2Builder")));
+        info.push((*b"ISFT", zstr("Beast Studio Sf2Builder")));
 
         // sample data: PCM first (each + 46 zero frames), then streams
         let mut smpl = Vec::new();

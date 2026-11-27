@@ -206,7 +206,7 @@ impl Keymap {
     /// Serialises to the TOML file format (what a user keymap file looks like).
     pub fn to_toml(&self) -> String {
         let mut s = String::from(
-            "# Patternhaus keymap (generated). See keymap.default.toml for the format.\n",
+            "# Beast Studio keymap (generated). See keymap.default.toml for the format.\n",
         );
         for b in &self.bindings {
             s.push_str("\n[[bind]]\n");

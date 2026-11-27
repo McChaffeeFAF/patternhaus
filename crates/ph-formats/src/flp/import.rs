@@ -1,4 +1,4 @@
-//! Maps the typed FLP data ([`super::read`]) to a Patternhaus [`Project`] through [`Edit`],
+//! Maps the typed FLP data ([`super::read`]) to a Beast Studio [`Project`] through [`Edit`],
 //! and records everything it approximated or skipped in the [`ImportReport`].
 //!
 //! Scales used (spec section in brackets):
@@ -421,7 +421,7 @@ impl<'a> Importer<'a> {
                     self.rep.add("channels.automation_sources", 1);
                     self.auto_src.insert(ch.iid, ch);
                 }
-                CH_LAYER => self.rep.skip("layer channel (no layer in Patternhaus)", 1),
+                CH_LAYER => self.rep.skip("layer channel (no layer in Beast Studio)", 1),
                 _ => self.rep.skip("channel of an unknown type", 1),
             }
         }
@@ -741,7 +741,7 @@ impl<'a> Importer<'a> {
         };
         for other in file.arrangements.iter().skip(1) {
             self.rep.skip(
-                "playlist items of further arrangements (Patternhaus has one playlist)",
+                "playlist items of further arrangements (Beast Studio has one playlist)",
                 other.items.len() as u64,
             );
         }
@@ -795,7 +795,7 @@ impl<'a> Importer<'a> {
         };
         if track as usize >= PLAYLIST_TRACKS {
             self.rep
-                .skip("playlist item on a track above 64 (Patternhaus has 64)", 1);
+                .skip("playlist item on a track above 64 (Beast Studio has 64)", 1);
             return Ok(());
         }
         let start = self.ticks(u64::from(it.position));

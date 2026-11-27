@@ -24,7 +24,7 @@ pub enum Kind {
     Catalogue {
         entry: String,
     },
-    /// An instrument file the Haus Sampler imports (`.sfz`, `.sf2`, `.sf3`, `.dspreset`,
+    /// An instrument file the Beast Sampler imports (`.sfz`, `.sf2`, `.sf3`, `.dspreset`,
     /// `.dsbundle`, `.exs`, ...), by its absolute path (M3/T5).
     Instrument {
         path: String,

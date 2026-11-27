@@ -1,4 +1,4 @@
-//! Patternhaus built-in instruments (DESIGN §7).
+//! Beast Studio built-in instruments (DESIGN §7).
 //!
 //! | id | instrument |
 //! |---|---|
@@ -56,7 +56,7 @@ pub fn create(
             (Box::new(synth::Synth::new()), params)
         }
         InstrumentSpec::MultiSampler { .. } => {
-            return Err("Haus Sampler (multi-sampler) is not available until M3".into());
+            return Err("Beast Sampler (multi-sampler) is not available until M3".into());
         }
         InstrumentSpec::Plugin { .. } => {
             return Err("external plugin instruments are not available until M2".into());

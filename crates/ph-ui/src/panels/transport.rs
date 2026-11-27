@@ -479,7 +479,7 @@ pub fn health(ui: &mut Ui, core: &mut AppCore) {
         format!("{:.0} MB", b as f64 / 1_048_576.0)
     });
     ui.label(mono(format!("RAM {ram}"), c.dim))
-        .hint("Memory", &ram, "memory used by Patternhaus");
+        .hint("Memory", &ram, "memory used by Beast Studio");
     ui.add_space(8.0);
     let load = live.stats.dsp_load;
     let (kind, col) = if load > 0.8 {
