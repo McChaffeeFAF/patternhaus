@@ -17,7 +17,7 @@ On the owner's machine there's a prebuilt copy with a launcher. It finds the fac
 the checkpoint project folder:
 
 ```powershell
-E:\patternhaus\local\app\Beast Studio.bat                       # or: Beast Studio.bat <project_dir> --demo-agent
+"E:\patternhaus\local\app\Beast Studio.bat"                     # or: "Beast Studio.bat" <project_dir> --demo-agent
 ```
 
 Options:

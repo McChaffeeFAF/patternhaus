@@ -283,7 +283,7 @@ fn header(ui: &mut Ui, core: &mut AppCore, inst: &HausInstrument, ch: ChannelId,
             .source
             .as_ref()
             .map(|s| s.format.to_uppercase())
-            .unwrap_or_else(|| "HAUS".into());
+            .unwrap_or_else(|| "BEAST".into());
         widgets::badge(ui, &source, c.accent_dim, theme);
         let linked = inst
             .folder

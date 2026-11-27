@@ -272,7 +272,7 @@ Every effect also takes `enabled` (default true) and `tags`.
 
 | Type | Attributes (range, default) | M3 mapping [PH] |
 |---|---|---|
-| `lowpass` (also `lowpass_4pl`), `bandpass`, `highpass` | `frequency` 0–22000 Hz (22000), `resonance` 0.001–5 (0.7) | Haus filter, 2-pole; supported. The guide gives all three one table, so a band-pass or high-pass without `frequency` sits at 22000 Hz (20000 Hz, the built-in filter's top) and passes almost nothing: kept, and reported (`effect:<type>:frequency`) |
+| `lowpass` (also `lowpass_4pl`), `bandpass`, `highpass` | `frequency` 0–22000 Hz (22000), `resonance` 0.001–5 (0.7) | Beast Sampler filter, 2-pole; supported. The guide gives all three one table, so a band-pass or high-pass without `frequency` sits at 22000 Hz (20000 Hz, the built-in filter's top) and passes almost nothing: kept, and reported (`effect:<type>:frequency`) |
 | `lowpass_1pl` | `frequency` (22000) | 1-pole; supported |
 | `notch` | `frequency` 60–22000 (10000), `Q` 0.01–18 (0.7) | supported |
 | `peak` | `frequency` (10000), `Q` (0.7), `gain` linear 0.0001–10 or dB −80–20 with `gainUnit="decibels"` (1.0) | supported |
