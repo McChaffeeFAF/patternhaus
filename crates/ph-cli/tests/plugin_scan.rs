@@ -1,4 +1,4 @@
-//! `patternhaus-cli plugin-scan --report` over the repo's test plugins (M2/T3): the scan runs
+//! `beast-studio-cli plugin-scan --report` over the repo's test plugins (M2/T3): the scan runs
 //! each file in the helper process, fills the cache, blocks a file that is not a plugin, and
 //! writes the markdown compatibility report.
 
@@ -35,9 +35,9 @@ fn plugin_scan_writes_a_report_and_a_cache() {
     if plugins.clap.is_dir() {
         args.insert(1, plugins.clap.to_string_lossy().into_owned());
     }
-    let out = Command::new(env!("CARGO_BIN_EXE_patternhaus-cli"))
+    let out = Command::new(env!("CARGO_BIN_EXE_beast-studio-cli"))
         .args(&args)
-        .env("PATTERNHAUS_PLUGIN_SCAN", &plugins.scan_helper)
+        .env("BEAST_STUDIO_PLUGIN_SCAN", &plugins.scan_helper)
         .output()
         .unwrap();
     assert!(
@@ -62,8 +62,9 @@ fn plugin_scan_writes_a_report_and_a_cache() {
     assert!(md.contains("broken.clap"));
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("[1/2]"), "{stderr}");
-    // a second run comes from the cache
-    let again = Command::new(env!("CARGO_BIN_EXE_patternhaus-cli"))
+    // a second run comes from the cache; it names the helper with the pre-rename variable,
+    // which is still read
+    let again = Command::new(env!("CARGO_BIN_EXE_beast-studio-cli"))
         .args(&args)
         .env("PATTERNHAUS_PLUGIN_SCAN", &plugins.scan_helper)
         .output()

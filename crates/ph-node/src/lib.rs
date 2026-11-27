@@ -33,6 +33,8 @@
 //! handles `Param`, and a 32-frame staircase under the processor's own smoothing is
 //! inaudible.
 
+pub mod env;
+
 use serde::{Deserialize, Serialize};
 
 /// Longest gap, in frames, between two `Param` events the engine sends for an automated

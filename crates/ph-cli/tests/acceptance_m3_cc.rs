@@ -1,6 +1,6 @@
 //! M3/T10 acceptance: controller lanes, **through MCP only**.
 //!
-//! A scripted agent drives `patternhaus-cli mcp --headless` over stdio and:
+//! A scripted agent drives `beast-studio-cli mcp --headless` over stdio and:
 //!
 //! 1. imports a generated one-region SFZ string patch (a sustained tone, 24 dB down), and routes
 //!    CC1 (mod wheel) to the sampler's volume, +24 dB at full travel (`sampler.modulation_set`):

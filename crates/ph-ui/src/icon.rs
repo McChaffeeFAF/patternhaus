@@ -1,4 +1,4 @@
-//! The application icon: the Patternhaus mark (see [`crate::brand`]) rasterised at any size by
+//! The application icon: the Beast Studio mark (see [`crate::brand`]) rasterised at any size by
 //! a small supersampling renderer, so the window icon needs no image files and the shipped
 //! `.ico` and PNGs (packaging/icons, written by the `app_icons` test) are the same picture.
 
@@ -205,7 +205,7 @@ mod tests {
             image::codecs::png::PngEncoder::new(&mut png)
                 .write_image(&rgba(size), size, size, image::ExtendedColorType::Rgba8)
                 .unwrap();
-            let path = dir.join(format!("patternhaus-{size}.png"));
+            let path = dir.join(format!("beast-studio-{size}.png"));
             if write {
                 std::fs::create_dir_all(&dir).unwrap();
                 std::fs::write(&path, &png).unwrap();
@@ -218,7 +218,7 @@ mod tests {
             entries.push((size, png));
         }
         let ico_bytes = ico(&entries);
-        let path = dir.join("patternhaus.ico");
+        let path = dir.join("beast-studio.ico");
         if write {
             std::fs::write(&path, &ico_bytes).unwrap();
         } else {

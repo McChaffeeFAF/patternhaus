@@ -1,6 +1,6 @@
 [package]
 name = "ph-app"
-description = "Patternhaus desktop application (binary)."
+description = "Beast Studio desktop application (binary)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ rust-version.workspace = true
 path = "src/lib.rs"
 
 [[bin]]
-name = "ph-app"
+name = "beast-studio"
 path = "src/main.rs"
 
 [features]

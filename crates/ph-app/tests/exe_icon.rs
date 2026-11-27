@@ -7,10 +7,10 @@
 fn the_exe_embeds_every_image_of_the_icon() {
     let ico = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../packaging/icons/patternhaus.ico"
+        "/../../packaging/icons/beast-studio.ico"
     ))
     .unwrap();
-    let exe = std::fs::read(env!("CARGO_BIN_EXE_ph-app")).unwrap();
+    let exe = std::fs::read(env!("CARGO_BIN_EXE_beast-studio")).unwrap();
     let u16_at = |i: usize| u16::from_le_bytes([ico[i], ico[i + 1]]) as usize;
     let u32_at =
         |i: usize| u32::from_le_bytes([ico[i], ico[i + 1], ico[i + 2], ico[i + 3]]) as usize;

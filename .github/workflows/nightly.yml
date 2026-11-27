@@ -66,4 +66,4 @@ jobs:
           gh release create nightly dist/*.zip \
             --prerelease \
             --title "Nightly (${{ needs.label.outputs.label }})" \
-            --notes "Automatic build of main at ${SHA}, published after CI passed. Pre-alpha: expect breakage. Each zip holds ph-app, patternhaus-cli, the factory assets, THIRD_PARTY_NOTICES.md, the licences and a README. See CHANGELOG.md."
+            --notes "Automatic build of main at ${SHA}, published after CI passed. Pre-alpha: expect breakage. Each zip holds beast-studio, beast-studio-cli, the factory assets, THIRD_PARTY_NOTICES.md, the licences and a README. See CHANGELOG.md."

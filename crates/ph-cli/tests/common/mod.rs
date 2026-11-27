@@ -1,4 +1,4 @@
-//! An MCP client that spawns `patternhaus-cli mcp --headless` over stdio, shared by the e2e
+//! An MCP client that spawns `beast-studio-cli mcp --headless` over stdio, shared by the e2e
 //! and acceptance tests.
 #![allow(dead_code)] // each test binary uses a different subset
 
@@ -55,7 +55,7 @@ pub async fn connect(project: &Path, extra: &[&str]) -> Client {
 /// [`connect`] with extra environment for the server process (M2: a private plugin cache and
 /// the test plugins' scan helper, so a test never touches the user's own plugin cache).
 pub async fn connect_with_env(project: &Path, extra: &[&str], env: &[(&str, &Path)]) -> Client {
-    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_patternhaus-cli"));
+    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_beast-studio-cli"));
     cmd.args(["mcp", "--headless", "--project"])
         .arg(project)
         .args(extra);
@@ -64,7 +64,7 @@ pub async fn connect_with_env(project: &Path, extra: &[&str], env: &[(&str, &Pat
         cmd.env(k, v);
     }
     Agent
-        .serve(TokioChildProcess::new(cmd).expect("spawn patternhaus-cli"))
+        .serve(TokioChildProcess::new(cmd).expect("spawn beast-studio-cli"))
         .await
         .expect("MCP initialize")
 }

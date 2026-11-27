@@ -1,4 +1,4 @@
-//! End-to-end: a real MCP client spawns `patternhaus-cli mcp --headless` over stdio and, using
+//! End-to-end: a real MCP client spawns `beast-studio-cli mcp --headless` over stdio and, using
 //! only MCP tools, builds a four-channel beat, arranges 8 bars, mixes it, exports a WAV and
 //! checks the result by analysis and snapshots. This is the agent half of M1 acceptance
 //! criterion 1 (DESIGN §12).
@@ -48,7 +48,7 @@ async fn agent_builds_mixes_exports_and_analyses_a_beat_over_mcp() {
     }
     assert!(tools.iter().all(|t| t.input_schema.contains_key("type")));
     let info = c.peer_info().expect("server info");
-    assert_eq!(info.server_info.as_ref().unwrap().name, "patternhaus");
+    assert_eq!(info.server_info.as_ref().unwrap().name, "beast-studio");
 
     let cmds = ok(&c, "list_commands", json!({ "filter": "mixer" })).await;
     assert!(cmds["count"].as_u64().unwrap() >= 10);

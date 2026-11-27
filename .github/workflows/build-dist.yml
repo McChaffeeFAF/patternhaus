@@ -43,10 +43,10 @@ jobs:
       - run: cargo build --release --locked -p ph-app -p ph-cli -p ph-plugin-host
       - name: package
         shell: bash
-        run: packaging/package.sh target/release "patternhaus-${{ inputs.label }}-${{ matrix.name }}"
+        run: packaging/package.sh target/release "beast-studio-${{ inputs.label }}-${{ matrix.name }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: patternhaus-${{ matrix.name }}
+          name: beast-studio-${{ matrix.name }}
           path: dist/*.zip
           if-no-files-found: error
 
@@ -73,9 +73,9 @@ jobs:
         run: cargo build --release --locked -p ph-app -p ph-cli -p ph-plugin-host --features ph-app/asio
       - name: package
         shell: bash
-        run: packaging/package.sh target/release "patternhaus-${{ inputs.label }}-windows-x64-asio-gpl3" gpl
+        run: packaging/package.sh target/release "beast-studio-${{ inputs.label }}-windows-x64-asio-gpl3" gpl
       - uses: actions/upload-artifact@v4
         with:
-          name: patternhaus-windows-x64-asio-gpl3
+          name: beast-studio-windows-x64-asio-gpl3
           path: dist/*.zip
           if-no-files-found: error

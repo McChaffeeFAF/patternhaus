@@ -1,6 +1,6 @@
 //! M2 acceptance criterion 1 (`docs/milestones/M2.md`), step by step.
 //!
-//! A scripted agent drives `patternhaus-cli mcp --headless` over stdio, **through MCP tools
+//! A scripted agent drives `beast-studio-cli mcp --headless` over stdio, **through MCP tools
 //! only** (`run`, `run_batch`, `get_state`, `analyze`, `render`, `snapshot` and the M1
 //! convenience tools, all on `main` before M2/T9), and builds a 32-bar song at 124 BPM:
 //!
@@ -147,7 +147,7 @@ async fn m2_acceptance_agent_builds_a_song_through_mcp_only() {
         ("USERPROFILE", &home),
         ("HOME", &home),
         ("XDG_CACHE_HOME", &home),
-        ("PATTERNHAUS_PLUGIN_SCAN", &plugins.scan_helper),
+        ("BEAST_STUDIO_PLUGIN_SCAN", &plugins.scan_helper),
     ];
     let c = connect_with_env(&song, &[], &env).await;
 

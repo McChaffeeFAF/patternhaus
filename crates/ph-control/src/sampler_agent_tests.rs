@@ -1,6 +1,6 @@
-//! Haus Sampler agent features (M3/T7) through the agent core: the completed `zones` view and
+//! Beast Sampler agent features (M3/T7) through the agent core: the completed `zones` view and
 //! its playing guide, the `zone_map` snapshot, the `report` view behind
-//! `patternhaus://instrument/<id>/report`, sampler lines in the musical diff and in
+//! `beast-studio://instrument/<id>/report`, sampler lines in the musical diff and in
 //! `while_you_worked`, and keyswitches and kits left out of the key and chord analysis.
 
 use super::*;
@@ -293,14 +293,19 @@ fn keyswitches_and_kits_stay_out_of_the_key_and_chords() {
 fn instrument_report_uris_name_an_instrument() {
     use crate::mcp::{INSTRUMENT_REPORT_TEMPLATE, instrument_report_id};
     assert_eq!(
+        instrument_report_id("beast-studio://instrument/12/report"),
+        Some(12)
+    );
+    // the scheme from before the rename is an alias
+    assert_eq!(
         instrument_report_id("patternhaus://instrument/12/report"),
         Some(12)
     );
     assert_eq!(
-        instrument_report_id("patternhaus://instrument/x/report"),
+        instrument_report_id("beast-studio://instrument/x/report"),
         None
     );
-    assert_eq!(instrument_report_id("patternhaus://instrument/3"), None);
+    assert_eq!(instrument_report_id("beast-studio://instrument/3"), None);
     assert_eq!(
         instrument_report_id(&INSTRUMENT_REPORT_TEMPLATE.replace("{id}", "7")),
         Some(7)

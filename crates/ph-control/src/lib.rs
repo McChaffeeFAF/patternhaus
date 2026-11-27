@@ -27,6 +27,7 @@ mod m2_agent_tests;
 mod mcp;
 mod node_params;
 mod probe;
+pub mod userdirs;
 mod views;
 mod views_m2;
 mod views_m3;
@@ -35,8 +36,8 @@ pub use agent::{Agent, MAX_LISTEN_BYTES, MAX_LISTEN_SECONDS, ToolOutput, ToolSpe
 pub use connections::{ConnGuard, ConnectionInfo, Connections, Protocol};
 pub use diff::{Diff, diff};
 pub use endpoint::{
-    LocalServer, connect, default_endpoint, default_grants_file, proxy_stdio, serve_local,
-    serve_local_with, serve_stdio,
+    Connection, LocalServer, connect, connect_any, default_endpoint, default_grants_file,
+    endpoint_candidates, legacy_endpoint, proxy_stdio, serve_local, serve_local_with, serve_stdio,
 };
 pub use events::{Event, EventHub};
 pub use grants::{GrantPrompt, Grants, grant_text, parse_grant};
@@ -92,7 +93,7 @@ pub struct StudioConfig {
     pub library_roots: Vec<PathBuf>,
     /// Where exports may be written besides the project folder.
     pub exports_dir: Option<PathBuf>,
-    /// The Patternhaus projects folder: the default home of FLP imports, and an allowed
+    /// The Beast Studio projects folder: the default home of FLP imports, and an allowed
     /// read/write root for agents (see [`default_projects_dir`]). `None` for none.
     pub projects_dir: Option<PathBuf>,
     pub engine: EngineConfig,
@@ -104,23 +105,10 @@ pub struct StudioConfig {
 }
 
 /// The plugin settings front ends use: the scan cache in the user's cache folder
-/// (`%LOCALAPPDATA%\Patternhaus\plugin-cache.json`, `~/Library/Caches/Patternhaus/...`,
-/// `$XDG_CACHE_HOME/patternhaus/...`), the helper next to the executable.
+/// (`%LOCALAPPDATA%\Beast Studio\plugin-cache.json`, `~/Library/Caches/Beast Studio/...`,
+/// `$XDG_CACHE_HOME/beast-studio/...`; see [`userdirs`]), the helper next to the executable.
 pub fn default_plugin_config() -> ph_engine::plugins::HostConfig {
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .map(PathBuf::from)
-            .filter(|p| !p.as_os_str().is_empty())
-    };
-    let dir = if cfg!(windows) {
-        env("LOCALAPPDATA").map(|d| d.join("Patternhaus"))
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library/Caches/Patternhaus"))
-    } else {
-        env("XDG_CACHE_HOME")
-            .or_else(|| env("HOME").map(|h| h.join(".cache")))
-            .map(|d| d.join("patternhaus"))
-    };
+    let dir = userdirs::cache_dir_in(&userdirs::process_env, userdirs::Era::Current);
     ph_engine::plugins::HostConfig {
         cache_file: dir.map(|d| d.join("plugin-cache.json")),
         ..Default::default()
@@ -128,26 +116,12 @@ pub fn default_plugin_config() -> ph_engine::plugins::HostConfig {
 }
 
 /// The per-user plugin catalogue folder (M3/T9, `docs/formats/catalogue.md`):
-/// `$PATTERNHAUS_CATALOGUE` when set, else `Patternhaus/catalogue` in the user's data folder
-/// (`%APPDATA%` on Windows, `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` or
-/// `~/.local/share` elsewhere). `None` when none is known. Nothing is created here.
+/// `$BEAST_STUDIO_CATALOGUE` (or the older `$PATTERNHAUS_CATALOGUE`) when set, else
+/// `Beast Studio/catalogue` in the user's data folder (`%APPDATA%` on Windows,
+/// `~/Library/Application Support` on macOS, `$XDG_DATA_HOME` or `~/.local/share` elsewhere).
+/// `None` when none is known. Nothing is created here.
 pub fn default_catalogue_dir() -> Option<PathBuf> {
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .map(PathBuf::from)
-            .filter(|p| !p.as_os_str().is_empty())
-    };
-    if let Some(d) = env("PATTERNHAUS_CATALOGUE") {
-        return Some(d);
-    }
-    let data = if cfg!(windows) {
-        env("APPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library/Application Support"))
-    } else {
-        env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share")))
-    };
-    data.map(|d| d.join("Patternhaus").join("catalogue"))
+    userdirs::catalogue_dir_in(&userdirs::process_env)
 }
 
 /// The running application core.

@@ -271,7 +271,7 @@ impl MidiConnection for MidirConnection {}
 
 impl MidiBackend for MidirBackend {
     fn ports(&mut self) -> Vec<MidiPort> {
-        let Ok(input) = midir::MidiInput::new("Patternhaus ports") else {
+        let Ok(input) = midir::MidiInput::new("Beast Studio ports") else {
             return Vec::new();
         };
         input
@@ -287,7 +287,7 @@ impl MidiBackend for MidirBackend {
         port: &MidiPort,
         sink: MidiSink,
     ) -> Result<Box<dyn MidiConnection>, String> {
-        let input = midir::MidiInput::new("Patternhaus").map_err(|e| e.to_string())?;
+        let input = midir::MidiInput::new("Beast Studio").map_err(|e| e.to_string())?;
         let found = input
             .ports()
             .into_iter()
@@ -296,7 +296,7 @@ impl MidiBackend for MidirBackend {
         let conn = input
             .connect(
                 &found,
-                "patternhaus-in",
+                "beast-studio-in",
                 move |_stamp, bytes, _| sink(bytes),
                 (),
             )

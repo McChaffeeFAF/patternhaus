@@ -1,5 +1,5 @@
 //! The live route: an app (here, an in-process studio) serves the local endpoint;
-//! `patternhaus-cli mcp --connect` is a stdio proxy to it. Checks identity and grants,
+//! `beast-studio-cli mcp --connect` is a stdio proxy to it. Checks identity and grants,
 //! live events for edits by someone else, and the JSON-RPC route on the same endpoint.
 
 #![allow(deprecated)]
@@ -101,7 +101,7 @@ async fn proxy_attaches_to_the_running_app_with_grants_and_live_events() {
     };
     let server = serve_local_with(studio.handle(), &endpoint, grants.clone()).unwrap();
 
-    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_patternhaus-cli"));
+    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_beast-studio-cli"));
     cmd.args(["mcp", "--connect", "--endpoint", &endpoint]);
     let watcher = Watcher::default();
     let c = watcher
@@ -131,6 +131,10 @@ async fn proxy_attaches_to_the_running_app_with_grants_and_live_events() {
     );
 
     // live events: subscribe, then someone else (the human at the keyboard) edits
+    c.subscribe(SubscribeRequestParams::new("beast-studio://events"))
+        .await
+        .unwrap();
+    // the scheme from before the rename is still accepted, and answered in kind
     c.subscribe(SubscribeRequestParams::new("patternhaus://events"))
         .await
         .unwrap();
@@ -144,8 +148,18 @@ async fn proxy_attaches_to_the_running_app_with_grants_and_live_events() {
             json!({ "bpm": 90.0 }),
         )
         .unwrap();
-    wait_for(|| !watcher.updated.lock().unwrap().is_empty()).await;
-    assert_eq!(watcher.updated.lock().unwrap()[0], "patternhaus://events");
+    wait_for(|| watcher.updated.lock().unwrap().len() >= 2).await;
+    {
+        let updated = watcher.updated.lock().unwrap();
+        assert!(
+            updated.iter().any(|u| u == "beast-studio://events"),
+            "{updated:?}"
+        );
+        assert!(
+            updated.iter().any(|u| u == "patternhaus://events"),
+            "{updated:?}"
+        );
+    }
     wait_for(|| !watcher.logs.lock().unwrap().is_empty()).await;
     let ev = watcher.logs.lock().unwrap()[0].clone();
     assert_eq!(ev["kind"], "edit");
@@ -157,11 +171,22 @@ async fn proxy_attaches_to_the_running_app_with_grants_and_live_events() {
 
     // the resource carries the same events, and the next tool result mentions them
     let res = c
-        .read_resource(ReadResourceRequestParams::new("patternhaus://events"))
+        .read_resource(ReadResourceRequestParams::new("beast-studio://events"))
         .await
         .unwrap();
     let text = serde_json::to_string(&res).unwrap();
     assert!(text.contains("human edited"), "{text}");
+    // ... and so does the pre-rename spelling of the same resource
+    let old = c
+        .read_resource(ReadResourceRequestParams::new("patternhaus://events"))
+        .await
+        .unwrap();
+    assert!(
+        serde_json::to_string(&old)
+            .unwrap()
+            .contains("human edited"),
+        "the old scheme reads the same events"
+    );
     studio
         .run(
             &Caller::human(),

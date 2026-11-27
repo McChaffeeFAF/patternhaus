@@ -692,7 +692,7 @@ fn agent_flp_import_is_confined_to_the_projects_folder() {
     let report =
         std::fs::read_to_string(projects.path().join("near (2)/import-report.md")).unwrap();
     assert!(report.contains("## Placement"), "{report}");
-    assert!(!library.path().join("near (Patternhaus)").exists());
+    assert!(!library.path().join("near (Beast Studio)").exists());
 }
 
 /// A two-bar drum loop at `bpm` (kick on the beats, a snare on 2 and 4), 48 kHz mono.
@@ -1011,4 +1011,88 @@ fn snapshot_shows_an_audio_clips_waveform_and_the_playlist_draws_it() {
     ] {
         assert!(agent.call("claude", "snapshot", args).is_error);
     }
+}
+
+// ---- the endpoint rename: new name first, the pre-rename one as a fallback ----------------
+
+#[test]
+fn the_default_endpoint_is_beast_studio_and_the_old_name_is_the_fallback() {
+    use crate::{default_endpoint, endpoint_candidates, legacy_endpoint};
+    assert!(
+        default_endpoint().contains("beast-studio"),
+        "{}",
+        default_endpoint()
+    );
+    assert!(
+        legacy_endpoint().contains("patternhaus"),
+        "{}",
+        legacy_endpoint()
+    );
+    assert_eq!(
+        endpoint_candidates(None),
+        vec![default_endpoint(), legacy_endpoint()]
+    );
+    // an endpoint named on the command line is used alone
+    assert_eq!(endpoint_candidates(Some("mine")), vec!["mine".to_string()]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_client_attaches_to_the_new_endpoint_first_and_falls_back_to_the_old_one() {
+    use crate::connect_any;
+    let dir = tempfile::tempdir().unwrap();
+    let name = |tag: &str| {
+        if cfg!(windows) {
+            format!(r"\\.\pipe\beast-studio-test-{tag}-{}", std::process::id())
+        } else {
+            dir.path()
+                .join(format!("{tag}.sock"))
+                .to_string_lossy()
+                .into_owned()
+        }
+    };
+    let (new_ep, old_ep) = (name("new"), name("old"));
+    let candidates = [new_ep.clone(), old_ep.clone()];
+    let grants = || Grants::fixed(Grant(vec![Scope::Read]));
+
+    // nothing runs: the error names both endpoints
+    let err = connect_any(&candidates)
+        .await
+        .err()
+        .expect("nothing to attach to");
+    assert!(err.contains(&new_ep) && err.contains(&old_ep), "{err}");
+
+    // only a pre-rename app runs: the client falls back to it
+    let old_app = serve_local_with(studio(dir.path()).handle(), &old_ep, grants()).unwrap();
+    let (r, w) = connect_any(&candidates)
+        .await
+        .expect("falls back to the old name");
+    let mut c = Rpc {
+        r: BufReader::new(r),
+        w,
+        next: 0,
+    };
+    c.send("rpc.hello", json!({ "client": "fallback" })).await;
+    assert_eq!(c.recv().await["result"]["client"], "fallback");
+    assert_eq!(old_app.connections().len(), 1);
+
+    // a Beast Studio app runs too: the new name wins
+    let new_dir = tempfile::tempdir().unwrap();
+    let new_app = serve_local_with(studio(new_dir.path()).handle(), &new_ep, grants()).unwrap();
+    let (r, w) = connect_any(&candidates)
+        .await
+        .expect("attaches to the new name");
+    let mut c2 = Rpc {
+        r: BufReader::new(r),
+        w,
+        next: 0,
+    };
+    c2.send("rpc.hello", json!({ "client": "first-choice" }))
+        .await;
+    assert_eq!(c2.recv().await["result"]["client"], "first-choice");
+    assert_eq!(new_app.connections().len(), 1);
+    assert_eq!(
+        old_app.connections().len(),
+        1,
+        "the old app got no second client"
+    );
 }

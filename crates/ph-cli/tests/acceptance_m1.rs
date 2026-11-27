@@ -1,6 +1,6 @@
 //! M1 acceptance criterion 1 (DESIGN §12, `docs/milestones/M1.md`), step by step.
 //!
-//! A scripted agent drives `patternhaus-cli mcp --headless` over stdio, **through MCP tools
+//! A scripted agent drives `beast-studio-cli mcp --headless` over stdio, **through MCP tools
 //! only**, and the checks map onto the criterion as written:
 //!
 //! 1. sets 4 channels: kick, snare and hat on samplers, bass on Haus Synth;

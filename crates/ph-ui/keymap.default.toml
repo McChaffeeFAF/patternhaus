@@ -1,8 +1,8 @@
-# Patternhaus default keymap. FL Studio's *functional* shortcuts, so muscle memory carries over.
+# Beast Studio default keymap. FL Studio's *functional* shortcuts, so muscle memory carries over.
 #
 # Every binding names a command: either a command id from the registry (transport.toggle,
 # history.undo, file.save, ...) with optional `params`, or an `app.*` UI action (panel toggles,
-# piano-roll tools, ...). Edit a copy at <config dir>/patternhaus/keymap.toml: your bindings
+# piano-roll tools, ...). Edit a copy at <config dir>/keymap.toml: your bindings
 # replace defaults with the same key and context; a binding with command = "" removes one.
 #
 # key      "Ctrl+Shift+Z", "F5", "Space", "Alt+P". Ctrl is Cmd on macOS.

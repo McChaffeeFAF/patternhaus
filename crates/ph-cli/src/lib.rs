@@ -1,13 +1,13 @@
-//! `patternhaus-cli`: the shell and MCP front end of Patternhaus (DESIGN §5).
+//! `beast-studio-cli`: the shell and MCP front end of Beast Studio (DESIGN §5).
 //!
 //! ```text
-//! patternhaus-cli run pattern.add --params '{"name":"Beat"}'
-//! patternhaus-cli script build.json
-//! patternhaus-cli render --project ./song --name mix
-//! patternhaus-cli analyze --project ./song --what loudness,key
-//! patternhaus-cli mcp --headless --project ./song      # MCP over stdio
-//! patternhaus-cli mcp --connect                        # proxy to the running app
-//! patternhaus-cli plugin-scan --report report.md       # scan installed plugins
+//! beast-studio-cli run pattern.add --params '{"name":"Beat"}'
+//! beast-studio-cli script build.json
+//! beast-studio-cli render --project ./song --name mix
+//! beast-studio-cli analyze --project ./song --what loudness,key
+//! beast-studio-cli mcp --headless --project ./song      # MCP over stdio
+//! beast-studio-cli mcp --connect                        # proxy to the running app
+//! beast-studio-cli plugin-scan --report report.md       # scan installed plugins
 //! ```
 //!
 //! Commands start a headless studio (silent audio) on `--project`, or talk to a running app
@@ -28,19 +28,19 @@
 
 use clap::{Args, Parser, Subcommand};
 use ph_control::{
-    AudioMode, HeadlessOptions, default_endpoint, parse_grant, proxy_stdio, serve_stdio,
+    AudioMode, HeadlessOptions, endpoint_candidates, parse_grant, proxy_stdio, serve_stdio,
     start_headless,
 };
 pub use ph_sampler_formats::Importers;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 #[derive(Parser)]
 #[command(
-    name = "patternhaus-cli",
+    name = "beast-studio-cli",
     version,
-    about = "Drive Patternhaus from a shell or an MCP client"
+    about = "Drive Beast Studio from a shell or an MCP client"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -50,7 +50,7 @@ struct Cli {
 #[derive(Args, Clone)]
 struct Common {
     /// Project folder (opened if it holds a project.json). Default: the current folder when it
-    /// holds a project, else ./patternhaus-project.
+    /// holds a project, else ./beast-studio-project (or ./patternhaus-project when only that exists).
     #[arg(long, global = true)]
     project: Option<PathBuf>,
     /// Factory assets folder (default: found next to the executable or in the source tree).
@@ -62,7 +62,7 @@ struct Common {
     /// Scopes for headless clients: read, compose, mix, full (comma separated).
     #[arg(long, global = true, default_value = "full")]
     grant: String,
-    /// Talk to a running Patternhaus app instead of starting a headless studio.
+    /// Talk to a running Beast Studio app instead of starting a headless studio.
     #[arg(long, global = true)]
     connect: bool,
     /// Endpoint of the running app (default: the per-user pipe or socket).
@@ -183,18 +183,33 @@ fn range(from: Option<u32>, to: Option<u32>) -> Value {
     }
 }
 
+/// The name this CLI gives itself to the agent core and to a running app (`rpc.hello`). The
+/// app remembers each client's grant under its name (`agents.json`), so this keeps its
+/// pre-rename value on purpose; renaming it would ask the owner to grant the CLI again.
+const CLIENT_NAME: &str = "patternhaus-cli";
+
+/// The project folder used when none is given (and the current folder holds no project).
+const DEFAULT_PROJECT: &str = "beast-studio-project";
+/// What it was called before the rename; used when it exists and the new one does not.
+const LEGACY_PROJECT: &str = "patternhaus-project";
+
 fn project_dir(c: &Common) -> PathBuf {
     c.project.clone().unwrap_or_else(|| {
         if PathBuf::from("project.json").exists() {
             PathBuf::from(".")
+        } else if !Path::new(DEFAULT_PROJECT).exists() && Path::new(LEGACY_PROJECT).exists() {
+            // a project folder made by a build from before the rename still opens
+            PathBuf::from(LEGACY_PROJECT)
         } else {
-            PathBuf::from("patternhaus-project")
+            PathBuf::from(DEFAULT_PROJECT)
         }
     })
 }
 
-fn endpoint(c: &Common) -> String {
-    c.endpoint.clone().unwrap_or_else(default_endpoint)
+/// The endpoints to try, in order: the one named with `--endpoint`, else the Beast Studio
+/// one and then the one a build from before the rename serves.
+fn endpoints(c: &Common) -> Vec<String> {
+    endpoint_candidates(c.endpoint.as_deref())
 }
 
 /// Where tool calls go.
@@ -203,13 +218,13 @@ enum Backend {
         agent: std::sync::Arc<ph_control::Agent>,
         _studio: ph_control::Studio,
     },
-    Remote(String),
+    Remote(Vec<String>),
 }
 
 impl Backend {
     fn open(c: &Common, importers: &Importers) -> Result<Backend, String> {
         if c.connect {
-            return Ok(Backend::Remote(endpoint(c)));
+            return Ok(Backend::Remote(endpoints(c)));
         }
         let grant = parse_grant(&c.grant)?;
         let (studio, agent) = start_headless(HeadlessOptions {
@@ -236,11 +251,9 @@ impl Backend {
         match self {
             Backend::Local { agent, .. } => {
                 let (agent, tool) = (agent.clone(), tool.to_string());
-                tokio::task::spawn_blocking(move || {
-                    agent.call("patternhaus-cli", &tool, args).to_json()
-                })
-                .await
-                .map_err(|e| e.to_string())
+                tokio::task::spawn_blocking(move || agent.call(CLIENT_NAME, &tool, args).to_json())
+                    .await
+                    .map_err(|e| e.to_string())
             }
             Backend::Remote(ep) => remote_call(ep, tool, args).await,
         }
@@ -248,11 +261,11 @@ impl Backend {
 }
 
 /// One JSON-RPC request to a running app.
-async fn remote_call(endpoint: &str, tool: &str, args: Value) -> Result<Value, String> {
+async fn remote_call(endpoints: &[String], tool: &str, args: Value) -> Result<Value, String> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let (r, mut w) = ph_control::connect(endpoint).await?;
+    let (r, mut w) = ph_control::connect_any(endpoints).await?;
     let mut r = BufReader::new(r);
-    let hello = json!({ "jsonrpc": "2.0", "id": 0, "method": "rpc.hello", "params": { "client": "patternhaus-cli" } });
+    let hello = json!({ "jsonrpc": "2.0", "id": 0, "method": "rpc.hello", "params": { "client": CLIENT_NAME } });
     let req = json!({ "jsonrpc": "2.0", "id": 1, "method": tool, "params": args });
     w.write_all(format!("{hello}\n{req}\n").as_bytes())
         .await
@@ -523,16 +536,16 @@ async fn dispatch(cmd: Cmd, importers: &Importers) -> Result<bool, String> {
             }
         }
         Cmd::Mcp { headless, common } => {
-            let ep = endpoint(&common);
+            let eps = endpoints(&common);
             let attach = if common.connect {
                 true
             } else if headless {
                 false
             } else {
-                ph_control::connect(&ep).await.is_ok()
+                ph_control::connect_any(&eps).await.is_ok()
             };
             if attach {
-                proxy_stdio(&ep).await?;
+                proxy_stdio(&eps).await?;
             } else {
                 let grant = parse_grant(&common.grant)?;
                 let (studio, agent) = start_headless(HeadlessOptions {
@@ -550,7 +563,7 @@ async fn dispatch(cmd: Cmd, importers: &Importers) -> Result<bool, String> {
                 })?;
                 studio.set_catalogue_dir(ph_control::default_catalogue_dir());
                 eprintln!(
-                    "patternhaus: headless MCP on stdio, project {}",
+                    "beast-studio-cli: headless MCP on stdio, project {}",
                     project_dir(&common).display()
                 );
                 serve_stdio(agent).await?;
@@ -569,7 +582,7 @@ pub struct Options {
     pub importers: Importers,
 }
 
-/// Runs the CLI on this process's arguments: the whole of `patternhaus-cli`.
+/// Runs the CLI on this process's arguments: the whole of `beast-studio-cli`.
 pub fn run(options: Options) -> ExitCode {
     run_from(options, std::env::args_os())
 }
@@ -584,6 +597,8 @@ where
         Ok(c) => c,
         Err(e) => e.exit(),
     };
+    // settings from before the rename are copied to their new folders once (never moved)
+    ph_control::userdirs::migrate_user_dirs_and_report();
     ph_engine::plugins::exit_diag::install();
     ph_engine::plugins::exit_diag::stage("dispatch");
     let rt = match tokio::runtime::Builder::new_multi_thread()

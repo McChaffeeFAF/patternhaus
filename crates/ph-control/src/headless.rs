@@ -1,4 +1,4 @@
-//! Starting a Studio without a UI: for `patternhaus-cli`, CI and tests.
+//! Starting a Studio without a UI: for `beast-studio-cli`, CI and tests.
 
 use crate::{AudioMode, Studio, StudioConfig};
 use ph_commands::Grant;
@@ -17,7 +17,7 @@ pub struct HeadlessOptions {
     /// Factory assets; found next to the executable or in the source tree when `None`.
     pub assets_dir: Option<PathBuf>,
     pub audio: AudioMode,
-    /// The Patternhaus projects folder (see [`StudioConfig::projects_dir`]); front ends pass
+    /// The Beast Studio projects folder (see [`StudioConfig::projects_dir`]); front ends pass
     /// `default_projects_dir()`, tests a temp folder or `None`.
     pub projects_dir: Option<PathBuf>,
     /// Scopes every client gets (headless sessions are started on purpose, so the default
@@ -31,10 +31,10 @@ pub struct HeadlessOptions {
     pub importers: ph_sampler_formats::Importers,
 }
 
-/// Looks for the `assets/` folder: `$PATTERNHAUS_ASSETS`, then next to the executable and
+/// Looks for the `assets/` folder: `$BEAST_STUDIO_ASSETS` (or the older `$PATTERNHAUS_ASSETS`), then next to the executable and
 /// up to three folders above it (a cargo `target/debug` build), then the source tree.
 pub fn find_assets_dir() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("PATTERNHAUS_ASSETS") {
+    if let Some(p) = ph_node::env::var_os("BEAST_STUDIO_ASSETS") {
         return Some(PathBuf::from(p));
     }
     let exe = std::env::current_exe().ok()?;
@@ -54,7 +54,7 @@ pub fn find_assets_dir() -> Option<PathBuf> {
 pub fn start_headless(opts: HeadlessOptions) -> Result<(Studio, Arc<Agent>), String> {
     let assets =
         opts.assets_dir.clone().or_else(find_assets_dir).ok_or(
-            "cannot find the factory assets folder; pass --assets or set PATTERNHAUS_ASSETS",
+            "cannot find the factory assets folder; pass --assets or set BEAST_STUDIO_ASSETS",
         )?;
     std::fs::create_dir_all(&opts.project_dir)
         .map_err(|e| format!("cannot create {}: {e}", opts.project_dir.display()))?;

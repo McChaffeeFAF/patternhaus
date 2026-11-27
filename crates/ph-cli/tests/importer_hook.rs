@@ -1,9 +1,9 @@
 //! M3 criterion 3: the importer hook, end to end. A made-up text instrument format (`.phtxt`)
 //! has an importer that lives only in this test. It is registered at runtime, with no change
-//! to Patternhaus, and then, through MCP alone:
+//! to Beast Studio, and then, through MCP alone:
 //! - `sampler.import` reads a `.phtxt` file, with its import report;
 //! - the instrument plays in a part and renders;
-//! - `sampler.save_native` writes it as a Haus instrument folder, `sampler.load` puts that
+//! - `sampler.save_native` writes it as a Beast Sampler instrument folder, `sampler.load` puts that
 //!   back on the channel, the project is saved and reopened, and the render is identical;
 //! - a studio **without** the test importer opens the saved project and renders it
 //!   identically too (after the import nothing depends on the importer);
@@ -239,7 +239,7 @@ async fn importer_hook_end_to_end_over_mcp() {
     drop(c);
     drop(studio);
 
-    // a Patternhaus without the test importer: the project still opens and renders the same,
+    // a Beast Studio without the test importer: the project still opens and renders the same,
     // and .phtxt is not a format it knows
     let (c, studio) = open(&song, Importers::builtin()).await;
     assert!(!studio.importers().extensions().contains(&"phtxt"));
@@ -273,7 +273,7 @@ fn the_cli_entry_point_runs_with_registered_importers() {
     .unwrap();
     let args = |s: &Path| {
         vec![
-            "patternhaus-cli".to_string(),
+            "beast-studio-cli".to_string(),
             "script".into(),
             s.to_string_lossy().into_owned(),
             "--separate".into(),

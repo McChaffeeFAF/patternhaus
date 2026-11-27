@@ -4,7 +4,7 @@
 //! becomes `Caller::agent(<name>)`; its grant comes from [`Grants`]. Tools are the fixed
 //! toolset of [`Agent`]. Live events reach a client three ways, so even a minimal client sees
 //! them:
-//! - `notifications/resources/updated` for `patternhaus://events` (after `resources/subscribe`,
+//! - `notifications/resources/updated` for `beast-studio://events` (after `resources/subscribe`,
 //!   or a `subscriptions/listen` that names it);
 //! - `notifications/message` (logging) once the client has called `logging/setLevel`;
 //! - a `while_you_worked` block appended to tool results, and `get_state { view: "events" }`.
@@ -21,24 +21,46 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-pub const EVENTS_URI: &str = "patternhaus://events";
-pub const OVERVIEW_URI: &str = "patternhaus://project/overview";
-pub const CATALOGUE_URI: &str = "patternhaus://catalogue";
-/// One Haus Sampler instrument's import report: `patternhaus://instrument/<id>/report`.
-pub const INSTRUMENT_REPORT_TEMPLATE: &str = "patternhaus://instrument/{id}/report";
+/// The URI scheme of the server's resources.
+pub const SCHEME: &str = "beast-studio://";
+/// The scheme before the rename (2026-11-27): reading, and subscribing to, a resource under it
+/// still works and answers as the current scheme does.
+pub const LEGACY_SCHEME: &str = "patternhaus://";
 
-/// The instrument id of a `patternhaus://instrument/<id>/report` URI.
+pub const EVENTS_URI: &str = "beast-studio://events";
+pub const OVERVIEW_URI: &str = "beast-studio://project/overview";
+pub const CATALOGUE_URI: &str = "beast-studio://catalogue";
+/// One Beast Sampler instrument's import report: `beast-studio://instrument/<id>/report`.
+pub const INSTRUMENT_REPORT_TEMPLATE: &str = "beast-studio://instrument/{id}/report";
+
+/// `uri` under the current scheme: a `patternhaus://` URI is its `beast-studio://` twin, any
+/// other URI is returned as it is.
+pub fn canonical_uri(uri: &str) -> std::borrow::Cow<'_, str> {
+    match uri.strip_prefix(LEGACY_SCHEME) {
+        Some(rest) => std::borrow::Cow::Owned(format!("{SCHEME}{rest}")),
+        None => std::borrow::Cow::Borrowed(uri),
+    }
+}
+
+/// Whether `uri` names the live-events resource, under either scheme.
+fn is_events_uri(uri: &str) -> bool {
+    canonical_uri(uri) == EVENTS_URI
+}
+
+/// The instrument id of a `beast-studio://instrument/<id>/report` URI (the `patternhaus://`
+/// spelling is accepted too).
 pub fn instrument_report_id(uri: &str) -> Option<u64> {
-    uri.strip_prefix("patternhaus://instrument/")?
+    let uri = canonical_uri(uri);
+    uri.strip_prefix("beast-studio://instrument/")?
         .strip_suffix("/report")?
         .parse()
         .ok()
 }
 
-const INSTRUCTIONS: &str = "Patternhaus is a DAW you drive through commands. Start with get_state (overview), then list_commands / describe_command / run. \
+const INSTRUCTIONS: &str = "Beast Studio is a DAW you drive through commands. Start with get_state (overview), then list_commands / describe_command / run. \
 Times are ticks: 960 per quarter note, 240 per 16th step; note 60 = C4. Build with run_batch (one undo step), then HEAR it: render + analyze (LUFS, spectrum, key, chords, clashes, tempo and beat grid) \
 and SEE it: snapshot (piano_roll, playlist, waveform, spectrogram). Every change returns a musical diff. Factory samples are factory:drums/haus808/kick etc.; synth presets are listed by node_params. \
-Audio clips, automation and plugins are commands too: add_audio_clip, fit_to_tempo, add_automation, add_plugin_instrument; get_state views audio, automation, plugins. Hosted instruments the owner set up (e.g. sampled libraries in their own plugins) are in the plugin catalogue: catalogue.search / catalogue.get (with a playing guide: range, keyswitches, CCs, velocity), catalogue.add_to_channel, then write parts within the guide; catalogue.probe proposes a range and keyswitches when the guide is empty (patternhaus://catalogue lists them). Haus Sampler instruments (SFZ, SF2/SF3, DecentSampler, EXS24 or native): sampler.import or sampler.load puts one on a channel; read get_state view zones (its playing guide: range, keyswitches, velocity layers, gaps; then the zones) or snapshot zone_map, write parts inside the range with a keyswitch note before each articulation change, edit with sampler.zone_move / zone_set / keyswitch_set (each diff names the zones it moved), then render + analyze. patternhaus://instrument/<id>/report holds the import report (what was approximated or skipped); sampler.prune removes instruments no channel plays. For a bigger change use propose: the person previews it as ghost notes and accepts or rejects (proposal_status reads the decision). Dynamics for sampled orchestral instruments usually live on CC1 (mod wheel) or CC11 (expression): write them with cc.shape (a swell, ramp or hold per range); the catalogue guide's CC list says which controllers an instrument uses. render with listen: true returns a short audio excerpt; analyze what [\"reference\"] compares the mix to a reference track; analyze with sample or clip reads imported audio (tempo, first beat, chords on its own grid) without rendering the project; chords resolution half_bar or beat marks changes inside a bar; render format ogg writes a small lossy preview. \nOther authors' edits are reported in while_you_worked blocks and in the patternhaus://events resource.";
+Audio clips, automation and plugins are commands too: add_audio_clip, fit_to_tempo, add_automation, add_plugin_instrument; get_state views audio, automation, plugins. Hosted instruments the owner set up (e.g. sampled libraries in their own plugins) are in the plugin catalogue: catalogue.search / catalogue.get (with a playing guide: range, keyswitches, CCs, velocity), catalogue.add_to_channel, then write parts within the guide; catalogue.probe proposes a range and keyswitches when the guide is empty (beast-studio://catalogue lists them). Beast Sampler instruments (SFZ, SF2/SF3, DecentSampler, EXS24 or native): sampler.import or sampler.load puts one on a channel; read get_state view zones (its playing guide: range, keyswitches, velocity layers, gaps; then the zones) or snapshot zone_map, write parts inside the range with a keyswitch note before each articulation change, edit with sampler.zone_move / zone_set / keyswitch_set (each diff names the zones it moved), then render + analyze. beast-studio://instrument/<id>/report holds the import report (what was approximated or skipped); sampler.prune removes instruments no channel plays. For a bigger change use propose: the person previews it as ghost notes and accepts or rejects (proposal_status reads the decision). Dynamics for sampled orchestral instruments usually live on CC1 (mod wheel) or CC11 (expression): write them with cc.shape (a swell, ramp or hold per range); the catalogue guide's CC list says which controllers an instrument uses. render with listen: true returns a short audio excerpt; analyze what [\"reference\"] compares the mix to a reference track; analyze with sample or clip reads imported audio (tempo, first beat, chords on its own grid) without rendering the project; chords resolution half_bar or beat marks changes inside a bar; render format ogg writes a small lossy preview. \nOther authors' edits are reported in while_you_worked blocks and in the beast-studio://events resource.";
 
 pub struct PatternhausServer {
     agent: Arc<Agent>,
@@ -94,12 +116,26 @@ impl PatternhausServer {
                 if ev.author.as_deref() == Some(me.as_str()) {
                     continue;
                 }
-                if subs.lock().unwrap().contains(EVENTS_URI)
-                    && peer
-                        .notify_resource_updated(ResourceUpdatedNotificationParam::new(EVENTS_URI))
+                // answer on whichever spelling the client subscribed with
+                let subscribed: Vec<String> = subs
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|u| is_events_uri(u))
+                    .cloned()
+                    .collect();
+                let mut gone = false;
+                for uri in subscribed {
+                    if peer
+                        .notify_resource_updated(ResourceUpdatedNotificationParam::new(uri))
                         .await
                         .is_err()
-                {
+                    {
+                        gone = true;
+                        break;
+                    }
+                }
+                if gone {
                     break;
                 }
                 if log.load(Ordering::Relaxed) {
@@ -110,7 +146,7 @@ impl PatternhausServer {
                                 LoggingLevel::Info,
                                 event_json(&ev),
                             )
-                            .with_logger("patternhaus"),
+                            .with_logger("beast-studio"),
                         )
                         .await;
                     if sent.is_err() {
@@ -161,7 +197,7 @@ impl ServerHandler for PatternhausServer {
                 .build(),
         )
         .with_server_info(Implementation::new(
-            "patternhaus",
+            "beast-studio",
             env!("CARGO_PKG_VERSION"),
         ))
         .with_instructions(INSTRUCTIONS)
@@ -237,7 +273,7 @@ impl ServerHandler for PatternhausServer {
             let uri = INSTRUMENT_REPORT_TEMPLATE.replace("{id}", &id.to_string());
             let mut r = Resource::new(uri, format!("Import report: {name}"));
             r.description = Some(format!(
-                "Haus Sampler instrument {name}: its source, groups and zones, playing guide, and what the import approximated or skipped."
+                "Beast Sampler instrument {name}: its source, groups and zones, playing guide, and what the import approximated or skipped."
             ));
             r.mime_type = Some("application/json".into());
             resources.push(r);
@@ -256,7 +292,7 @@ impl ServerHandler for PatternhausServer {
         self.note_client(&context);
         let t = ResourceTemplate::new(INSTRUMENT_REPORT_TEMPLATE, "Instrument import report")
             .with_description(
-                "A Haus Sampler instrument's import report and summary; get_state view zones lists the ids.",
+                "A Beast Sampler instrument's import report and summary; get_state view zones lists the ids.",
             )
             .with_mime_type("application/json");
         Ok(ListResourceTemplatesResult {
@@ -271,7 +307,8 @@ impl ServerHandler for PatternhausServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
         let client = self.note_client(&context);
-        let args = match request.uri.as_str() {
+        let uri = canonical_uri(&request.uri).into_owned();
+        let args = match uri.as_str() {
             OVERVIEW_URI => json!({ "view": "overview" }),
             EVENTS_URI => json!({ "view": "events" }),
             CATALOGUE_URI => json!({ "view": "catalogue" }),
@@ -345,7 +382,7 @@ impl ServerHandler for PatternhausServer {
             .resource_subscriptions
             .iter()
             .flatten()
-            .filter(|u| u.starts_with("patternhaus://"))
+            .filter(|u| u.starts_with(SCHEME) || u.starts_with(LEGACY_SCHEME))
             .cloned()
             .collect();
         (!uris.is_empty()).then(|| {
@@ -358,12 +395,27 @@ impl ServerHandler for PatternhausServer {
     async fn listen(&self, context: SubscriptionContext) -> Result<(), McpError> {
         let mut rx = self.hub.subscribe();
         let me = ph_commands::Author::Agent(self.client.lock().unwrap().clone()).to_string();
+        let events: Vec<String> = context
+            .accepted()
+            .resource_subscriptions
+            .iter()
+            .flatten()
+            .filter(|u| is_events_uri(u))
+            .cloned()
+            .collect();
         loop {
             tokio::select! {
                 _ = context.cancelled() => break,
                 ev = rx.recv() => match ev {
                     Some(e) if e.author.as_deref() != Some(me.as_str()) => {
-                        if context.sink().notify_resource_updated(EVENTS_URI).await.is_err() {
+                        let mut gone = false;
+                        for uri in &events {
+                            if context.sink().notify_resource_updated(uri.clone()).await.is_err() {
+                                gone = true;
+                                break;
+                            }
+                        }
+                        if gone {
                             break;
                         }
                     }
