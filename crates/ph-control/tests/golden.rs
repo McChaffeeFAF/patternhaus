@@ -1,7 +1,7 @@
 //! Golden renders (DESIGN §12; M1 criteria 4, 6 and 8).
 //!
 //! Each folder in `tests/projects/` is a small project saved as a readable `project.json`.
-//! Between them they use both M1 instruments (Sampler one-shot and loop, Haus Synth presets),
+//! Between them they use both M1 instruments (Sampler one-shot and loop, Beast Synth presets),
 //! all seven M1 effects, sends, a sidechain, swing, a choke group, muted notes, a muted
 //! playlist track, a loop region of the playlist and a 3/4 bar with a tempo other than 120.
 //! `audio-clips` (M2/T1) plays a generated drum loop (`samples/loop.wav`, written by the
@@ -179,7 +179,7 @@ fn drums_swing_choke() -> Project {
     e.finish().0
 }
 
-/// Haus Synth only: preset chords, a mono bass and a pluck lead, delay and EQ.
+/// Beast Synth only: preset chords, a mono bass and a pluck lead, delay and EQ.
 fn synth_chords() -> Project {
     let mut e = Edit::new(&Project::empty("synth-chords"));
     e.update_settings(|s| s.bpm = 100.0).unwrap();

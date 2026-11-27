@@ -42,7 +42,7 @@ upper left. The piano roll, mixer, history and agents are hidden until you press
    (the browser plays it through a temporary channel; nothing is added to the project).
 2. **Drag `kick` onto the channel rack.** A "Kick" channel appears. Drag `snare` and
    `hat_closed` the same way (double-click works too). Expected: 3 sampler channels.
-3. **Haus Synth.** On the PRESETS tab open `bass` and double-click `sub`. A "Sub"
+3. **Beast Synth.** On the PRESETS tab open `bass` and double-click `sub`. A "Sub"
    channel appears. Rename a channel with right-click on its name, Rename.
 4. **Step sequencer (F6).** Click steps to make a pattern. Click and drag across a row to paint.
    Right-drag erases. Four on the floor is steps 1, 5, 9, 13 on the kick. Press the Play button or
@@ -111,7 +111,7 @@ upper left. The piano roll, mixer, history and agents are hidden until you press
     can put on another monitor; close that OS window and it returns to the workspace;
   - the browser is docked at the left; drag its right edge to resize it, F8 to hide it.
 - **Instrument and effect windows.** Click a channel's name in the rack: its instrument window
-  (sampler or Haus Synth) opens. Click another channel and both stay open. In the mixer, click an
+  (sampler or Beast Synth) opens. Click another channel and both stay open. In the mixer, click an
   effect slot: that effect's window opens with all its knobs. Each remembers where you put it.
   Deleting the channel (or removing the effect) closes its window.
 - **Layouts.** View, Layout: "Save for me" (also saved on exit), "Save with this project"
@@ -153,7 +153,7 @@ cargo run --release -p ph-app -- C:\Users\you\beats\first --demo-agent
 
 ## Part 4: the T5c rough-edge fixes
 
-1. **Scrolling.** Open a Haus Synth instrument window and drag its bottom edge up until it is
+1. **Scrolling.** Open a Beast Synth instrument window and drag its bottom edge up until it is
    small. Expected: a scroll bar appears and the mouse wheel scrolls; knob rows wrap onto new lines
    instead of running off the right edge. The mixer, History and Agents windows scroll in both
    directions. The piano roll, playlist and channel rack keep their own panning and zooming, with

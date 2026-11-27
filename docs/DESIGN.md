@@ -227,7 +227,7 @@ How it works:
 
 **Instruments in 1.0:**
 - **Sampler:** one-shot and loop playback (M1).
-- **Haus Synth:** analog-style subtractive synth (M1). Three oscillators with sub and noise, two filters (LP/HP/BP/notch, ladder and SVF models), three envelopes, two LFOs, a mod matrix, unison, glide and a preset browser.
+- **Beast Synth:** analog-style subtractive synth (M1). Three oscillators with sub and noise, two filters (LP/HP/BP/notch, ladder and SVF models), three envelopes, two LFOs, a mod matrix, unison, glide and a preset browser.
 - **Slicer** (M2).
 - **Beast Sampler** (M3).
 

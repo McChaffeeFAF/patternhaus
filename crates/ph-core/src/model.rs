@@ -127,7 +127,7 @@ pub enum InstrumentSpec {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         slices: Vec<u64>,
     },
-    /// Haus Synth. `preset` names a factory or user preset; `params` override it.
+    /// Beast Synth. `preset` names a factory or user preset; `params` override it.
     Synth {
         preset: Option<String>,
         #[serde(default)]

@@ -186,7 +186,7 @@ fn range(from: Option<u32>, to: Option<u32>) -> Value {
 /// The name this CLI gives itself to the agent core and to a running app (`rpc.hello`). The
 /// app remembers each client's grant under its name (`agents.json`), so this keeps its
 /// pre-rename value on purpose; renaming it would ask the owner to grant the CLI again.
-const CLIENT_NAME: &str = "patternhaus-cli";
+const CLIENT_NAME: &str = "beast-studio-cli";
 
 /// The project folder used when none is given (and the current folder holds no project).
 const DEFAULT_PROJECT: &str = "beast-studio-project";

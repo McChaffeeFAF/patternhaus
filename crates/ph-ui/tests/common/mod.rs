@@ -72,7 +72,7 @@ fn sampler(name: &str) -> InstrumentSpec {
 }
 
 /// The M1 criterion-2 beat, built with the same requests the UI sends: 3 sampler channels
-/// and a Haus Synth bass, step patterns, bass notes, EQ + compressor on the bass insert, a
+/// and a Beast Synth bass, step patterns, bass notes, EQ + compressor on the bass insert, a
 /// reverb send, and an 8 bar arrangement.
 pub fn build_beat(session: &SessionHandle) -> Ids {
     run(session, mapping::set_tempo(124.0));

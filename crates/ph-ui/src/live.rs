@@ -117,7 +117,7 @@ impl Drop for EngineLink {
 pub enum Audition {
     /// A sample reference (`factory:...`, project-relative or absolute).
     Sample(String),
-    /// An instrument (a Haus Synth preset) playing one note for `hold`.
+    /// An instrument (a Beast Synth preset) playing one note for `hold`.
     Instrument {
         instrument: InstrumentSpec,
         key: u8,

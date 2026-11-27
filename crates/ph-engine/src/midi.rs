@@ -17,7 +17,7 @@
 //!   `Engine::preview_note`, the same preview path as the typing keyboard, so the note sounds
 //!   at the start of the next audio block. Channel pressure, pitch bend and controllers go to
 //!   the same channel as `ph-node` events (`Cc`, `PitchBend`, `NoteExpression::Pressure`),
-//!   which the Haus Synth's mod wheel and bend follow.
+//!   which the Beast Synth's mod wheel and bend follow.
 //! - A mapped controller is not sent to the instrument: it becomes a [`MidiEvent::Control`]
 //!   (target and a 0..1 value) for the front end to apply as a knob move. That is also what
 //!   lets armed automation recording write it: the move arrives like a drag.

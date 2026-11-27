@@ -13,7 +13,7 @@ pub fn builtin_effects() -> &'static [&'static str] {
     &ph_effects::BUILTIN
 }
 
-/// Factory Haus Synth preset names (`category/name`).
+/// Factory Beast Synth preset names (`category/name`).
 pub fn synth_presets() -> Vec<&'static str> {
     ph_instruments::presets::synth_preset_names()
 }

@@ -4,7 +4,7 @@
 //! cargo run -p ph-engine --release --example render_beat [-- out.wav]
 //! ```
 //!
-//! Eight bars at 124 BPM (generated drums, Haus Synth bass and chords, EQ + compressor on
+//! Eight bars at 124 BPM (generated drums, Beast Synth bass and chords, EQ + compressor on
 //! inserts, a reverb send), rendered offline at 48 kHz in HQ mode with the reverb tail, and
 //! written as a 24-bit WAV (default: `target/beat.wav` in the workspace).
 

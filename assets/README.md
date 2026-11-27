@@ -31,9 +31,9 @@ one percussion sound.
 Sound names: `kick`, `snare`, `rim`, `clap`, `hat_closed`, `hat_open`, `hat_pedal`,
 `tom_low`, `tom_mid`, `tom_high`, `crash`.
 
-## Haus Synth presets
+## Beast Synth presets
 
-`presets/synth/<category>/<name>.json` maps Haus Synth parameter ids to values. They are
+`presets/synth/<category>/<name>.json` maps Beast Synth parameter ids to values. They are
 compiled into `ph-instruments`; an instrument names one as `bass/sub` and any `params` in
 the project override it.
 

@@ -15,7 +15,7 @@ Let an agent drive it (MCP)
   beast-studio-cli --help lists the other commands (run, render, analyze, ...).
 
 Files
-  assets/                  factory drum kit and Haus Synth presets (self-generated, see assets/PROVENANCE.toml)
+  assets/                  factory drum kit and Beast Synth presets (self-generated, see assets/PROVENANCE.toml)
   THIRD_PARTY_NOTICES.md   licences of the open-source components
   LICENSE-MIT, LICENSE-APACHE
   COMMIT.txt               the source commit of this build

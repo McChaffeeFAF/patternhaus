@@ -1,4 +1,4 @@
-//! Factory Haus Synth presets (DESIGN section 7).
+//! Factory Beast Synth presets (DESIGN section 7).
 //!
 //! A preset is a JSON object mapping stable parameter ids to values. The files live in
 //! `assets/presets/synth/<category>/<name>.json` and are compiled in, so creating an
@@ -7,7 +7,7 @@
 
 use crate::preset_data::FACTORY_SYNTH_PRESETS;
 
-/// Names of all factory Haus Synth presets, sorted.
+/// Names of all factory Beast Synth presets, sorted.
 pub fn synth_preset_names() -> Vec<&'static str> {
     FACTORY_SYNTH_PRESETS.iter().map(|(n, _)| *n).collect()
 }
@@ -17,7 +17,7 @@ pub fn synth_preset_names() -> Vec<&'static str> {
 pub fn synth_preset(name: &str) -> Result<Vec<(String, f64)>, String> {
     let Some((_, json)) = FACTORY_SYNTH_PRESETS.iter().find(|(n, _)| *n == name) else {
         return Err(format!(
-            "unknown Haus Synth preset `{name}`; available: {}",
+            "unknown Beast Synth preset `{name}`; available: {}",
             synth_preset_names().join(", ")
         ));
     };

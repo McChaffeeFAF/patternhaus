@@ -1,4 +1,4 @@
-//! Browser data: factory kits, Haus Synth presets, project and library files.
+//! Browser data: factory kits, Beast Synth presets, project and library files.
 //!
 //! Pure scanning code (no egui), so the tree and the sample references it produces are tested
 //! against a temp folder.
@@ -16,7 +16,7 @@ pub enum Kind {
     Sample {
         reference: String,
     },
-    /// A Haus Synth preset (`category/name`).
+    /// A Beast Synth preset (`category/name`).
     Preset {
         name: String,
     },

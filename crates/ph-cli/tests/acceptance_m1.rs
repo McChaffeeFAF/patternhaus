@@ -3,7 +3,7 @@
 //! A scripted agent drives `beast-studio-cli mcp --headless` over stdio, **through MCP tools
 //! only**, and the checks map onto the criterion as written:
 //!
-//! 1. sets 4 channels: kick, snare and hat on samplers, bass on Haus Synth;
+//! 1. sets 4 channels: kick, snare and hat on samplers, bass on Beast Synth;
 //! 2. programs the patterns and arranges 8 bars in the playlist;
 //! 3. puts EQ and compression on an insert and reverb on a send;
 //! 4. exports a WAV;
@@ -50,7 +50,7 @@ async fn m1_acceptance_agent_builds_a_beat_through_mcp_only() {
     let song = dir.path().join("song");
     let c = connect(&song, &[]).await;
 
-    // ---- step 1: four channels, three samplers and a Haus Synth ---------------------------
+    // ---- step 1: four channels, three samplers and a Beast Synth ---------------------------
     ok(&c, "set_tempo", json!({ "bpm": 120.0 })).await;
     let drum = |s: &str| json!({ "kind": "sampler", "sample": format!("factory:drums/haus808/{s}"), "root_key": 60 });
     let mut chans = Vec::new();

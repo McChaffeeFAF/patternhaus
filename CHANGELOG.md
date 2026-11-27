@@ -9,6 +9,8 @@ All notable changes to Beast Studio (formerly Patternhaus). Versions follow the 
   - **Binaries:** `ph-app` is `beast-studio`, `patternhaus-cli` is `beast-studio-cli`; the launchers are `Beast Studio.bat` / `beast-studio.sh`; release zips are named `beast-studio-...`. `ph-plugin-scan` keeps its name (the test helper and the packaging find it too).
   - **Settings, catalogue, agent grants and plugin cache** move to `Beast Studio` / `beast-studio` folders. The old folders are copied once on the first start and never moved or deleted.
   - **Environment variables:** `PATTERNHAUS_*` is now `BEAST_STUDIO_*`; the old names are still read.
+  - **Beast Synth** is the built-in synth's new name (formerly Haus Synth); the id `ph.synth` and saved presets are unchanged.
+  - **Agent client name:** the CLI connects to the app as `beast-studio-cli`; a grant remembered for `patternhaus-cli` carries over, so nothing needs approving again.
   - **Agents:** the local endpoint is `beast-studio-<user>` (`beast-studio-cli` tries it first, then the old name); the MCP server is `beast-studio` and resources are `beast-studio://...` (the `patternhaus://...` scheme is still read).
   - New defaults: `Documents/Beast Studio Projects`, `./beast-studio-project`, imports beside the `.flp` as `<name> (Beast Studio)`; existing folders still open. The MIDI client is "Beast Studio".
 

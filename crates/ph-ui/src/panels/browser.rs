@@ -1,4 +1,4 @@
-//! Browser: factory kits, Haus Synth presets, and files in the project and library folders.
+//! Browser: factory kits, Beast Synth presets, and files in the project and library folders.
 //! Click to preview, double-click or drag to the rack to make a channel.
 
 use crate::browser_model::{self as bm, Dragged, Kind, Node, RefStyle};

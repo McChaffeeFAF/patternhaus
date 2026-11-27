@@ -67,7 +67,7 @@ pub fn title_of(core: &AppCore, id: WindowId) -> String {
                 },
                 match ch.instrument {
                     InstrumentSpec::Sampler { .. } => "Sampler",
-                    InstrumentSpec::Synth { .. } => "Haus Synth",
+                    InstrumentSpec::Synth { .. } => "Beast Synth",
                     InstrumentSpec::MultiSampler { .. } => "Beast Sampler",
                     InstrumentSpec::Plugin { .. } => "Plugin",
                 }
