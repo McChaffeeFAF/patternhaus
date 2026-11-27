@@ -1,4 +1,4 @@
-# Haus Sampler format parity tracker
+# Beast Sampler format parity tracker
 
 One table per import format (M3 criterion 2). Rows were seeded by M3/T1 from the format
 specs in `docs/formats/`. **Implementers fill in the last four columns** when the feature
@@ -38,7 +38,7 @@ sample's end while held, the sustain loop's exit, one-shot and reverse (08), the
 and the pitch envelope's bend (09), the amplitude, square-volume and pitch LFOs (10), low-,
 high-, band-pass and notch on a 220 Hz tone (11), the hi-hat choke and the voice-limited group
 (13), unity CC curves at controller 0 (14), and the group chains' reverb and delay tails (16).
-"Model gap" means the Haus Sampler model (`ph_core::sampler`) has nothing to map the
+"Model gap" means the Beast Sampler model (`ph_core::sampler`) has nothing to map the
 opcode onto; the importer reports it, and a model change is needed to support it.
 
 | Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
@@ -89,7 +89,7 @@ opcode onto; the importer reports it, and a model change is needed to support it
 | v2/ARIA filter types (4p, 6p, sv, shelves) | §10 | approx | `lpf_4p`, `hpf_4p`, `_sv` types | `_6p` at 24 dB/oct (reported) | `pkf_2p`, `lsh`, `hsh`, `peq` (filter bypassed, reported) | F-SFZ-11 (sound checked) |
 | `comb`, `pink`, `apf_1p` | §10 | skip | | | filter bypassed, reported | `region` mapper |
 | `eqN_*` | §10 | approx | | | reported (not yet mapped to a group EQ) | `opcodes::leftover` |
-| `group` / `off_by` / `off_mode` / `off_time` | §11 | must | | exclusive groups share a Haus group limited to one voice (reported); `off_mode`/`off_time` read, the engine's stealing fade applies | | F-SFZ-13 (sound checked) |
+| `group` / `off_by` / `off_mode` / `off_time` | §11 | must | | exclusive groups share a Beast Sampler group limited to one voice (reported); `off_mode`/`off_time` read, the engine's stealing fade applies | | F-SFZ-13 (sound checked) |
 | `polyphony`, `note_polyphony` | §11 | must | `polyphony` (group voice limit) | | `note_polyphony` (model gap, reported) | F-SFZ-13 |
 | Labels (`label_ccN`, `*_label`) | §13 | data | `group_label`/`master_label`/`global_label` name groups, `sw_label` names articulations; `label_ccN` kept in `extra["sfz.control"]` | | `region_label`, `md5`, `image` reported as kept, not stored | F-SFZ-02, F-SFZ-06 |
 | Opcode aliases | §14 | must | 2026-11-05 | | | F-SFZ-15; `opcodes::tests::aliases` |
@@ -136,7 +136,7 @@ unmodulated key (08).
 | File modulators: sources, curves, polarity, direction, transforms | §8 | must | sources velocity, key, CC, channel and poly pressure, pitch wheel; linear and switch curves; direction and polarity (exact offsets + routes); absolute value on unipolar sources; destinations pitch, coarse/fine tune, attenuation, pan, cutoff, resonance | concave/convex curves as the sampler's √x / x²; non-linear curves on key or pitch wheel as linear (reported) | amount sources, absolute value on bipolar sources, LFO/envelope-depth and envelope-time destinations (model gap), pitch-wheel sensitivity as a source (reported) | F-SF2-09 |
 | Modulator override/add hierarchy | §8.3 | must | 2026-11-05 | | | F-SF2-04, F-SF2-09; `gens::tests::modulator_hierarchy` |
 | Linked modulators | §8.2 | skip | | | reported | F-SF2-09 |
-| exclusiveClass (choke) | §10 | must | 2026-11-05 (one Haus group per class, one voice: a new note in the class steals the old; class kept in `extra`) | | | F-SF2-02 |
+| exclusiveClass (choke) | §10 | must | 2026-11-05 (one Beast Sampler group per class, one voice: a new note in the class steals the old; class kept in `extra`) | | | F-SF2-02 |
 | Reverb / chorus sends | §10 | data | kept in the group's `extra` (`sf2.reverb_send`, `sf2.chorus_send`), reported | | | `sf2::map` |
 | Stereo pairs joined into stereo zones | §6.2 | approx | | mutually linked left/right zones with the same ranges join into one stereo zone (pitch, loop, level from the right; pan the mean); SF3 also by L/R names (reported) | unmatched linked samples play as mono (reported) | F-SF2-10 |
 | ROM samples | §6.3 | skip | | | zones skipped, reported ("needs sound ROM"; a missing `irom` reported as defective) | F-SF2-12; `a_rom_sample_without_irom_is_skipped_and_reported` |
@@ -156,7 +156,7 @@ and linear loops sound past the sample while held, loop-off and plain samples st
 outlives its note-off (06); the inherited 0.5 s attack and decay, the Long group's silent delay and
 fast attack (07); the closed hat silences the open one (08); delay and reverb tails after each dry
 sample (10); the pitch LFO, velocity → pitch and the envelope's pan (12). "Model gap" =
-the Haus Sampler model has nothing to map onto; the importer reports it.
+the Beast Sampler model has nothing to map onto; the importer reports it.
 
 | Feature | Spec | M3 target | Supported | Approximated | Skipped | Test |
 |---|---|---|---|---|---|---|
@@ -218,7 +218,7 @@ and the attack rises (08).
 | Zone output assignment | §3 | must | 2026-11-05 (option bit 6 → group output) | | | F-EXS-04 |
 | Groups: volume, pan, polyphony, exclusive, limits, mute | §4 | must | volume, pan, polyphony, velocity/key limits (zones clipped, zones outside dropped) | exclusive groups share one one-voice group; mute as −144 dB (reported) | fixed sample select, release-trigger time (reported) | F-EXS-06 |
 | Release-trigger groups | §4 | must | 2026-11-05 | release-trigger decay at 3 dB/s (reported) | | F-EXS-06 |
-| Round robin (enable-by 2) | §4 | must | | the [PH] reading: groups sorted by stored position, one cycle in one Haus group (encoding unconfirmed; reported) | | F-EXS-07 |
+| Round robin (enable-by 2) | §4 | must | | the [PH] reading: groups sorted by stored position, one cycle in one Beast Sampler group (encoding unconfirmed; reported) | | F-EXS-07 |
 | Keyswitch / CC / articulation enable | §4 | must / approx | enable by note (articulations, `sw_last`-style), by control (CC condition) | | articulation ids kept as data, the group plays in every articulation (reported) | F-EXS-07 |
 | Tempo / bend / channel enable | §4 | skip | | | kept as data, the group plays always (reported) | `exs::import_bytes` |
 | Group crossfades | §4 | approx | | | kept as data, not played (encodings unknown; reported) | `exs::import_bytes` |

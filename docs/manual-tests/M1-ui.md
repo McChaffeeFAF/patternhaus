@@ -17,7 +17,7 @@ On the owner's machine there's a prebuilt copy with a launcher. It finds the fac
 the checkpoint project folder:
 
 ```powershell
-E:\patternhaus\local\app\Patternhaus.bat                       # or: Patternhaus.bat <project_dir> --demo-agent
+E:\patternhaus\local\app\Beast Studio.bat                       # or: Beast Studio.bat <project_dir> --demo-agent
 ```
 
 Options:
@@ -30,7 +30,7 @@ Options:
 | `--demo-agent` | A scripted agent, `agent:demo`, edits the project every 4 s. Used in part 3 |
 | `--assets DIR` | Factory content folder. Default: `assets/` next to the exe, or found by walking up from it |
 | `--library DIR` | An extra sample folder for the browser (repeatable) |
-| `--config DIR` | Where keymap, layout and theme are kept. Default `%APPDATA%\patternhaus` |
+| `--config DIR` | Where keymap, layout and theme are kept. Default `%APPDATA%\Beast Studio` |
 
 Expected: a dark window (Neon Slate) with the top bar and toolbar above, the browser docked on the left and the hint bar along the bottom. The
 playlist fills the rest of the window as the background, and the channel rack floats over it at the
@@ -189,7 +189,7 @@ Neon, themes and polish. Everything here has an offscreen test or screenshot
 
 1. **First impression.** Start the app. A loading screen with the mark and wordmark shows for
    about a second (click or press a key to skip it), then fades to the workspace. The window
-   title reads `<project> - Patternhaus` with a dot while there are unsaved changes, and the
+   title reads `<project> - Beast Studio` with a dot while there are unsaved changes, and the
    window and taskbar icon is the pad-grid mark.
 2. **Themes.** View, Theme, Red Line: the whole app recolours at once (wine-black, red accent,
    cyan for agents). Switch back to Neon Slate. Make `themes/mint.toml` as in `docs/theming.md`
@@ -222,7 +222,7 @@ Neon, themes and polish. Everything here has an offscreen test or screenshot
     6 px apart. A 1/64 note at the normal zoom is a thin sliver you can still grab (8 px
     target). Zoom presets: the magnifier in the toolbar, or Ctrl+0 (fit), Ctrl+1 (1 bar),
     Ctrl+2 (1 beat), Ctrl+3 (1/64 detail); Ctrl+= and Ctrl+- step through them.
-11. **About.** Help, About Patternhaus: the mark, the version and the licence text, including
+11. **About.** Help, About Beast Studio: the mark, the version and the licence text, including
     the three bundled fonts (SIL Open Font Licence 1.1).
 
 12. **Drag and drop.** From Windows Explorer, with the app open (and a project that has a few channels):

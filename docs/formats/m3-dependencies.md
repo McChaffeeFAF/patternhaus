@@ -1,4 +1,4 @@
-# M3 dependencies (Haus Sampler)
+# M3 dependencies (Beast Sampler)
 
 Status: **M3/T0 check, 2026-11-05.** What the M3 tracks need from crates.io, with licences
 checked against `deny.toml`. The rule from the brief: prefer small parsers of our own, and add

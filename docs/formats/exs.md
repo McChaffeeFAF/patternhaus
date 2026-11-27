@@ -17,7 +17,7 @@ examined yet: there is no owner library folder and no generated corpus.
 - **[D?]** documented, but sources disagree (the disagreement is stated);
 - **[I]** inferred;
 - **[C]** confirmed on files: **nothing yet**;
-- **[PH]** a Patternhaus decision.
+- **[PH]** a Beast Studio decision.
 There is no **[S]** (no official spec).
 
 **Cited sources:**
@@ -373,7 +373,7 @@ Unknown ids are kept as data and reported by number [PH].
 
 ---
 
-## 7. Mapping to Haus Sampler [PH unless marked]
+## 7. Mapping to Beast Sampler [PH unless marked]
 
 - One `.exs` = one instrument; group blocks → native groups (name from the block header);
   zones with group −1 go to an implicit "Ungrouped" group.

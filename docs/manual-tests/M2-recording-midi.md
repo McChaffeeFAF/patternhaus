@@ -14,7 +14,7 @@ cargo run --release -p ph-app -- C:\Users\you\beats\recording   # a new folder i
 ```
 
 Plug the interface and the keyboard in first. Keep the buffer at 256 frames (the default).
-Mappings you learn are saved in `%APPDATA%\patternhaus\midi-mappings.json` (or the `--config`
+Mappings you learn are saved in `%APPDATA%\Beast Studio\midi-mappings.json` (or the `--config`
 folder), not in the project.
 
 ## Part 1: audio inputs, monitoring and the latency readout
@@ -91,7 +91,7 @@ folder), not in the project.
 3. Right-click the same knob: **Remove MIDI mapping (CC n)** is offered; **Cancel MIDI learn**
    appears while a learn is waiting.
 4. Close the app and reopen it: the mapping is still there (it lives in
-   `%APPDATA%\patternhaus\midi-mappings.json`, not in the project). Note the limit: a mapping
+   `%APPDATA%\Beast Studio\midi-mappings.json`, not in the project). Note the limit: a mapping
    names a project object (`channel/3/volume`), so in another project it moves whatever has
    that id (or nothing, if there is none).
 5. Click the red **automation record** button (the circle next to the metronome), play the

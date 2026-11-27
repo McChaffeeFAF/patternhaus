@@ -1,8 +1,16 @@
 # Changelog
 
-All notable changes to Patternhaus. Versions follow the milestones in `docs/milestones/`.
+All notable changes to Beast Studio (formerly Patternhaus). Versions follow the milestones in `docs/milestones/`.
 
 ## Unreleased
+
+### Renamed
+- **Renamed from Patternhaus to Beast Studio.** The product is Beast Studio, the built-in sampler is Beast Sampler (formerly Haus Sampler); it stays open source (MIT OR Apache-2.0), while the name, the mascot and the brand art are not under that licence (`brand/`, README "Trademarks and brand assets"). Crate, type, module and test-plugin names, and everything saved in projects or catalogue entries (`factory:drums/haus808/...`, the `patternhaus-instrument` format name, plugin-state files), are unchanged.
+  - **Binaries:** `ph-app` is `beast-studio`, `patternhaus-cli` is `beast-studio-cli`; the launchers are `Beast Studio.bat` / `beast-studio.sh`; release zips are named `beast-studio-...`. `ph-plugin-scan` keeps its name (the test helper and the packaging find it too).
+  - **Settings, catalogue, agent grants and plugin cache** move to `Beast Studio` / `beast-studio` folders. The old folders are copied once on the first start and never moved or deleted.
+  - **Environment variables:** `PATTERNHAUS_*` is now `BEAST_STUDIO_*`; the old names are still read.
+  - **Agents:** the local endpoint is `beast-studio-<user>` (`beast-studio-cli` tries it first, then the old name); the MCP server is `beast-studio` and resources are `beast-studio://...` (the `patternhaus://...` scheme is still read).
+  - New defaults: `Documents/Beast Studio Projects`, `./beast-studio-project`, imports beside the `.flp` as `<name> (Beast Studio)`; existing folders still open. The MIDI client is "Beast Studio".
 
 ### Added
 - **Drag and drop from the OS (M1/T9):** drop audio (WAV, AIFF, FLAC, MP3, OGG) on the channel rack or playlist to get one Sampler channel per file (one undo step), or on a channel row to replace its sample; drop .mid on the playlist or piano roll to import it; drop a folder on the browser to add a library folder (remembered); drop a project folder or project.json to open it (asking first when there are unsaved changes). The target lights up and the hint bar says what will happen; unsupported files are skipped with a notice naming them.

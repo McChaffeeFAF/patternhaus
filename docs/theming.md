@@ -1,15 +1,16 @@
 # Making and sharing a theme
 
-Patternhaus has two built-in themes, **Neon Slate** (the default) and **Red Line**. A theme is
+Beast Studio has two built-in themes, **Neon Slate** (the default) and **Red Line**. A theme is
 one TOML file. Everything the app draws reads its colours and sizes from the theme, so a file
 can change the whole look. (The old Dark and Light themes are gone: a settings file that still
 names them falls back to Neon Slate.)
 
 ## Try one in a minute
 
-1. Open the config folder. By default it is `%APPDATA%\patternhaus` on Windows,
-   `~/Library/Application Support/patternhaus` on macOS and `~/.config/patternhaus` on Linux
-   (the `--config DIR` flag changes it).
+1. Open the config folder. By default it is `%APPDATA%\Beast Studio` on Windows,
+   `~/Library/Application Support/Beast Studio` on macOS and `~/.config/beast-studio` on Linux
+   (the `--config DIR` flag changes it; a folder from before the rename, `patternhaus`, is
+   copied here once on the first start and left in place).
 2. Make a `themes` folder in it and save this as `themes/mint.toml`:
 
    ```toml

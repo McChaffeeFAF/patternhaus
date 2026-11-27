@@ -7,7 +7,7 @@ implemented from this document alone.
 fact here comes from the public opcode and header reference at sfzformat.com (cited per
 section) and from general knowledge of how SFZ players behave, stated in our own words. No
 player or converter source code was read for this document. Where players disagree, the
-spec says so and picks one behaviour for Patternhaus, marked **[PH]** (our decision, not a
+spec says so and picks one behaviour for Beast Studio, marked **[PH]** (our decision, not a
 fact about the format).
 
 **Evidence tags** used on every fact:
@@ -16,7 +16,7 @@ fact about the format).
 - **[C]** confirmed on files: seen in files we generated or freely redistributable files;
 - **[D]** documented, not seen: stated by a secondary public source (named), not in the reference;
 - **[I]** inferred: common player behaviour or a reading the reference implies but does not state;
-- **[PH]** Patternhaus decision where players or the reference leave a choice.
+- **[PH]** Beast Studio decision where players or the reference leave a choice.
 
 No corpus has been examined yet, so nothing is **[C]** in this edition. The fixture plan
 (section 13) lists the files that turn the important **[I]** items into tested behaviour.
@@ -101,7 +101,7 @@ characters `[A-Za-z0-9_]+` immediately followed by `=`, preceded by whitespace.
   `amplitude_oncc$CC=100`) is replaced textually [S for values; I for names].
 - Redefining a variable later in the file changes it for text after the new `#define` [I].
   The reference warns that some players (ARIA) handle redefinition between includes
-  poorly [S]; Patternhaus applies the straightforward reading: the value in force at the
+  poorly [S]; Beast Studio applies the straightforward reading: the value in force at the
   point of use [PH].
 - Substitution happens before value parsing, so a defined value may be a note name or a
   number [I].
@@ -272,7 +272,7 @@ Engine rules:
 | `seq_position` | v1 | int | 1–100 | 1 | the step of the cycle at which this region plays [S] | must |
 | `lorand` / `hirand` | v1 | float | 0–1 | 0 / 1 | region plays when a random number r drawn per note-on falls in `lorand ≤ r < hirand` (`hirand = 1` includes 1) [S for range; I for the bound rule] | must |
 
-**Sequence counter [I] [PH]:** players differ on whose counter advances. Patternhaus keeps
+**Sequence counter [I] [PH]:** players differ on whose counter advances. Beast Studio keeps
 one counter per region, starting at 1. On each note-on that matches the region's other
 conditions (key, velocity, channel, CC, keyswitch, trigger), the region plays when
 `counter == seq_position`, then the counter advances (`counter = counter mod seq_length
@@ -327,7 +327,7 @@ Rules:
 
 **CC initial values [I]:** CCs not set by `set_ccN` start at 0, except CC 7 (volume) at 100,
 CC 10 (pan) and CC 11 (expression) at 64 and 127 respectively [I: common MIDI defaults;
-the importer may report that these are assumptions]. Patternhaus default: everything 0
+the importer may report that these are assumptions]. Beast Studio default: everything 0
 except CC 7 = 100, CC 10 = 64, CC 11 = 127 [PH].
 
 ### 4.6 CC-triggered regions [S]
@@ -396,7 +396,7 @@ Modes:
 - Sample-file loop data: WAV `smpl` chunk loops (first loop only), FLAC/AIFF loop
   metadata if `ph-formats` exposes it [I].
 - **ARIA quirk** [S]: with `loop_continuous`/`loop_sustain` set, no `loop_end`, and no loop
-  in the file, the whole sample loops. Patternhaus follows this [PH].
+  in the file, the whole sample loops. Beast Studio follows this [PH].
 
 ---
 
@@ -625,7 +625,7 @@ amounts `fxNtomain`, `fxNtomix`, and type-specific parameters (`reverb_*`, `dela
 
 M3 **[PH]:** keep every `<effect>` block as data in the native instrument (so nothing is
 lost). Map `reverb`, `delay`, `comp`, `eq`, `filter`, `phaser` and `disto` to the nearest
-built-in Patternhaus effects on the instrument's output as **approximated**; skip and
+built-in Beast Studio effects on the instrument's output as **approximated**; skip and
 report all other types and all vendor-specific parameters.
 
 ---

@@ -85,7 +85,7 @@ fn read_json(p: &Path) -> Result<serde_json::Value, Vec<String>> {
     serde_json::from_str(&text).map_err(|e| vec![format!("{}: {e}", p.display())])
 }
 
-/// M3 criterion 4: the Haus Sampler streaming stress test over a generated library of about
+/// M3 criterion 4: the Beast Sampler streaming stress test over a generated library of about
 /// 2 GB (written to a temporary folder and removed afterwards; `#[ignore]`d in the normal test
 /// run). Prints underruns, resident memory against the preload budget, and load time.
 pub fn sampler_stress(root: &Path) -> Result<(), Vec<String>> {

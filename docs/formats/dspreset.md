@@ -9,7 +9,7 @@ our own words, with page citations. No player or converter code was read.
 
 **Evidence tags:** **[S]** per spec (the Developer Guide, page given); **[D]** documented
 elsewhere, not seen; **[I]** inferred; **[C]** confirmed on files (none yet: no corpus
-examined); **[PH]** a Patternhaus decision where the guide leaves a choice.
+examined); **[PH]** a Beast Studio decision where the guide leaves a choice.
 
 **Cited sources** (Developer Guide, "stable" edition read 2026-11-05; the same pages exist
 per version, e.g. `/en/1.15.4/`):
@@ -210,7 +210,7 @@ Round-robin rules for the engine [I] [PH]:
 | `releaseCurve` | −100–100 | 100 | approximate |
 
 The `ampEnv…` spelling wins when both are present [S]. Curve scale: −100 logarithmic,
-0 linear, 100 exponential [S]. **[PH]:** map curves to Haus Sampler's curve parameter
+0 linear, 100 exponential [S]. **[PH]:** map curves to Beast Sampler's curve parameter
 linearly if T2 supports one; otherwise snap to linear/exponential and report.
 
 **Voice silencing (choke)**

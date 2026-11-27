@@ -1,4 +1,4 @@
-# M3 manual test: the Haus Sampler by hand (criterion 7)
+# M3 manual test: the Beast Sampler by hand (criterion 7)
 
 For the owner, with the app running on your own audio device and MIDI keyboard. You need one
 of your own instrument libraries in a supported format: SFZ, SF2/SF3, DecentSampler
@@ -7,7 +7,7 @@ carry note names (`Piano_C4_f.wav`). Use a library with velocity layers and, if 
 keyswitched articulations.
 
 1. **Import it.** Drag the instrument file from Explorer onto the **channel rack**. The hint
-   bar says "Drop to import … as a Haus Sampler channel" while you hover.
+   bar says "Drop to import … as a Beast Sampler channel" while you hover.
    - A new channel appears and its **sampler window** opens.
    - An SF2/SF3 with several presets first asks which preset to import: pick one.
    - A folder of samples dropped on the rack first shows the **auto-map preview** (each
@@ -35,12 +35,12 @@ keyswitched articulations.
 6. **Save and reopen.**
    - **Collect into project** copies the library samples into the project (the "linked"
      badge disappears), so the project no longer needs the library folder.
-   - **Save as Haus instrument…** writes `instrument.toml` and `samples/` to a folder you
+   - **Save as Beast Sampler instrument…** writes `instrument.toml` and `samples/` to a folder you
      choose (relative to the project). Open the `instrument.toml` in a text editor: it is
      readable.
-   - Save the project (Ctrl+S), close Patternhaus, start it again and open the project. The
+   - Save the project (Ctrl+S), close Beast Studio, start it again and open the project. The
      channel plays exactly as before, with your zone edit and default articulation.
-   - **Load Haus instrument…** in the window loads the saved folder back onto the channel.
+   - **Load Beast Sampler instrument…** in the window loads the saved folder back onto the channel.
 7. **Optional: your private Kontakt reader.** If your separately built Kontakt importer is
    installed (M3/T6 hook), drop an unencrypted `.nki` on the rack and repeat steps 2 to 6
    with it. Encrypted or licence-locked libraries must be refused with a plain message,

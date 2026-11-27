@@ -1,4 +1,4 @@
-# Building Patternhaus with ASIO (the GPLv3 build)
+# Building Beast Studio with ASIO (the GPLv3 build)
 
 DESIGN §11: the source is MIT OR Apache-2.0. ASIO support sits behind the `asio` cargo
 feature, which is off by default. A binary built with it links Steinberg's ASIO SDK, which
@@ -25,7 +25,7 @@ M1 ships the **non-ASIO, MIT/Apache build** for Windows, Linux and macOS.
     after M1.
 - To turn it on: GitHub → Settings → Secrets and variables → Actions → Variables → add
   `PH_BUILD_ASIO = true`. The next nightly then also attaches
-  `patternhaus-…-windows-x64-asio-gpl3.zip`.
+  `beast-studio-…-windows-x64-asio-gpl3.zip`.
 
 ## Building it yourself (Windows)
 
@@ -41,7 +41,7 @@ M1 ships the **non-ASIO, MIT/Apache build** for Windows, Linux and macOS.
    ```
 5. Package it with the GPL notice:
    ```bash
-   packaging/package.sh target/release patternhaus-local-windows-x64-asio-gpl3 gpl
+   packaging/package.sh target/release beast-studio-local-windows-x64-asio-gpl3 gpl
    ```
 6. Check: Help → About shows the GPLv3 paragraph, and `EngineConfig::exclusive = true`
    (ASIO or exclusive mode) opens your ASIO driver.
