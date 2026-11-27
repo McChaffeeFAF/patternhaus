@@ -8,8 +8,8 @@
 //! - **dropping** sends commands as the human, never touching the project or the filesystem
 //!   itself: `sample.import`, `file.import_midi`, or `file.open` (or `file.import_flp` for an FL Studio project) (through the Save / Don't
 //!   save / Cancel question). A folder becomes a library folder, remembered in settings.
-//! - **Haus Sampler (M3/T5):** an instrument file (`.sfz`, `.sf2`, `.sf3`, `.dspreset`,
-//!   `.dsbundle`, `.exs`, ...) becomes a Haus Sampler channel through `sampler.import` (an
+//! - **Beast Sampler (M3/T5):** an instrument file (`.sfz`, `.sf2`, `.sf3`, `.dspreset`,
+//!   `.dsbundle`, `.exs`, ...) becomes a Beast Sampler channel through `sampler.import` (an
 //!   SF2/SF3 with several presets asks which one first). A folder of samples dropped **on the
 //!   channel rack** shows the auto-map preview, then imports the same way; elsewhere a folder
 //!   is still a library folder.
@@ -57,7 +57,7 @@ pub enum Item {
     Midi(PathBuf),
     /// An FL Studio project file (`.flp`): imported as a new project.
     Flp(PathBuf),
-    /// An instrument file (or `.dsbundle` folder) the Haus Sampler imports.
+    /// An instrument file (or `.dsbundle` folder) the Beast Sampler imports.
     Instrument(PathBuf),
     /// A plain folder: becomes a library folder.
     Folder(PathBuf),
@@ -115,7 +115,7 @@ pub struct Plan {
     pub audio: Vec<PathBuf>,
     pub midi: Vec<PathBuf>,
     pub flp: Vec<PathBuf>,
-    /// Instrument files for the Haus Sampler (M3/T5).
+    /// Instrument files for the Beast Sampler (M3/T5).
     pub instruments: Vec<PathBuf>,
     pub folders: Vec<PathBuf>,
     pub projects: Vec<PathBuf>,
@@ -175,7 +175,7 @@ fn rack_zone(z: DropZone) -> bool {
     matches!(z, DropZone::Rack | DropZone::RackRow(_))
 }
 
-/// A folder of samples dropped on the rack becomes a Haus Sampler instrument.
+/// A folder of samples dropped on the rack becomes a Beast Sampler instrument.
 fn sampler_folder(zone: Option<DropZone>, dir: &Path) -> bool {
     zone.is_some_and(rack_zone) && crate::sampler_ui::has_samples(dir)
 }
@@ -272,11 +272,11 @@ pub fn describe(core: &AppCore, plan: &Plan, pos: Option<Pos2>) -> Option<DropHo
             let n = plan.instruments.len();
             parts.push(if n == 1 {
                 format!(
-                    "Drop to import {} as a Haus Sampler channel",
+                    "Drop to import {} as a Beast Sampler channel",
                     folder_name(&plan.instruments[0])
                 )
             } else {
-                format!("Drop to import {n} instruments as Haus Sampler channels")
+                format!("Drop to import {n} instruments as Beast Sampler channels")
             });
             rects.extend(
                 zone_at(zones, pos, rack_zone)
@@ -291,7 +291,7 @@ pub fn describe(core: &AppCore, plan: &Plan, pos: Option<Pos2>) -> Option<DropHo
             .partition(|f| sampler_folder(on_rack.map(|(_, z)| z), f));
         if let Some(f) = mapped.first() {
             parts.push(format!(
-                "Drop to map the samples in {} as a Haus Sampler instrument",
+                "Drop to map the samples in {} as a Beast Sampler instrument",
                 folder_name(f)
             ));
             rects.extend(on_rack.map(|(r, _)| r));

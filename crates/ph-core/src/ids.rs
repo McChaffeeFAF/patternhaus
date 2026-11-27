@@ -48,17 +48,17 @@ id_type!(
     PointId
 );
 id_type!(
-    /// Stable id of a Haus Sampler instrument ([`crate::HausInstrument`]) in the project
+    /// Stable id of a Beast Sampler instrument ([`crate::HausInstrument`]) in the project
     /// (M3). Never reused within a project.
     InstrumentId
 );
 id_type!(
-    /// Stable id of a Haus Sampler group ([`crate::Group`]). Unique across the whole project
+    /// Stable id of a Beast Sampler group ([`crate::Group`]). Unique across the whole project
     /// (not just its instrument) and never reused.
     GroupId
 );
 id_type!(
-    /// Stable id of a Haus Sampler zone ([`crate::Zone`]). Unique across the whole project
+    /// Stable id of a Beast Sampler zone ([`crate::Zone`]). Unique across the whole project
     /// (not just its instrument) and never reused.
     ZoneId
 );

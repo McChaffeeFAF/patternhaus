@@ -33,6 +33,8 @@
 //! handles `Param`, and a 32-frame staircase under the processor's own smoothing is
 //! inaudible.
 
+pub mod env;
+
 use serde::{Deserialize, Serialize};
 
 /// Longest gap, in frames, between two `Param` events the engine sends for an automated
@@ -182,7 +184,7 @@ pub enum EventKind {
     /// value / 127; 14-bit pairs are combined by the sender).
     Cc { controller: u8, value: f32 },
     /// Channel pitch bend (M2), normalised -1.0..=1.0 (MIDI: `(v - 8192) / 8192`, clamped).
-    /// The range in semitones is the instrument's own (Haus Synth: `bend_range`).
+    /// The range in semitones is the instrument's own (Beast Synth: `bend_range`).
     PitchBend { value: f32 },
     /// Per-note expression (M2, CLAP note expressions) for the voice its `NoteOn` started
     /// with `note_id`. Unknown or finished ids are ignored. Absolute, not cumulative: each

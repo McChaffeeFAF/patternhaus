@@ -5,20 +5,20 @@ example a sampled library in its player plugin), so anyone, agents included, can
 project and know how to play them. It is **per user**, outside every project and outside the
 repo. It is generic: any CLAP or VST3 instrument works the same way.
 
-Plugin states are **opaque**. Patternhaus saves the bytes the plugin hands it and gives them
+Plugin states are **opaque**. Beast Studio saves the bytes the plugin hands it and gives them
 back; it never parses, edits or converts them.
 
 ## Where it lives
 
-`<user data dir>/Patternhaus/catalogue/`:
+`<user data dir>/Beast Studio/catalogue/`:
 
 | Platform | Default folder |
 |---|---|
-| Windows | `%APPDATA%\Patternhaus\catalogue` |
-| macOS | `~/Library/Application Support/Patternhaus/catalogue` |
-| Linux | `$XDG_DATA_HOME/Patternhaus/catalogue` (default `~/.local/share/...`) |
+| Windows | `%APPDATA%\Beast Studio\catalogue` |
+| macOS | `~/Library/Application Support/Beast Studio/catalogue` |
+| Linux | `$XDG_DATA_HOME/Beast Studio/catalogue` (default `~/.local/share/...`) |
 
-Set `PATTERNHAUS_CATALOGUE` to use another folder. The app and `patternhaus-cli` use this
+Set `BEAST_STUDIO_CATALOGUE` (the older `PATTERNHAUS_CATALOGUE` still works) to use another folder. A catalogue made before the rename, in the `Patternhaus` folder of the same place, is copied here once on the first start; the old folder is left as it is. The app and `beast-studio-cli` use this
 folder (`ph_control::default_catalogue_dir`, `Studio::set_catalogue_dir`). A session without one
 (tests, embedders that do not opt in) refuses the `catalogue.*` commands. Nothing is created
 until the first entry is saved.

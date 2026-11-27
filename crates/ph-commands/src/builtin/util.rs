@@ -113,7 +113,7 @@ pub fn replace_project(ed: &mut Edit, target: &Project) -> ModelResult<()> {
             ed.put(ObjectPath::Clip(*id), None)?;
         }
     }
-    // Haus Sampler zones go before the registry samples they may play
+    // Beast Sampler zones go before the registry samples they may play
     for inst in cur.instruments.values() {
         for z in inst.zones.keys() {
             let path = ObjectPath::Zone(inst.id, *z);

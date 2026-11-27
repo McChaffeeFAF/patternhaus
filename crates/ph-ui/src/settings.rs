@@ -29,21 +29,13 @@ pub fn settings_path(config: &Path) -> PathBuf {
     config.join("settings.toml")
 }
 
-/// The default config folder, e.g. `%APPDATA%/patternhaus`.
+/// The default config folder, e.g. `%APPDATA%\Beast Studio` (see [`ph_control::userdirs`], which
+/// also copies the pre-rename `Beast Studio` folder here once).
 pub fn default_config_dir() -> Option<PathBuf> {
-    let env = |k: &str| {
-        std::env::var_os(k)
-            .map(PathBuf::from)
-            .filter(|p| !p.as_os_str().is_empty())
-    };
-    let base = if cfg!(windows) {
-        env("APPDATA")
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|h| h.join("Library/Application Support"))
-    } else {
-        env("XDG_CONFIG_HOME").or_else(|| env("HOME").map(|h| h.join(".config")))
-    };
-    base.map(|d| d.join("patternhaus"))
+    ph_control::userdirs::config_dir_in(
+        &ph_control::userdirs::process_env,
+        ph_control::userdirs::Era::Current,
+    )
 }
 
 /// The factory `assets/` folder: next to the executable (installed), or found by walking up from

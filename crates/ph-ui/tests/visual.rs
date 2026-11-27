@@ -499,10 +499,10 @@ fn reduce_motion_is_a_remembered_preference() {
 fn the_window_title_names_the_project_and_marks_unsaved_changes() {
     assert_eq!(
         ph_ui::app::window_title("My Song", false),
-        "My Song \u{2014} Patternhaus"
+        "My Song \u{2014} Beast Studio"
     );
     assert_eq!(
         ph_ui::app::window_title("My Song", true),
-        "My Song \u{2022} \u{2014} Patternhaus"
+        "My Song \u{2022} \u{2014} Beast Studio"
     );
 }

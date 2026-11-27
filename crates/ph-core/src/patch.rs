@@ -1246,7 +1246,7 @@ impl Edit {
         self.put(ObjectPath::Sample(id), None)
     }
 
-    // ---------------------------------------------------------------- Haus Sampler (M3)
+    // ---------------------------------------------------------------- Beast Sampler (M3)
 
     /// Adds an instrument. `inst.id` is replaced by a fresh id (returned); its groups and
     /// zones, if any, are added too, each under a fresh id (zones and group-scoped

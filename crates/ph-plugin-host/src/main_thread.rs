@@ -1,7 +1,7 @@
 //! The plugins' main thread.
 //!
 //! CLAP and VST3 both have a *main thread*: instances are created, activated, saved and
-//! destroyed there, and their editors live there. Patternhaus has no single UI-owned main
+//! destroyed there, and their editors live there. Beast Studio has no single UI-owned main
 //! thread that every caller runs on (commands, the engine's compiler and the UI each have
 //! their own), so one dedicated thread plays that role for every plugin in the process.
 //! Callers marshal work to it with [`MainThread::run`] and wait for the result.

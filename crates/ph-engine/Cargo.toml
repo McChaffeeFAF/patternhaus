@@ -1,6 +1,6 @@
 [package]
 name = "ph-engine"
-description = "Patternhaus audio engine: render plans, graph scheduling, real-time and offline rendering."
+description = "Beast Studio audio engine: render plans, graph scheduling, real-time and offline rendering."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

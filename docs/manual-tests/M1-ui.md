@@ -17,7 +17,7 @@ On the owner's machine there's a prebuilt copy with a launcher. It finds the fac
 the checkpoint project folder:
 
 ```powershell
-E:\patternhaus\local\app\Patternhaus.bat                       # or: Patternhaus.bat <project_dir> --demo-agent
+"E:\patternhaus\local\app\Beast Studio.bat"                     # or: "Beast Studio.bat" <project_dir> --demo-agent
 ```
 
 Options:
@@ -30,7 +30,7 @@ Options:
 | `--demo-agent` | A scripted agent, `agent:demo`, edits the project every 4 s. Used in part 3 |
 | `--assets DIR` | Factory content folder. Default: `assets/` next to the exe, or found by walking up from it |
 | `--library DIR` | An extra sample folder for the browser (repeatable) |
-| `--config DIR` | Where keymap, layout and theme are kept. Default `%APPDATA%\patternhaus` |
+| `--config DIR` | Where keymap, layout and theme are kept. Default `%APPDATA%\Beast Studio` |
 
 Expected: a dark window (Neon Slate) with the top bar and toolbar above, the browser docked on the left and the hint bar along the bottom. The
 playlist fills the rest of the window as the background, and the channel rack floats over it at the
@@ -42,7 +42,7 @@ upper left. The piano roll, mixer, history and agents are hidden until you press
    (the browser plays it through a temporary channel; nothing is added to the project).
 2. **Drag `kick` onto the channel rack.** A "Kick" channel appears. Drag `snare` and
    `hat_closed` the same way (double-click works too). Expected: 3 sampler channels.
-3. **Haus Synth.** On the PRESETS tab open `bass` and double-click `sub`. A "Sub"
+3. **Beast Synth.** On the PRESETS tab open `bass` and double-click `sub`. A "Sub"
    channel appears. Rename a channel with right-click on its name, Rename.
 4. **Step sequencer (F6).** Click steps to make a pattern. Click and drag across a row to paint.
    Right-drag erases. Four on the floor is steps 1, 5, 9, 13 on the kick. Press the Play button or
@@ -111,7 +111,7 @@ upper left. The piano roll, mixer, history and agents are hidden until you press
     can put on another monitor; close that OS window and it returns to the workspace;
   - the browser is docked at the left; drag its right edge to resize it, F8 to hide it.
 - **Instrument and effect windows.** Click a channel's name in the rack: its instrument window
-  (sampler or Haus Synth) opens. Click another channel and both stay open. In the mixer, click an
+  (sampler or Beast Synth) opens. Click another channel and both stay open. In the mixer, click an
   effect slot: that effect's window opens with all its knobs. Each remembers where you put it.
   Deleting the channel (or removing the effect) closes its window.
 - **Layouts.** View, Layout: "Save for me" (also saved on exit), "Save with this project"
@@ -153,7 +153,7 @@ cargo run --release -p ph-app -- C:\Users\you\beats\first --demo-agent
 
 ## Part 4: the T5c rough-edge fixes
 
-1. **Scrolling.** Open a Haus Synth instrument window and drag its bottom edge up until it is
+1. **Scrolling.** Open a Beast Synth instrument window and drag its bottom edge up until it is
    small. Expected: a scroll bar appears and the mouse wheel scrolls; knob rows wrap onto new lines
    instead of running off the right edge. The mixer, History and Agents windows scroll in both
    directions. The piano roll, playlist and channel rack keep their own panning and zooming, with
@@ -189,7 +189,7 @@ Neon, themes and polish. Everything here has an offscreen test or screenshot
 
 1. **First impression.** Start the app. A loading screen with the mark and wordmark shows for
    about a second (click or press a key to skip it), then fades to the workspace. The window
-   title reads `<project> - Patternhaus` with a dot while there are unsaved changes, and the
+   title reads `<project> - Beast Studio` with a dot while there are unsaved changes, and the
    window and taskbar icon is the pad-grid mark.
 2. **Themes.** View, Theme, Red Line: the whole app recolours at once (wine-black, red accent,
    cyan for agents). Switch back to Neon Slate. Make `themes/mint.toml` as in `docs/theming.md`
@@ -222,7 +222,7 @@ Neon, themes and polish. Everything here has an offscreen test or screenshot
     6 px apart. A 1/64 note at the normal zoom is a thin sliver you can still grab (8 px
     target). Zoom presets: the magnifier in the toolbar, or Ctrl+0 (fit), Ctrl+1 (1 bar),
     Ctrl+2 (1 beat), Ctrl+3 (1/64 detail); Ctrl+= and Ctrl+- step through them.
-11. **About.** Help, About Patternhaus: the mark, the version and the licence text, including
+11. **About.** Help, About Beast Studio: the mark, the version and the licence text, including
     the three bundled fonts (SIL Open Font Licence 1.1).
 
 12. **Drag and drop.** From Windows Explorer, with the app open (and a project that has a few channels):

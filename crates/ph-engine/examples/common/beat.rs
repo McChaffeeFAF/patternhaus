@@ -2,7 +2,7 @@
 //!
 //! Drums are generated in code (no factory samples needed): a pitched-sine kick, a
 //! noise-and-tone snare, and high-passed noise hats, served by [`DemoDrums`] under
-//! `demo:` references. The bass and chords are Haus Synth.
+//! `demo:` references. The bass and chords are Beast Synth.
 
 use ph_core::*;
 use ph_node::{AssetResolver, SampleData};
@@ -112,7 +112,7 @@ fn note(key: u8, start: Tick, len: Tick, vel: f32) -> NoteSpec {
 }
 
 /// Eight bars at 124 BPM: four-on-the-floor kick, snare on 2 and 4, closed and open hats
-/// (choked), a sidechained Haus Synth bass, and chords. Inserts: kick (EQ), snare (EQ +
+/// (choked), a sidechained Beast Synth bass, and chords. Inserts: kick (EQ), snare (EQ +
 /// compressor, reverb send), hats, bass (compressor ducked by the kick + EQ), chords
 /// (reverb send), a reverb return, and a limiter on the master.
 pub fn project() -> Project {

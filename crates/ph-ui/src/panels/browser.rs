@@ -1,4 +1,4 @@
-//! Browser: factory kits, Haus Synth presets, and files in the project and library folders.
+//! Browser: factory kits, Beast Synth presets, and files in the project and library folders.
 //! Click to preview, double-click or drag to the rack to make a channel.
 
 use crate::browser_model::{self as bm, Dragged, Kind, Node, RefStyle};
@@ -392,7 +392,7 @@ fn tree_row(
             "click to read its playing guide, double-click or drag to the rack to add; right-click edits the guide"
         }
         Kind::Instrument { .. } => {
-            "click to hear a few notes, double-click or drag to the rack to import it as a Haus Sampler"
+            "click to hear a few notes, double-click or drag to the rack to import it as a Beast Sampler"
         }
     };
     let kind_name = match &n.kind {

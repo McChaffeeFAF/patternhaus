@@ -341,7 +341,7 @@ pub fn run(files: &[std::path::PathBuf]) -> String {
     let _ = writeln!(s, "FL major versions: {:?}", t.versions);
     let _ = writeln!(
         s,
-        "channels: probe reads {} event-64 blocks ({} rack, {} audio-clip sources, {} automation sources); imported {} Patternhaus channels",
+        "channels: probe reads {} event-64 blocks ({} rack, {} audio-clip sources, {} automation sources); imported {} Beast Studio channels",
         t.exp.channels,
         t.exp.rack_channels,
         t.exp.audio_sources,

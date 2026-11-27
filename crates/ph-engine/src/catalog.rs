@@ -13,7 +13,7 @@ pub fn builtin_effects() -> &'static [&'static str] {
     &ph_effects::BUILTIN
 }
 
-/// Factory Haus Synth preset names (`category/name`).
+/// Factory Beast Synth preset names (`category/name`).
 pub fn synth_presets() -> Vec<&'static str> {
     ph_instruments::presets::synth_preset_names()
 }
@@ -32,7 +32,7 @@ pub fn instrument_descriptor(spec: &InstrumentSpec) -> Result<NodeDescriptor, St
             preset: None,
             params: Default::default(),
         },
-        // the Haus Sampler's parameters do not depend on the instrument it plays (extra
+        // the Beast Sampler's parameters do not depend on the instrument it plays (extra
         // output ports do; see `ph_sampler::descriptor`)
         InstrumentSpec::MultiSampler { .. } => return Ok(ph_sampler::descriptor(0)),
         other => other.clone(),

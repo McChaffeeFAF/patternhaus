@@ -883,7 +883,7 @@ fn save_slot(slot: &mut Slot) -> PluginResult<Vec<u8>> {
 
 fn load_slot(slot: &mut Slot, data: &[u8]) -> PluginResult<()> {
     let (comp, ctl) = unpack_state(data)
-        .ok_or_else(|| PluginError::Call("not a VST3 state written by Patternhaus".into()))?;
+        .ok_or_else(|| PluginError::Call("not a VST3 state written by Beast Studio".into()))?;
     let a = Stream::new(comp.to_vec());
     let ap = a.as_com_ref::<IBStream>().unwrap().as_ptr();
     // SAFETY: state calls with our streams

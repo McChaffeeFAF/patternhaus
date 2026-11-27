@@ -1,9 +1,9 @@
-//! Regions to the Haus Sampler model (`docs/formats/sfz.md` §4–§13).
+//! Regions to the Beast Sampler model (`docs/formats/sfz.md` §4–§13).
 //!
 //! The model keeps envelopes, filter, LFOs, voice limits, round-robin mode, output and
 //! effects per **group**, and modulation routes per instrument (optionally scoped to a
 //! group), while SFZ sets all of them per region. Regions under one `<group>` header whose
-//! group-level settings agree share a Haus group; regions that differ split into more groups
+//! group-level settings agree share a Beast Sampler group; regions that differ split into more groups
 //! (`Name (2)`, ...), so nothing is averaged away.
 
 use super::opcodes::{Leftover, leftover, lfo_rest};
@@ -354,7 +354,7 @@ fn cc_source(n: u32) -> Option<(ModSource, bool)> {
 
 // ------------------------------------------------------------------------- drafts
 
-/// What decides a region's Haus group, besides its `<group>` header.
+/// What decides a region's Beast Sampler group, besides its `<group>` header.
 #[derive(Clone, Debug, PartialEq)]
 struct GroupDraft {
     group: Group,

@@ -11,7 +11,7 @@
 //! none of the bundled faces have. Every family falls back to CJK faces found on the system at
 //! runtime ([`cjk_fallbacks`]: Microsoft YaHei / Yu Gothic / Malgun Gothic on Windows, PingFang /
 //! Hiragino / Apple SD Gothic Neo on macOS, Noto Sans CJK / WenQuanYi / Droid Sans Fallback on
-//! Linux, or the file named by `PATTERNHAUS_CJK_FONT`). They are read from the user's own
+//! Linux, or the file named by `BEAST_STUDIO_CJK_FONT` (or the older `PATTERNHAUS_CJK_FONT`)). They are read from the user's own
 //! system and never shipped, so they add nothing to the notices; a bundled OFL subset (Noto
 //! Sans CJK) can go in front of them once one is committed with its licence. Without any, CJK
 //! text renders as replacement boxes, as before.
@@ -94,7 +94,7 @@ pub struct CjkFace {
 /// faces first, then a Korean one (most CJK faces lack Hangul, or kana, or Han).
 fn cjk_candidates() -> Vec<(PathBuf, u32)> {
     let mut v: Vec<(PathBuf, u32)> = Vec::new();
-    if let Some(p) = std::env::var_os("PATTERNHAUS_CJK_FONT").filter(|p| !p.is_empty()) {
+    if let Some(p) = ph_node::env::var_os("BEAST_STUDIO_CJK_FONT").filter(|p| !p.is_empty()) {
         v.push((PathBuf::from(p), 0));
     }
     let under = |dir: &Path, files: &[&str]| -> Vec<(PathBuf, u32)> {

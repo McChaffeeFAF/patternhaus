@@ -340,7 +340,7 @@ fn factory() {
     let _ = Arc::new(0);
 }
 
-/// M2: the Haus Synth's bend and mod wheel follow `PitchBend` and `Cc 1` events, exactly as
+/// M2: the Beast Synth's bend and mod wheel follow `PitchBend` and `Cc 1` events, exactly as
 /// the `pitch_bend` / `mod_wheel` params do (which stay for old projects and automation).
 #[test]
 fn synth_follows_pitch_bend_and_mod_wheel_events() {

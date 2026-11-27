@@ -1,4 +1,4 @@
-//! Haus Sampler gestures -> `sampler.*` requests (M3/T5).
+//! Beast Sampler gestures -> `sampler.*` requests (M3/T5).
 //!
 //! Like [`crate::mapping`], these are plain functions of ids and values. The sampler window,
 //! the drop handling and the browser build every edit here, so the UI changes an instrument

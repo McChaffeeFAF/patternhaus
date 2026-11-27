@@ -1,9 +1,9 @@
-//! Patternhaus built-in instruments (DESIGN §7).
+//! Beast Studio built-in instruments (DESIGN §7).
 //!
 //! | id | instrument |
 //! |---|---|
 //! | `ph.sampler` | one-shot / looped sample player ([`sampler`]) |
-//! | `ph.synth` | Haus Synth, subtractive synthesizer ([`synth`]) |
+//! | `ph.synth` | Beast Synth, subtractive synthesizer ([`synth`]) |
 //!
 //! Both are real-time-safe [`ph_node::Processor`]s: voices are allocated in `activate`,
 //! notes and parameter changes apply sample-accurately, and output is bit-identical for
@@ -56,7 +56,7 @@ pub fn create(
             (Box::new(synth::Synth::new()), params)
         }
         InstrumentSpec::MultiSampler { .. } => {
-            return Err("Haus Sampler (multi-sampler) is not available until M3".into());
+            return Err("Beast Sampler (multi-sampler) is not available until M3".into());
         }
         InstrumentSpec::Plugin { .. } => {
             return Err("external plugin instruments are not available until M2".into());

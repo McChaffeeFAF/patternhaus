@@ -62,6 +62,20 @@ pub fn grant_text(g: &Grant) -> String {
         .join(",")
 }
 
+/// Client names that were renamed with the product (Patternhaus became Beast Studio on
+/// 2026-11-27): a grant remembered under the old name carries over to the new one, so the
+/// owner does not have to approve the CLI again. The old entry is dropped from the table.
+const RENAMED_CLIENTS: &[(&str, &str)] = &[("patternhaus-cli", "beast-studio-cli")];
+
+fn rename_old_clients(mut table: BTreeMap<String, Grant>) -> BTreeMap<String, Grant> {
+    for (old, new) in RENAMED_CLIENTS {
+        if let Some(g) = table.remove(*old) {
+            table.entry((*new).to_string()).or_insert(g);
+        }
+    }
+    table
+}
+
 impl Grants {
     /// Every client gets `grant` (headless sessions).
     pub fn fixed(grant: Grant) -> Arc<Grants> {
@@ -87,6 +101,7 @@ impl Grants {
                 serde_json::from_value::<BTreeMap<String, Grant>>(v["clients"].clone()).ok()
             })
             .unwrap_or_default();
+        let table = rename_old_clients(table);
         Arc::new(Grants {
             default: Grant(vec![Scope::Read]),
             fixed: false,
@@ -196,6 +211,24 @@ mod tests {
         assert_eq!(again.grant_for("Claude Code"), Grant(vec![Scope::Compose]));
         assert_eq!(again.grant_for("Other"), Grant(vec![Scope::Read]));
         assert_eq!(Grants::fixed(Grant::full()).grant_for("x"), Grant::full());
+    }
+
+    #[test]
+    fn a_grant_remembered_for_the_old_cli_name_carries_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("agents.json");
+        std::fs::write(
+            &file,
+            r#"{ "clients": { "patternhaus-cli": ["compose", "mix"], "Other": ["read"] } }"#,
+        )
+        .unwrap();
+        let g = Grants::per_client(Some(file), None);
+        assert_eq!(
+            g.peek("beast-studio-cli"),
+            Grant(vec![Scope::Compose, Scope::Mix])
+        );
+        let names: Vec<String> = g.clients().into_iter().map(|(n, _)| n).collect();
+        assert_eq!(names, ["Other", "beast-studio-cli"]);
     }
 
     struct Always(Grant);

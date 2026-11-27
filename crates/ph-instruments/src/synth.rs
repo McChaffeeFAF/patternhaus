@@ -1,4 +1,4 @@
-//! `ph.synth`: Haus Synth, an analog-style subtractive synthesizer (DESIGN §7).
+//! `ph.synth`: Beast Synth, an analog-style subtractive synthesizer (DESIGN §7).
 //!
 //! Per voice: three band-limited oscillators (4-point PolyBLEP/BLAMP saw, pulse with PWM,
 //! triangle, sine) with up to 8-voice unison, a sub-oscillator and seeded noise; two
@@ -446,7 +446,7 @@ pub fn descriptor() -> NodeDescriptor {
         2.0,
         ParamUnit::Semitones,
     ));
-    instrument_desc("ph.synth", "Haus Synth", p)
+    instrument_desc("ph.synth", "Beast Synth", p)
 }
 
 /// Phase of a free-running LFO derived from an integer sample count (exact regardless of

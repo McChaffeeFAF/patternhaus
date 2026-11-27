@@ -2,7 +2,7 @@
 
 For the owner, with the app running (and, for step 9, a real MCP client). The lane editor is the
 strip under the piano roll's note grid: CC 0-119 and pitch bend per channel and pattern. Any
-channel works for editing; to hear the result use a channel that responds to CCs (a Haus Sampler
+channel works for editing; to hear the result use a channel that responds to CCs (a Beast Sampler
 instrument with a CC-mapped amplitude, or a hosted plugin such as Kontakt).
 
 1. **Open the lane area.** Open a pattern in the piano roll. Under the note grid is a strip

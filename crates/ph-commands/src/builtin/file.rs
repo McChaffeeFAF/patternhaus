@@ -58,7 +58,7 @@ pub fn register(r: &mut Registry) {
     ));
     r.register(typed(
         "file.import_flp",
-        "Open an FL Studio project (.flp) as a new Patternhaus project, with an import report.",
+        "Open an FL Studio project (.flp) as a new Beast Studio project, with an import report.",
         Scope::Full,
         DESTRUCTIVE,
         crate::session_cmd::stub::<ImportFlp>,
@@ -326,8 +326,8 @@ fn export_midi(ctx: &mut CommandCtx<'_>, p: ExportMidi) -> CmdResult<CommandOutp
 pub struct ImportFlp {
     /// The .flp file. Agents may only name files inside the allowed folders.
     path: String,
-    /// Where the new project folder goes: `projects_folder` (default; `Documents/Patternhaus
-    /// Projects/<name>`) or `next_to_flp` (`<name> (Patternhaus)` beside the .flp). If the
+    /// Where the new project folder goes: `projects_folder` (default; `Documents/Beast Studio
+    /// Projects/<name>`) or `next_to_flp` (`<name> (Beast Studio)` beside the .flp). If the
     /// chosen place cannot be written, the projects folder is used and the report says so.
     #[serde(default)]
     placement: Placement,
@@ -385,7 +385,7 @@ fn choose_import_dir(
     let projects = host.projects_dir();
     let beside = || {
         let parent = src.parent().unwrap_or_else(|| Path::new("."));
-        make_import_dir(host, author, parent, &format!("{stem} (Patternhaus)"))
+        make_import_dir(host, author, parent, &format!("{stem} (Beast Studio)"))
     };
     let in_projects = |p: &Path| make_import_dir(host, author, p, &stem);
     let first = match (placement, &projects) {
@@ -401,7 +401,7 @@ fn choose_import_dir(
                     CmdError::Host(format!("cannot create the project folder ({why}; {e})"))
                 })?;
                 let note = format!(
-                    "Placed in the Patternhaus projects folder because the folder next to the FL project could not be used ({why})."
+                    "Placed in the Beast Studio projects folder because the folder next to the FL project could not be used ({why})."
                 );
                 Ok((dir, Some(note)))
             }

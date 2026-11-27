@@ -117,7 +117,7 @@ impl Drop for EngineLink {
 pub enum Audition {
     /// A sample reference (`factory:...`, project-relative or absolute).
     Sample(String),
-    /// An instrument (a Haus Synth preset) playing one note for `hold`.
+    /// An instrument (a Beast Synth preset) playing one note for `hold`.
     Instrument {
         instrument: InstrumentSpec,
         key: u8,
@@ -125,7 +125,7 @@ pub enum Audition {
     },
     /// Decoded audio the caller holds, such as the audio editor's selection.
     Data(Arc<ph_node::SampleData>),
-    /// An instrument file the Haus Sampler imports (`.sfz`, `.sf2`, ...): a few notes of it,
+    /// An instrument file the Beast Sampler imports (`.sfz`, `.sf2`, ...): a few notes of it,
     /// rendered offline from a throw-away import (M3/T5).
     /// An instrument file, with the session's importers that read it.
     InstrumentFile(std::path::PathBuf, ph_sampler_formats::Importers),

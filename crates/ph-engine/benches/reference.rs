@@ -1,6 +1,6 @@
 //! M1 acceptance criterion 7: the reference project at 48 kHz / 256 frames.
 //!
-//! 16 Haus Synth channels, each holding an 8-voice chord (128 voices), two channels per
+//! 16 Beast Synth channels, each holding an 8-voice chord (128 voices), two channels per
 //! insert on 8 inserts with one effect each (EQ, compressor, reverb, delay, filter,
 //! saturator, limiter, EQ). The engine runs on the simulated device, so the figure is the
 //! engine's own processing time ÷ buffer duration (the DSP load meter).
@@ -14,7 +14,7 @@
 //! instrument parameter sweep, an effect parameter, a channel pan and a mixer volume ride,
 //! all with curves) playing the whole time.
 //!
-//! M3 criterion 6 (M3/T2): the reference project plus a 64-voice streamed piano part: a Haus
+//! M3 criterion 6 (M3/T2): the reference project plus a 64-voice streamed piano part: a Beast
 //! Sampler channel with one 20 s sample per key (each streamed from "disk" past its 32k-frame
 //! preload) playing 64-note chords every bar, voice limit 64 (older voices are stolen with
 //! fades).

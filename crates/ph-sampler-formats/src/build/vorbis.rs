@@ -49,7 +49,7 @@ fn identification(channels: u8, rate: u32) -> Vec<u8> {
 }
 
 fn comment() -> Vec<u8> {
-    let vendor = b"Patternhaus fixture";
+    let vendor = b"Beast Studio fixture";
     let mut v = vec![3];
     v.extend_from_slice(b"vorbis");
     v.extend_from_slice(&(vendor.len() as u32).to_le_bytes());

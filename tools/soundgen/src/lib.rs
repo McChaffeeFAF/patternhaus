@@ -1,4 +1,4 @@
-//! Patternhaus factory sound generator (DESIGN section 7). Not shipped.
+//! Beast Studio factory sound generator (DESIGN section 7). Not shipped.
 //!
 //! `cargo run -p soundgen -- render` writes every factory WAV and `assets/PROVENANCE.toml`;
 //! `check` re-renders into a temporary folder and fails if `assets/` differs; `report`
@@ -83,7 +83,7 @@ pub const FONTS: &[(&str, &str, &str)] = &[
     (
         "fonts/README.md",
         "CC0-1.0",
-        "hand-authored, Patternhaus contributors",
+        "hand-authored, Beast Studio contributors",
     ),
     (
         "fonts/Barlow-Regular.ttf",
@@ -144,7 +144,7 @@ pub fn provenance_toml(recipes: &[Recipe], hand: &[String]) -> String {
     }
     for h in hand {
         s.push_str(&format!(
-            "\n[[file]]\npath = \"{h}\"\nlicense = \"CC0-1.0\"\nsource = \"hand-authored, Patternhaus contributors\"\n"
+            "\n[[file]]\npath = \"{h}\"\nlicense = \"CC0-1.0\"\nsource = \"hand-authored, Beast Studio contributors\"\n"
         ));
     }
     s.push_str(

@@ -1,4 +1,4 @@
-//! Factory Haus Synth presets, embedded from `assets/presets/synth/` (generated list; a test
+//! Factory Beast Synth presets, embedded from `assets/presets/synth/` (generated list; a test
 //! checks it matches the folder).
 
 pub(crate) const FACTORY_SYNTH_PRESETS: &[(&str, &str)] = &[

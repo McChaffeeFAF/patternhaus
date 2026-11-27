@@ -1,7 +1,7 @@
 //! M3/T10: controller lanes. Point events land on exact frames, ramps are sampled at the
 //! control rate and deduped, play/seek/loop/clip start chase the value in force, trimmed
 //! clips and tempo changes behave like notes, nothing allocates, and live output is
-//! bit-identical to the offline render on a synth, a plugin and a Haus Sampler channel.
+//! bit-identical to the offline render on a synth, a plugin and a Beast Sampler channel.
 
 use super::*;
 use crate::PlayMode;
@@ -465,7 +465,7 @@ fn no_lane_data_means_no_events_and_no_cost() {
     assert!(tap.is_empty());
 }
 
-// ------------------------------------------------------------------ plugin and Haus Sampler
+// ------------------------------------------------------------------ plugin and Beast Sampler
 
 #[test]
 fn plugin_channel_follows_lanes_and_live_matches_offline() {
@@ -547,7 +547,7 @@ fn plugin_channel_follows_lanes_and_live_matches_offline() {
     assert_bits_eq(&live, &b, "plugin lanes live vs offline");
 }
 
-/// A Haus Sampler instrument playing a looped tone, its zone 24 dB down and CC1 routed to
+/// A Beast Sampler instrument playing a looped tone, its zone 24 dB down and CC1 routed to
 /// the volume at +24 dB: CC1 = 0 is quiet, CC1 = 1 is full level.
 pub(super) fn haus_swell_project(
     lane_points: &[(Tick, f64, CurveKind)],

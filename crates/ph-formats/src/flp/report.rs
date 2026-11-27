@@ -23,7 +23,7 @@ pub struct ReportItem {
 
 /// What an import found and did.
 ///
-/// Count keys (all `u64`): `channels_in_file`, `channels` (Patternhaus channels),
+/// Count keys (all `u64`): `channels_in_file`, `channels` (Beast Studio channels),
 /// `channels.sampler`, `channels.plugin`, `channels.audio_sources`, `channels.automation_sources`,
 /// `patterns`, `notes_in_file`, `notes`, `clips_in_file`, `clips`, `clips.pattern`,
 /// `clips.audio`, `clips.automation`, `tracks_named`, `inserts_in_file`, `inserts`, `routes`,

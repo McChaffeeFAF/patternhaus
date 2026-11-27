@@ -17,7 +17,7 @@
 //!   `Engine::preview_note`, the same preview path as the typing keyboard, so the note sounds
 //!   at the start of the next audio block. Channel pressure, pitch bend and controllers go to
 //!   the same channel as `ph-node` events (`Cc`, `PitchBend`, `NoteExpression::Pressure`),
-//!   which the Haus Synth's mod wheel and bend follow.
+//!   which the Beast Synth's mod wheel and bend follow.
 //! - A mapped controller is not sent to the instrument: it becomes a [`MidiEvent::Control`]
 //!   (target and a 0..1 value) for the front end to apply as a knob move. That is also what
 //!   lets armed automation recording write it: the move arrives like a drag.
@@ -271,7 +271,7 @@ impl MidiConnection for MidirConnection {}
 
 impl MidiBackend for MidirBackend {
     fn ports(&mut self) -> Vec<MidiPort> {
-        let Ok(input) = midir::MidiInput::new("Patternhaus ports") else {
+        let Ok(input) = midir::MidiInput::new("Beast Studio ports") else {
             return Vec::new();
         };
         input
@@ -287,7 +287,7 @@ impl MidiBackend for MidirBackend {
         port: &MidiPort,
         sink: MidiSink,
     ) -> Result<Box<dyn MidiConnection>, String> {
-        let input = midir::MidiInput::new("Patternhaus").map_err(|e| e.to_string())?;
+        let input = midir::MidiInput::new("Beast Studio").map_err(|e| e.to_string())?;
         let found = input
             .ports()
             .into_iter()
@@ -296,7 +296,7 @@ impl MidiBackend for MidirBackend {
         let conn = input
             .connect(
                 &found,
-                "patternhaus-in",
+                "beast-studio-in",
                 move |_stamp, bytes, _| sink(bytes),
                 (),
             )

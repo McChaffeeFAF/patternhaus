@@ -444,7 +444,7 @@ impl Cache {
     }
 }
 
-/// The Haus Sampler reads its streamed samples through the same cache (M3/T2): one cache per
+/// The Beast Sampler reads its streamed samples through the same cache (M3/T2): one cache per
 /// sampler node, one want per voice slot.
 impl ph_sampler::StreamSource for Cache {
     fn want(&self, voice: usize, source: usize, frame: u64, reverse: bool) {

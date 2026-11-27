@@ -1,8 +1,8 @@
-//! One SF2 preset to the Haus Sampler model (`docs/formats/sf2.md` §5–§10).
+//! One SF2 preset to the Beast Sampler model (`docs/formats/sf2.md` §5–§10).
 //!
 //! Every (preset zone × instrument zone) pair whose ranges meet becomes one native zone with
 //! fully summed generators (§7); group-level settings (envelopes, filter, LFOs, choke,
-//! sends, modulation routes) decide the Haus group (`crate::assemble`). Samples are cut out
+//! sends, modulation routes) decide the Beast Sampler group (`crate::assemble`). Samples are cut out
 //! of `smpl` (or decoded, SF3) and handed over as [`SampleSource::Audio`]: the caller
 //! writes them into the instrument's `samples/` folder.
 

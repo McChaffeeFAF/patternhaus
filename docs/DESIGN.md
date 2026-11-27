@@ -1,8 +1,8 @@
-# Patternhaus — Design
+# Beast Studio — Design
 
 Status: **design complete, 2026-10-10.** All sections were decided with the owner. Changing a decided section needs the owner's sign-off, recorded here with a date.
 
-Patternhaus is a clean-room, open-source (MIT OR Apache-2.0) pattern-based DAW in the workflow tradition of FL Studio, written in Rust. Agents can drive every part of it.
+Beast Studio is a clean-room, open-source (MIT OR Apache-2.0) pattern-based DAW in the workflow tradition of FL Studio, written in Rust. Agents can drive every part of it.
 
 | # | Section | Status |
 |---|---------|--------|
@@ -13,7 +13,7 @@ Patternhaus is a clean-room, open-source (MIT OR Apache-2.0) pattern-based DAW i
 | 5 | Agent interface (MCP / CLI / JSON) | **Decided** 2026-10-10 |
 | 6 | Plugin hosting | **Decided** 2026-10-10 |
 | 7 | Built-in instruments and effects | **Decided** 2026-10-10 |
-| 8 | Haus Sampler (Kontakt-class) and library compatibility | **Decided** 2026-10-10 |
+| 8 | Beast Sampler (Kontakt-class) and library compatibility | **Decided** 2026-10-10 |
 | 9 | UI | **Decided** 2026-10-10 |
 | 10 | File formats and interchange | **Decided** 2026-10-10 |
 | 11 | Platforms and audio/MIDI I/O | **Decided** 2026-10-10 |
@@ -46,7 +46,7 @@ A feature counts as done only when both columns are ticked.
   - channel rack, sampler and synth, step sequencer, piano roll, basic mixer, playlist with pattern clips, WAV export, and the full agent interface;
   - the engine's routing is a general graph from day one, because modular routing depends on it.
 - **M2, Make a song:** automation clips, audio clips and recording, the audio editor, slicing and time-stretch, the effects suite, CLAP/VST3 hosting, MIDI controllers, and **FLP import** (moved from M4 in section 10).
-- **M3, Haus Sampler:** the multi-sample engine, SFZ/SF2/DecentSampler/EXS, and an importer hook for formats built outside the project.
+- **M3, Beast Sampler:** the multi-sample engine, SFZ/SF2/DecentSampler/EXS, and an importer hook for formats built outside the project.
 - **M4, Pro:** the modular-routing UI, live performance mode, plugin delay compensation (PDC), sandboxed plugins, stems, DAWproject, Linux and macOS.
 
 ## 2. Architecture and crate layering
@@ -131,7 +131,7 @@ The history log is the list of patch sets, each tagged with author, transaction 
 - **Per-node CPU meter:** time spent in each channel, insert, effect and plugin, available to the UI and to agents through `get_state`.
 - **Graceful overload:** when the deadline is at risk, shed non-essential work in a fixed order: meters and visuals, then oversampling, then voice count. Only then does audio drop out. Overloads are logged with the offending node.
 - **Denormals:** flush-to-zero and denormals-are-zero are set on every audio worker thread.
-- **Voices and streaming:** per-instrument voice limits with voice stealing, and disk streaming with a preload buffer for large samples (shared with Haus Sampler).
+- **Voices and streaming:** per-instrument voice limits with voice stealing, and disk streaming with a preload buffer for large samples (shared with Beast Sampler).
 
 **Export quality.** Live playback uses efficient interpolation and oversampling. The HQ export mode switches to sinc resampling and higher oversampling. Export settings are part of the render command, so agents can choose them.
 
@@ -150,7 +150,7 @@ The history log is the list of patch sets, each tagged with author, transaction 
 
 **Decided 2026-10-10.**
 
-**No built-in AI.** Patternhaus ships no AI vendor and no chat panel. It is an excellent MCP server, and users drive it from any MCP client (Claude Code, Claude Desktop and others).
+**No built-in AI.** Beast Studio ships no AI vendor and no chat panel. It is an excellent MCP server, and users drive it from any MCP client (Claude Code, Claude Desktop and others).
 
 **Perception: how agents perceive the music**
 - **M1:**
@@ -181,7 +181,7 @@ The history log is the list of patch sets, each tagged with author, transaction 
 - Destructive commands still need `confirm`.
 
 **Agent routes** Agents can drive the entire program. Every command is reachable, and agents can *hear* the result. Three routes share one registry:
-- **MCP server:** run inside the app (live session) or headless (`patternhaus --headless --mcp`).
+- **MCP server:** run inside the app (live session) or headless (`beast-studio-cli mcp --headless`).
   - Hundreds of commands would overwhelm a client as individual tools. So it exposes a small fixed toolset: `list_commands(filter)`, `describe_command(id)`, `run(id, params)`, `run_batch([...], as_one_undo)`, `get_state(path)` (JSON views of the project), and `render(range, format)`.
   - It also exposes `analyze(range)`, which returns loudness (LUFS), peak, spectrum, onset and key/chord estimates, so agents get feedback on what they wrote.
   - About 20 high-traffic commands also get direct tools.
@@ -215,11 +215,11 @@ How it works:
 
 **Older plugins**
 - **32-bit plugins:** a 32-bit `ph-plugin-server` helper process on Windows hosts 32-bit CLAP/VST3 plugins, and VST2 ones too through the add-on.
-- **VST2:** none in the core app. A separate optional open-source add-on, the *Patternhaus VST2 Bridge*, in its own repo, uses clean-room headers like Ardour and Carla do. It is a plugin-server implementation, so the core never contains VST2 code.
+- **VST2:** none in the core app. A separate optional open-source add-on, the *Beast Studio VST2 Bridge*, in its own repo, uses clean-room headers like Ardour and Carla do. It is a plugin-server implementation, so the core never contains VST2 code.
 
 **Plugin editors and built-ins**
 - Each plugin's own window, plus a generic parameter UI that agents can also drive by parameter id.
-- Patternhaus's own instruments use the same plugin interface internally, so they can also ship as CLAP/VST3 for other DAWs.
+- Beast Studio's own instruments use the same plugin interface internally, so they can also ship as CLAP/VST3 for other DAWs.
 
 ## 7. Built-in instruments and effects
 
@@ -227,9 +227,9 @@ How it works:
 
 **Instruments in 1.0:**
 - **Sampler:** one-shot and loop playback (M1).
-- **Haus Synth:** analog-style subtractive synth (M1). Three oscillators with sub and noise, two filters (LP/HP/BP/notch, ladder and SVF models), three envelopes, two LFOs, a mod matrix, unison, glide and a preset browser.
+- **Beast Synth:** analog-style subtractive synth (M1). Three oscillators with sub and noise, two filters (LP/HP/BP/notch, ladder and SVF models), three envelopes, two LFOs, a mod matrix, unison, glide and a preset browser.
 - **Slicer** (M2).
-- **Haus Sampler** (M3).
+- **Beast Sampler** (M3).
 
 **Candidates after 1.0** (the owner is open to adding more as the project grows): wavetable synth, FM synth, drum machine.
 
@@ -239,12 +239,12 @@ How it works:
 - **M3–M4:** vocoder, pitch correction.
 
 **Factory content: self-generated, with CC0 to fill gaps**
-- Drum kits and multisamples are rendered by Patternhaus's own synthesis. That includes an internal (not shipped) drum-synthesis and physical-model renderer under `tools/soundgen`, so the project owns them outright.
+- Drum kits and multisamples are rendered by Beast Studio's own synthesis. That includes an internal (not shipped) drum-synthesis and physical-model renderer under `tools/soundgen`, so the project owns them outright.
 - Gaps are filled from CC0 sources only.
 - Every factory file has a provenance entry in `assets/PROVENANCE.toml`: generator and parameters, or source URL plus licence. CI rejects any asset without one.
 - Nothing is copied or resampled from FL or other commercial content.
 
-## 8. Haus Sampler (Kontakt-class) and library compatibility
+## 8. Beast Sampler (Kontakt-class) and library compatibility
 
 **Decided 2026-10-10.**
 
@@ -278,7 +278,7 @@ How it works:
   2. SF2/SF3.
   3. DecentSampler (.dspreset).
   4. EXS24.
-  5. **Kontakt:** *revised 2026-11-05 by the owner:* not part of this repository. Patternhaus provides a generic importer hook (M3/T6); a Kontakt importer, if any, is a separate component outside the public project.
+  5. **Kontakt:** *revised 2026-11-05 by the owner:* not part of this repository. Beast Studio provides a generic importer hook (M3/T6); a Kontakt importer, if any, is a separate component outside the public project.
   6. **KSP scripts:** run by the KSP compatibility layer described above.
 - **Hard boundary:** no circumvention of encrypted or licence-locked libraries, such as NI "Player" libraries and Native Access–activated content. That would break anti-circumvention law and the libraries' licences. When the sampler meets one, it says so plainly.
 
@@ -363,13 +363,13 @@ The aim is a professional first impression, at FL-level density and polish, in o
 **FLP import, moved to M2 (the owner has FL 21 projects to bring over)**
 - Built clean-room from publicly documented format notes (e.g. PyFLP's).
 - **Imports:** channels, patterns and notes, playlist, mixer routing, automation, and third-party plugin states.
-- **Native FL plugins:** mapped to the closest Patternhaus equivalent where one exists, otherwise a labelled placeholder that keeps the original data.
+- **Native FL plugins:** mapped to the closest Beast Studio equivalent where one exists, otherwise a labelled placeholder that keeps the original data.
 - **Import report:** lists everything that was approximated or skipped.
 - **Placement (decided 2026-10-11, owner sign-off):**
   - `file.import_flp` writes a new self-contained folder and opens it. It never overwrites: if the name exists it numbers the folder `<name> (2)`, `(3)` and so on. Samples are copied in (duplicates reused), plugin states go to `plugins/*.flpstate`, and the report to `import-report.md`.
-  - **Default location:** the Patternhaus projects folder, `Documents\Patternhaus Projects\<name>` (the same place the release launcher uses for new projects). It's outside OneDrive and FL's own folders, and it's an allowed folder for agents.
-  - **Option, per import:** "next to the FL project", as `<name> (Patternhaus)/` beside the `.flp`.
-  - **Fallback:** if the chosen location isn't writable (for example a read-only demo folder), use the Patternhaus projects folder and say so in the report.
+  - **Default location:** the Beast Studio projects folder, `Documents\Beast Studio Projects\<name>` (the same place the release launcher uses for new projects). It's outside OneDrive and FL's own folders, and it's an allowed folder for agents.
+  - **Option, per import:** "next to the FL project", as `<name> (Beast Studio)/` beside the `.flp`.
+  - **Fallback:** if the chosen location isn't writable (for example a read-only demo folder), use the Beast Studio projects folder and say so in the report.
   - **Status:** implemented in M2/P1 (`placement` param, the import prompt's two buttons, the fallback note).
 - **Corpus:** the owner's projects are a local-only test corpus.
 
@@ -405,7 +405,7 @@ The aim is a professional first impression, at FL-level density and polish, in o
 **Decided 2026-10-10.**
 
 **Repository**
-- Public at `github.com/McChaffeeFaF/patternhaus`, licensed MIT OR Apache-2.0. It can move to an organization later.
+- Public at `github.com/McChaffeeFAF/beast-studio`, licensed MIT OR Apache-2.0. It can move to an organization later.
 - **Contributions:** issues are open from day one. Outside PRs are accepted after M1, once the architecture has settled.
 - Contributors sign off commits under the DCO (no CLA) and follow `AGENTS.md` and the clean-room policy.
 

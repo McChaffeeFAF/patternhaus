@@ -1,6 +1,6 @@
 [package]
 name = "ph-test-plugins"
-description = "Patternhaus test plugins (CLAP): a simple synth, a gain and a crash-on-demand effect, so tests never need third-party plugins (not shipped)."
+description = "Beast Studio test plugins (CLAP): a simple synth, a gain and a crash-on-demand effect, so tests never need third-party plugins (not shipped)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

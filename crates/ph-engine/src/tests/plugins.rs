@@ -54,14 +54,14 @@ fn plugin_fx(id: &str, p: &[(&str, f64)]) -> EffectSlot {
     }
 }
 
-/// A plugin synth on insert 1 through the plugin gain, and a Haus Synth on insert 2.
+/// A plugin synth on insert 1 through the plugin gain, and a Beast Synth on insert 2.
 fn song(synth_state: Option<&str>) -> (Project, ChannelId, ChannelId) {
     let mut e = Edit::new(&Project::empty("plugins"));
     let ps = e
         .add_channel("Plugin synth", plugin(SYNTH_ID, synth_state, &[("1", 1.0)]))
         .unwrap();
     let hs = e
-        .add_channel("Haus synth", synth(&[("amp_release", 0.1)]))
+        .add_channel("Beast synth", synth(&[("amp_release", 0.1)]))
         .unwrap();
     e.update_channel(ps, |c| c.insert = InsertId(1)).unwrap();
     e.update_channel(hs, |c| c.insert = InsertId(2)).unwrap();
@@ -186,7 +186,7 @@ fn states_load_from_plugins_files_and_from_live_overrides() {
     let st = PluginState::from_file_bytes(file).unwrap();
     assert_eq!(st.plugin_id, SYNTH_ID);
     assert!(st.data.starts_with(b"PHTP1"));
-    // a state file with gain 0 silences the plugin synth (but not the Haus synth)
+    // a state file with gain 0 silences the plugin synth (but not the Beast synth)
     let mut silent = PluginState::from_file_bytes(file).unwrap();
     silent.data = b"PHTP1\n0=0\n1=1\n2=0.05\n".to_vec();
     std::fs::create_dir_all(dir.path().join("plugins")).unwrap();
@@ -294,7 +294,7 @@ fn a_crashing_plugin_is_caught_reported_isolated_and_the_session_keeps_playing()
             .any(|w| w.contains("crashed"))
     );
     assert_eq!(engine.plugin_faults().len(), 1, "still once");
-    // the session keeps running: the Haus synth on insert 2 still sounds
+    // the session keeps running: the Beast synth on insert 2 still sounds
     assert!(peak(&after[0]) > 0.01, "the rest of the mix still plays");
     let _ = hs;
 }

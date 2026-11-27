@@ -52,7 +52,8 @@ pub struct PluginEnv {
 /// real time, before it starts. Samplers such as Kontakt load their samples in the background
 /// after their state is restored; an offline render runs faster than real time and would
 /// otherwise play them before anything has loaded.
-pub const SETTLE_ENV: &str = "PATTERNHAUS_PLUGIN_SETTLE_SECONDS";
+/// (`PATTERNHAUS_PLUGIN_SETTLE_SECONDS` is still read when this one is unset.)
+pub const SETTLE_ENV: &str = "BEAST_STUDIO_PLUGIN_SETTLE_SECONDS";
 
 impl std::fmt::Debug for PluginEnv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -136,8 +137,7 @@ impl PluginEnv {
 }
 
 fn settle_from_env() -> std::time::Duration {
-    std::env::var(SETTLE_ENV)
-        .ok()
+    ph_node::env::var(SETTLE_ENV)
         .and_then(|v| v.trim().parse::<f64>().ok())
         .filter(|s| s.is_finite() && *s > 0.0)
         .map_or(std::time::Duration::ZERO, |s| {

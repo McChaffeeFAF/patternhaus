@@ -1,6 +1,6 @@
 [package]
 name = "ph-ui"
-description = "Patternhaus desktop UI: panels, widgets, keymap and themes (egui)."
+description = "Beast Studio desktop UI: panels, widgets, keymap and themes (egui)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

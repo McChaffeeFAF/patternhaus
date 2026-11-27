@@ -1,6 +1,6 @@
 [package]
 name = "soundgen"
-description = "Patternhaus factory sound generator: drum synthesis and physical models (not shipped)."
+description = "Beast Studio factory sound generator: drum synthesis and physical models (not shipped)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

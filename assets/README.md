@@ -1,6 +1,6 @@
-# Patternhaus factory assets
+# Beast Studio factory assets
 
-Everything in this folder was generated or written by the Patternhaus project and is
+Everything in this folder was generated or written by the Beast Studio project and is
 dedicated to the public domain under **CC0-1.0**, except [`fonts/`](fonts/README.md): the UI
 typefaces, third-party and under the SIL Open Font License 1.1. You can use these sounds and presets in
 any music, commercial or not, without credit. Every file has an entry in
@@ -31,9 +31,9 @@ one percussion sound.
 Sound names: `kick`, `snare`, `rim`, `clap`, `hat_closed`, `hat_open`, `hat_pedal`,
 `tom_low`, `tom_mid`, `tom_high`, `crash`.
 
-## Haus Synth presets
+## Beast Synth presets
 
-`presets/synth/<category>/<name>.json` maps Haus Synth parameter ids to values. They are
+`presets/synth/<category>/<name>.json` maps Beast Synth parameter ids to values. They are
 compiled into `ph-instruments`; an instrument names one as `bass/sub` and any `params` in
 the project override it.
 

@@ -1,5 +1,5 @@
 //! The events, interpreted: which channel, pattern, arrangement or mixer insert each one
-//! belongs to (spec section 2, the context rules), as plain typed data. No Patternhaus types
+//! belongs to (spec section 2, the context rules), as plain typed data. No Beast Studio types
 //! here; [`crate::flp::import`] maps this to a project.
 
 use super::parse::*;

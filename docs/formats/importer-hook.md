@@ -1,12 +1,12 @@
-# The importer hook: adding instrument formats from outside Patternhaus
+# The importer hook: adding instrument formats from outside Beast Studio
 
 **Status:** M3/T6 (2026-11-05). Audience: anyone writing an instrument importer that is built
 and shipped separately from this repository.
 
-Patternhaus reads SFZ, SF2/SF3, DecentSampler and EXS24 instruments itself
-(`crates/ph-sampler-formats`). Any other format can be added **without changing Patternhaus**:
+Beast Studio reads SFZ, SF2/SF3, DecentSampler and EXS24 instruments itself
+(`crates/ph-sampler-formats`). Any other format can be added **without changing Beast Studio**:
 you write an importer in your own crate, build your own copy of the app or CLI that registers
-it, and every part of Patternhaus that deals with instrument files picks it up:
+it, and every part of Beast Studio that deals with instrument files picks it up:
 
 - `sampler.import` (the UI, scripts and agents over MCP or JSON-RPC);
 - the UI: the browser lists the files your importer reads as instruments, plays their
@@ -15,8 +15,8 @@ it, and every part of Patternhaus that deals with instrument files picks it up:
 - the import report (`sampler.report`, `import-report.md`, `get_state { view: zones }`).
 
 After the import nothing depends on your importer: the instrument lives in the project (and
-can be saved as a native Haus instrument folder), so the project opens and renders the same
-in a Patternhaus that has never heard of your format.
+can be saved as a native Beast Sampler instrument folder), so the project opens and renders the same
+in a Beast Studio that has never heard of your format.
 
 ## 1. Design
 
@@ -30,7 +30,7 @@ register importers without affecting anything else.
 ```text
 your binary ──► Importers::builtin() + register(YourImporter)
             ──► ph_app::run(Options { importers })      (the desktop app)
-            ──► ph_cli::run(Options { importers })      (patternhaus-cli, incl. `mcp`)
+            ──► ph_cli::run(Options { importers })      (beast-studio-cli, incl. `mcp`)
                   └► Studio::start_with(config, project, importers)
                         └► EngineHost::with_importers  ──►  Host::importers()  ──►  sampler.import
 ```
@@ -65,8 +65,8 @@ fn main() -> std::process::ExitCode {
 }
 ```
 
-Depend on the Patternhaus crates by path or git (`ph-sampler-formats`, `ph-core`, and
-`ph-app` and/or `ph-cli`). The stock `ph-app` and `patternhaus-cli` binaries are exactly
+Depend on the Beast Studio crates by path or git (`ph-sampler-formats`, `ph-core`, and
+`ph-app` and/or `ph-cli`). The stock `beast-studio` (crate `ph-app`) and `beast-studio-cli` binaries are exactly
 these two calls with `Options::default()`, so your binaries behave identically apart from the
 extra formats.
 
@@ -120,7 +120,7 @@ dropped silently.
 - **Approximated** (`ImportNoteKind::Approximated`): mapped, but not exactly (a filter type
   played as the nearest one, a curve simplified). Say what and how in `detail`.
 - **Skipped** (`ImportNoteKind::Skipped`): read and understood, but not carried over (a
-  feature the Haus Sampler does not have, a missing sample file).
+  feature the Beast Sampler does not have, a missing sample file).
 - **Kept** (`ImportNoteKind::Kept`): data kept for later in `HausInstrument::extra` under
   `<format>.<what>` keys and never interpreted (scripts, UI definitions; M3b).
 - **Not understood** (`ImportReport::unknown`): fields, chunks or opcodes you could not
@@ -137,7 +137,7 @@ Return an `ImportError`; never a half-built instrument.
   the documented signals of your format and refuse at the first one. Never decrypt, never
   try to work around a licence check, never read past the signal, and never log or keep the
   protected bytes. The message the person sees is
-  "`<file>` is an encrypted or licence-locked `<format>` instrument (`<detail>`); Patternhaus
+  "`<file>` is an encrypted or licence-locked `<format>` instrument (`<detail>`); Beast Studio
   does not open protected libraries", so `detail` names the signal in plain words. This is a
   permanent boundary of the project (DESIGN §8).
 - **`Unavailable { format, track }`**: a variant of your format this build does not read.

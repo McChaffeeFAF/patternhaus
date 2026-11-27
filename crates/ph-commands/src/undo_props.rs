@@ -2,7 +2,7 @@
 //! merge-related). Two authors make random interleaved edits through real commands, over
 //! M1 objects, the M2 ones (audio clips, automation clips and points, and the sample
 //! registry, seeded with two samples since the null host cannot import) and the M3 ones
-//! (Haus Sampler instruments, groups, zones, articulations and modulation routes).
+//! (Beast Sampler instruments, groups, zones, articulations and modulation routes).
 
 use crate::*;
 use ph_core::*;
@@ -341,7 +341,7 @@ impl Rig {
                 Some(s) => ("sample.remove", json!({ "sample": s })),
                 None => return,
             },
-            // ---- M3 objects: Haus Sampler instruments
+            // ---- M3 objects: Beast Sampler instruments
             30 => ("sampler.new", json!({ "name": format!("s{}", op.a % 50) })),
             31 => {
                 let Some(i) = Self::pick(&self.instruments(), op.a) else {

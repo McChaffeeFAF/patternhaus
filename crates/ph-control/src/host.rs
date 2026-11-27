@@ -140,14 +140,14 @@ impl EngineHost {
     }
 }
 
-/// `Documents/Patternhaus Projects` for the current user (`%USERPROFILE%` on Windows, `$HOME`
+/// `Documents/Beast Studio Projects` for the current user (`%USERPROFILE%` on Windows, `$HOME`
 /// elsewhere); `None` when the home folder is unknown. Nothing is created here.
 pub fn default_projects_dir() -> Option<PathBuf> {
     let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
     let home = std::env::var_os(var)
         .map(PathBuf::from)
         .filter(|p| !p.as_os_str().is_empty())?;
-    Some(home.join("Documents").join("Patternhaus Projects"))
+    Some(home.join("Documents").join("Beast Studio Projects"))
 }
 
 /// Lexically normalises `path` against `base`, refusing `..` that would climb out.

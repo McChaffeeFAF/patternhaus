@@ -5,7 +5,7 @@
 //! <catalogue>/
 //!   <entry id>/
 //!     entry.toml     name, description, tags, the plugin, the playing guide (hand-editable)
-//!     plugin.state   the plugin's state as a Patternhaus plugin-state file (opaque)
+//!     plugin.state   the plugin's state as a Beast Studio plugin-state file (opaque)
 //! ```
 //!
 //! The entry id is the folder name, chosen from the name when the entry is saved and never

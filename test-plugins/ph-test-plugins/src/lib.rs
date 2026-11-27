@@ -1,4 +1,4 @@
-//! Patternhaus test plugins: one CLAP file (this cdylib, renamed `ph-test-plugins.clap`) with
+//! Beast Studio test plugins: one CLAP file (this cdylib, renamed `ph-test-plugins.clap`) with
 //! three plugins, so CI never depends on third-party plugins (M2/T3):
 //!
 //! - [`SYNTH_ID`] `dev.patternhaus.test.synth`: a polyphonic sine/saw synth. Notes as CLAP
@@ -84,12 +84,12 @@ const fn descriptor(
         clap_version: CLAP_VERSION,
         id: id.as_ptr(),
         name: name.as_ptr(),
-        vendor: c"Patternhaus".as_ptr(),
-        url: c"https://github.com/McChaffeeFAF/patternhaus".as_ptr(),
+        vendor: c"Beast Studio".as_ptr(),
+        url: c"https://github.com/McChaffeeFAF/beast-studio".as_ptr(),
         manual_url: c"".as_ptr(),
         support_url: c"".as_ptr(),
         version: c"1.0.0".as_ptr(),
-        description: c"Patternhaus test plugin (not for music)".as_ptr(),
+        description: c"Beast Studio test plugin (not for music)".as_ptr(),
         features,
     }
 }

@@ -65,48 +65,48 @@ add Fruity dB Meter / Wave Candy to Master for exact numbers.
 
 ## M2: Make a Song
 
-These compare Patternhaus's M2 features with FL Studio 21 where only you can judge (FL's
+These compare Beast Studio's M2 features with FL Studio 21 where only you can judge (FL's
 own behaviour, your hardware, your plugins, your ears). Use generated or your own material;
-nothing from these checks is committed. The hands-on Patternhaus side of each is in
+nothing from these checks is committed. The hands-on Beast Studio side of each is in
 [`M2-audio-ui.md`](../manual-tests/M2-audio-ui.md) and
 [`M2-recording-midi.md`](../manual-tests/M2-recording-midi.md).
 
 ### Audio clips and tempo
 
 - **OC-13** In FL, drop a drum loop on the playlist, drag its fade-in handle to one beat and
-  try the fade tension. In Patternhaus do the same with each of the four curves (linear, exp,
+  try the fade tension. In Beast Studio do the same with each of the four curves (linear, exp,
   log, S). Is one of the four close enough to FL's default fade, and is a tension knob missed?
   Result: closest curve ____   tension needed? yes / no
 - **OC-14** Project at 124 BPM, a 100 BPM loop. In FL set the clip to stretch (keep pitch) and
-  to resample; in Patternhaus Fit to tempo (Stretch) and Resample. Listen to both pairs.
+  to resample; in Beast Studio Fit to tempo (Stretch) and Resample. Listen to both pairs.
   Result: stretch quality vs FL: better / same / worse ____   resample identical? ____
 - **OC-15** Add a tempo automation clip 124 → 140 over 4 bars with the loop playing tempo-synced.
   Does FL's clip follow the ramp the same way (stays on the beat, no jumps)?
   Result: ____
-- **OC-16** Give FL and Patternhaus the same loops (e.g. 4 of yours: four-on-the-floor,
+- **OC-16** Give FL and Beast Studio the same loops (e.g. 4 of yours: four-on-the-floor,
   breakbeat, half-time, one with swing). Compare the detected tempo.
-  Result: loop / FL BPM / Patternhaus BPM: ____
+  Result: loop / FL BPM / Beast Studio BPM: ____
 
 ### Slicer and audio editor
 
-- **OC-17** Load the same loop in Fruity Slicer (or Slicex) and in the Patternhaus slicer at the
+- **OC-17** Load the same loop in Fruity Slicer (or Slicex) and in the Beast Studio slicer at the
   default sensitivity. Compare the slice count and where the markers fall.
-  Result: FL slices ____   Patternhaus slices ____   markers agree? ____
+  Result: FL slices ____   Beast Studio slices ____   markers agree? ____
 - **OC-18** In Edison, normalise a quiet file and read its peak; fade in a selection. Do the same in
-  the Patternhaus editor.
-  Result: Edison normalise peak ____ dB   Patternhaus ____ dB   fade shape alike? ____
+  the Beast Studio editor.
+  Result: Edison normalise peak ____ dB   Beast Studio ____ dB   fade shape alike? ____
 
 ### Automation
 
 - **OC-19** Two automation clips on the same knob overlapping in time on two playlist tracks:
   which one does FL play in the overlap (the later-starting one, the lower track, ...)?
-  Patternhaus plays the later-starting one.
+  Beast Studio plays the later-starting one.
   Result: ____
 - **OC-20** An automation clip that ends before the song does: after its end, does FL hold the
-  last value or return the knob to where it was? Patternhaus returns to the knob's value.
+  last value or return the knob to where it was? Beast Studio returns to the knob's value.
   Result: holds / returns ____
 - **OC-21** Right-click a knob, "Create automation clip": where does FL put it and how long is
-  it (loop region, selection, whole song)? Patternhaus: the loop region, else the selected
+  it (loop region, selection, whole song)? Beast Studio: the loop region, else the selected
   clips, else the bar at the playhead, on the first free track.
   Result: ____
 
@@ -115,22 +115,22 @@ nothing from these checks is committed. The hands-on Patternhaus side of each is
 - **OC-22** Loopback: patch an output of your interface into an input, record a click track, and
   measure how far the recorded click sits from the original (Part 2 step 4 of
   `M2-recording-midi.md`). Do the same in FL.
-  Result: Patternhaus offset ____ ms   FL offset ____ ms
+  Result: Beast Studio offset ____ ms   FL offset ____ ms
 - **OC-23** Read the monitoring latency both apps report for the same interface and buffer.
-  Result: FL ____ ms   Patternhaus ____ ms
+  Result: FL ____ ms   Beast Studio ____ ms
 - **OC-24** MIDI keyboard on the selected channel, mod wheel and bend, and "Link to controller"
-  in FL vs MIDI learn in Patternhaus on the same knob.
+  in FL vs MIDI learn in Beast Studio on the same knob.
   Result: alike? ____   differences: ____
 
 ### Plugins
 
-- **OC-25** Add three of your VST3 plugins (one instrument, two effects) in FL and in Patternhaus.
+- **OC-25** Add three of your VST3 plugins (one instrument, two effects) in FL and in Beast Studio.
   Open each editor. Play a note through each. Save, close, reopen: same settings?
   Result: plugin / loads / editor embedded / state kept: ____
 
 ### Analysers
 
 - **OC-26** Play a 1 kHz sine at -20 dBFS (and then one of your mixes) through Wave Candy or
-  Fruity dB Meter in FL and through the Patternhaus analyser effect. Compare the short-term
+  Fruity dB Meter in FL and through the Beast Studio analyser effect. Compare the short-term
   loudness and the spectrum shape.
-  Result: FL ____ LUFS   Patternhaus ____ LUFS   spectra alike? ____
+  Result: FL ____ LUFS   Beast Studio ____ LUFS   spectra alike? ____

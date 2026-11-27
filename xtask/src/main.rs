@@ -1,13 +1,13 @@
 //! `cargo xtask <check-layers|check-provenance|check|golden|perf|notices>`
 //!
-//! - `check`: layering and provenance (CI, every OS).
+//! - `check`: layering, provenance and the brand folder (CI, every OS).
 //! - `golden [--update]`: the golden render tests (`crates/ph-control/tests/golden.rs`);
 //!   `--update` rewrites `tests/projects/` and `tests/golden/` (say why in the PR).
 //! - `perf [--report|--update]`: runs the reference benchmark and compares it with
 //!   `perf/baseline-7800x3d.json`; fails on a regression of more than 10% (the local gate on
 //!   the owner's machine). `--report` only prints (CI runners are noisy); `--update`
 //!   records the current numbers as the baseline.
-//! - `sampler-stress`: the Haus Sampler streaming stress test over a generated ~2 GB library
+//! - `sampler-stress`: the Beast Sampler streaming stress test over a generated ~2 GB library
 //!   (M3 criterion 4): underruns, resident memory against the preload budget, load time.
 //! - `notices [--check]`: regenerates `THIRD_PARTY_NOTICES.md` with cargo-about;
 //!   `--check` fails if the committed file is out of date.
@@ -121,7 +121,9 @@ fn main() -> ExitCode {
     let result = match task.as_str() {
         "check-layers" => check_layers(&root),
         "check-provenance" => check_provenance(&root),
-        "check" => check_layers(&root).and_then(|_| check_provenance(&root)),
+        "check" => check_layers(&root)
+            .and_then(|_| check_provenance(&root))
+            .and_then(|_| check_brand(&root)),
         "golden" => golden(&root, flag("--update")),
         "perf" => perf(&root, flag("--report"), flag("--update")),
         "sampler-stress" => sampler_stress(&root),
@@ -237,6 +239,47 @@ fn check_provenance(root: &Path) -> Result<(), Vec<String>> {
     }
     if errors.is_empty() {
         println!("provenance ok ({} files)", listed.len());
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// `brand/` holds brand assets (logos, the mascot, theme art) that are **not** under the
+/// repository's MIT OR Apache-2.0 licence. It is not part of `assets/` (so it has no
+/// `PROVENANCE.toml` entries and is never claimed as code-licensed content); it must carry its
+/// own `LICENSE-BRAND.md` naming Fluffy Beast Productions and "All rights reserved", and a
+/// `README.md`. Anything else may be added later (the art comes with its own track).
+fn check_brand(root: &Path) -> Result<(), Vec<String>> {
+    let brand = root.join("brand");
+    if !brand.exists() {
+        println!("brand ok (no brand folder)");
+        return Ok(());
+    }
+    let mut errors = Vec::new();
+    for needed in ["README.md", "LICENSE-BRAND.md"] {
+        if !brand.join(needed).is_file() {
+            errors.push(format!("brand/{needed} is missing"));
+        }
+    }
+    if let Ok(text) = std::fs::read_to_string(brand.join("LICENSE-BRAND.md")) {
+        for phrase in ["Fluffy Beast Productions", "All rights reserved"] {
+            if !text.contains(phrase) {
+                errors.push(format!("brand/LICENSE-BRAND.md must say \"{phrase}\""));
+            }
+        }
+        if text.contains("MIT OR Apache") && !text.contains("Not covered") {
+            errors.push("brand/LICENSE-BRAND.md must not grant the code licence".into());
+        }
+    }
+    // a brand file must never also be listed as licensed content in assets/PROVENANCE.toml
+    if let Ok(prov) = std::fs::read_to_string(root.join("assets").join("PROVENANCE.toml"))
+        && prov.contains("brand/")
+    {
+        errors.push("assets/PROVENANCE.toml lists a brand/ file as code-licensed content".into());
+    }
+    if errors.is_empty() {
+        println!("brand ok (outside the code licence)");
         Ok(())
     } else {
         Err(errors)

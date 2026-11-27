@@ -38,7 +38,7 @@ What the manual says:
 What it settles: 100% = 0 dB (gain 1.0); 78% = -5.2 dB (gain about 0.55). It does
 **not** give the curve between those points or below 78%.
 
-**Patternhaus decision (implemented in T7, `ph-engine` `plan::channel_gain`):** channel
+**Beast Studio decision (implemented in T7, `ph-engine` `plan::channel_gain`):** channel
 volume is no longer linear gain. The stored knob value `v` stays 0..1 with default 0.78
 (matches FL), and maps through a power curve fitted exactly to the two documented anchors:
 
@@ -67,7 +67,7 @@ What it settles: default law is Circular, -3 dB at centre, 0 dB at the extremes,
 a Triangular alternative exists. It does not give the exact curve shape, nor what
 the far channel does at hard pan.
 
-**Patternhaus decision (implemented in T7, `plan::channel_gain`):** channels use the
+**Beast Studio decision (implemented in T7, `plan::channel_gain`):** channels use the
 Circular law as a constant-power (sin/cos) law, which matches both settled anchors:
 
     p in [-1, +1];  theta = (p + 1) * pi / 4
@@ -90,7 +90,7 @@ What the manual says:
 - No page found gives the fader's maximum dB, its default position, its curve, or
   the Master default [MIX], [TRK], [LVL].
 
-**Patternhaus decision:** not settled by the manual. Keep the current model (insert
+**Beast Studio decision:** not settled by the manual. Keep the current model (insert
 linear gain 0..2, default 0.8; Master default 1.0) unchanged until OC-6..OC-8 report
 the default dB, the top-of-travel dB and a mid-travel point. Then define the fader
 as position `f` in 0..1 with `dB = curve(f)` fitted to those readings.
@@ -103,7 +103,7 @@ What the manual says:
 - Mixer pan is not a balance control: it mixes one side of the stereo track into the
   other, so 100% pan gives the mono sum of L and R on one side [MIX].
 
-**Patternhaus decision:** partly settled. Mixer pan should become "merge and pan"
+**Beast Studio decision:** partly settled. Mixer pan should become "merge and pan"
 (at full right `out_R = k * (L + R)`, `out_L = 0`), but the scale `k` and the curve in
 between are not in the manual. Changing it on a guess would move every mix twice, so
 T7 keeps the balance law for inserts and records the difference in the parity tracker
@@ -122,7 +122,7 @@ What the manual says:
 - Pattern clips are arranged like other clips [PLP]. No page states what plays when
   a pattern clip extends past the end of its pattern.
 
-**Patternhaus decision:** not settled by the manual. Keep "silence after the pattern
+**Beast Studio decision:** not settled by the manual. Keep "silence after the pattern
 ends" until OC-10 says otherwise.
 
 ## 6. Swing
@@ -139,7 +139,7 @@ What the manual says:
 - Separate Channel Settings "Shift" delays note starts by up to one step (a 16th)
   [CSM].
 
-**Patternhaus decision:** settled except for the maximum offset. Patternhaus already
+**Beast Studio decision:** settled except for the maximum offset. Beast Studio already
 delays only the even 16ths (odd 0-based steps) and keeps the odd ones on the grid, as
 the manual describes. Its global swing `s` (0..1) delays them by `s` × half a step (a
 dotted-16th feel at 100%). FL's maximum is not documented, so OC-11/OC-12 measure it.

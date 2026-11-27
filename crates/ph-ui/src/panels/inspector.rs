@@ -1,4 +1,4 @@
-//! Instrument panel for the selected channel: Sampler with a waveform view, Haus Synth grouped
+//! Instrument panel for the selected channel: Sampler with a waveform view, Beast Synth grouped
 //! by section. Knobs are generated from the engine's parameter descriptors.
 
 use crate::browser_model::{Dragged, Kind};
@@ -137,8 +137,8 @@ pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
         ui.label(
             RichText::new(match &ch.instrument {
                 InstrumentSpec::Sampler { .. } => "Sampler",
-                InstrumentSpec::Synth { .. } => "Haus Synth",
-                InstrumentSpec::MultiSampler { .. } => "Haus Sampler",
+                InstrumentSpec::Synth { .. } => "Beast Synth",
+                InstrumentSpec::MultiSampler { .. } => "Beast Sampler",
                 InstrumentSpec::Plugin { .. } => "Plugin",
             })
             .color(theme.colors.dim),

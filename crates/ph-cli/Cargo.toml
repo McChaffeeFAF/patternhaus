@@ -1,6 +1,6 @@
 [package]
 name = "ph-cli"
-description = "patternhaus-cli: run commands, scripts, renders and analysis from a shell, and serve MCP (headless or attached to a running app)."
+description = "beast-studio-cli: run commands, scripts, renders and analysis from a shell, and serve MCP (headless or attached to a running app)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ rust-version.workspace = true
 path = "src/lib.rs"
 
 [[bin]]
-name = "patternhaus-cli"
+name = "beast-studio-cli"
 path = "src/main.rs"
 
 [dependencies]

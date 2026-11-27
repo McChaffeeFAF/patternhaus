@@ -3,8 +3,8 @@
 //!
 //! Pipeline: bytes → our own XML reader ([`xml`]) → groups and samples with the inheritance
 //! rules (§3.1: most specific wins; volumes multiply; pan and tuning offsets add) → the
-//! Haus Sampler model. Group-level settings (envelope, round robin, choke, output, effects,
-//! LFOs, keyswitch articulations) decide the Haus group (`crate::assemble`). The `<ui>`,
+//! Beast Sampler model. Group-level settings (envelope, round robin, choke, output, effects,
+//! LFOs, keyswitch articulations) decide the Beast Sampler group (`crate::assemble`). The `<ui>`,
 //! unmapped bindings, oscillators, note sequences and the arpeggiator are kept as data in
 //! `extra` for M3b and reported. Containers: `.dspreset` files and `.dsbundle` folders;
 //! `.dslibrary` zip archives are refused with a message (no zip reader in the tree).

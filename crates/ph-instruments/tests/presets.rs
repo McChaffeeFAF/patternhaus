@@ -1,4 +1,4 @@
-//! Factory Haus Synth presets: every file loads, names real parameters with in-range
+//! Factory Beast Synth presets: every file loads, names real parameters with in-range
 //! values, renders a C3 at full velocity without clipping, and overrides work.
 
 #[path = "../../ph-effects/tests/common/mod.rs"]

@@ -1,14 +1,14 @@
-//! `ph-app`: the Patternhaus desktop application.
+//! `ph-app`: the Beast Studio desktop application (the `beast-studio` binary).
 //!
 //! ```text
-//! ph-app [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--library DIR]... [--buffer N]
+//! beast-studio [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--library DIR]... [--buffer N]
 //! ```
 //!
 //! Opens the project folder (or starts a new project with `project.new`), starts the engine on
 //! the default audio device (falling back to a silent engine with a visible notice), and shows
 //! the window.
 //!
-//! The `ph-app` binary is a thin `main` over [`run`]. A separately built binary can register
+//! The `beast-studio` binary is a thin `main` over [`run`]. A separately built binary can register
 //! more instrument importers (the importer hook, M3/T6, `docs/formats/importer-hook.md`) and
 //! run the same app:
 //!
@@ -73,7 +73,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "-h" | "--help" => {
                 println!(
-                    "usage: ph-app [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--library DIR]... [--buffer N]"
+                    "usage: beast-studio [project_dir] [--silent] [--demo-agent] [--assets DIR] [--config DIR] [--library DIR]... [--buffer N]"
                 );
                 std::process::exit(0);
             }
@@ -87,7 +87,7 @@ fn parse_args() -> Result<Args, String> {
     Ok(a)
 }
 
-/// Opens the local MCP/JSON-RPC endpoint (`patternhaus-cli mcp` attaches to it) and connects
+/// Opens the local MCP/JSON-RPC endpoint (`beast-studio-cli mcp` attaches to it) and connects
 /// its grant prompts and client list to the Agents panel. Without it the app still runs.
 fn start_local_agent_endpoint(studio: &Studio) -> Hooks {
     match agents::AppAgents::start(studio) {
@@ -121,13 +121,15 @@ pub struct Options {
     pub importers: Importers,
 }
 
-/// Runs the app on this process's arguments: the whole of `ph-app`.
+/// Runs the app on this process's arguments: the whole of the `beast-studio` binary.
 pub fn run(options: Options) -> eframe::Result {
     let Options { importers } = options;
+    // settings from before the rename are copied to their new folders once (never moved)
+    ph_control::userdirs::migrate_user_dirs_and_report();
     let args = match parse_args() {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("ph-app: {e}");
+            eprintln!("beast-studio: {e}");
             std::process::exit(2);
         }
     };
@@ -162,7 +164,7 @@ pub fn run(options: Options) -> eframe::Result {
         ..Default::default()
     };
     let result = eframe::run_native(
-        "Patternhaus",
+        "Beast Studio",
         options,
         Box::new(move |cc| {
             let engine_cfg = EngineConfig {

@@ -12,7 +12,7 @@ The specification PDF itself is not committed.
 **Evidence tags:** **[S]** per spec (SF2 2.04, section given as §n); **[D]** documented, not
 seen (a secondary public source, named); **[I]** inferred; **[C]** confirmed on files
 (none yet: no corpus examined; generated fixtures in section 12 will confirm the
-reader); **[PH]** a Patternhaus decision where the format leaves a choice.
+reader); **[PH]** a Beast Studio decision where the format leaves a choice.
 
 **Cited sources:**
 
@@ -354,7 +354,7 @@ Worked example from [S §8.5] restated: an instrument zone with attackVolEnv 120
 preset zone with attackVolEnv 2400 tc gives 3600 tc (8 s).
 
 **Import mapping [PH]:** SF2 has no "instrument file" boundary like SFZ. The importer:
-- lists presets (bank:program, name) and imports **one preset** per Haus Sampler instrument
+- lists presets (bank:program, name) and imports **one preset** per Beast Sampler instrument
   (the caller chooses; default: the first by bank then program);
 - flattens each (preset zone × instrument zone) pair into one native zone with fully
   summed generators and intersected ranges;
@@ -439,7 +439,7 @@ of the target modulator; circular or out-of-range links are ignored [S §7.4].
 
 **Attenuation scaling [D]:** many players (e.g. FluidSynth and E-mu hardware) apply
 `initialAttenuation` at **0.4 ×** its nominal cB value for compatibility with hardware. This
-is not in the spec. **[PH]:** Patternhaus applies attenuation from generators at 0.4 ×
+is not in the spec. **[PH]:** Beast Studio applies attenuation from generators at 0.4 ×
 (matching the common hardware reading) and from modulators at full value, and records the
 choice in the parity table as "approximated". Fixture F-SF2-04 pins our behaviour.
 
@@ -499,7 +499,7 @@ sources and the effects sends may be skipped (reported).
   0 and 2 play once [S §8.1.2, §9.1.2].
 - **Filter:** one resonant **low-pass**; the spec idealises it (the figure shows
   12 dB/oct); resonance in cB is the peak above DC gain; DC gain drops by half the
-  resonance [S §9.1.3]. **[PH]:** map to Haus Sampler's 2-pole low-pass (12 dB/oct) and
+  resonance [S §9.1.3]. **[PH]:** map to Beast Sampler's 2-pole low-pass (12 dB/oct) and
   disable the filter when cutoff ≥ 13500 cents and Q = 0.
 - **LFOs:** triangle, start at 0 after the delay, rising first [S §9.1.6]. Vibrato LFO →
   pitch only; mod LFO → pitch, cutoff, volume.

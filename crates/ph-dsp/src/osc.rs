@@ -3,7 +3,7 @@
 //! Each discontinuity is corrected with the 4-point polynomial residual of a band-limited
 //! step (BLEP, for saw and pulse edges) or ramp (BLAMP, for the triangle's corners). The
 //! residuals are the first and second integrals of a cubic B-spline kernel four samples
-//! wide, which suppresses aliasing markedly better than the common 2-point PolyBLEP. Haus Synth additionally runs its oscillators oversampled, which
+//! wide, which suppresses aliasing markedly better than the common 2-point PolyBLEP. Beast Synth additionally runs its oscillators oversampled, which
 //! pushes the residual aliasing far below audibility (see the crate tests for numbers).
 
 use crate::math::{Rng, sin_turns};

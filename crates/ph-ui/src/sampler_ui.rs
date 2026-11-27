@@ -1,4 +1,4 @@
-//! The Haus Sampler window (M3/T5): the instrument window of a channel that plays a
+//! The Beast Sampler window (M3/T5): the instrument window of a channel that plays a
 //! [`HausInstrument`], in the FL window style (one floating window per channel).
 //!
 //! - **Zone map:** keys across, velocity up, one rectangle per zone coloured by its group.
@@ -152,7 +152,7 @@ fn to(v: impl serde::Serialize) -> Value {
     serde_json::to_value(v).unwrap_or_default()
 }
 
-/// The instrument a channel plays, if it is a Haus Sampler with one.
+/// The instrument a channel plays, if it is a Beast Sampler with one.
 pub fn instrument_of(core: &AppCore, channel: ChannelId) -> Option<InstrumentId> {
     match core.project.channels.get(&channel)?.instrument {
         ph_core::InstrumentSpec::MultiSampler {
@@ -199,13 +199,13 @@ fn sample_label(z: &Zone) -> String {
 
 // ---- the window --------------------------------------------------------------------------
 
-/// The instrument window of a Haus Sampler channel.
+/// The instrument window of a Beast Sampler channel.
 pub fn show(ui: &mut Ui, core: &mut AppCore, channel: ChannelId) {
     let theme = core.theme.clone();
     let project = core.project.clone();
     let Some(id) = instrument_of(core, channel) else {
-        ui.label("This channel plays no Haus Sampler instrument yet.");
-        if btn(ui, "Load Haus instrument…").clicked() {
+        ui.label("This channel plays no Beast Sampler instrument yet.");
+        if btn(ui, "Load Beast Sampler instrument…").clicked() {
             core.dialog = Some(Dialog::SamplerLoad(LoadForm::new(Some(channel))));
         }
         return;
@@ -283,7 +283,7 @@ fn header(ui: &mut Ui, core: &mut AppCore, inst: &HausInstrument, ch: ChannelId,
             .source
             .as_ref()
             .map(|s| s.format.to_uppercase())
-            .unwrap_or_else(|| "HAUS".into());
+            .unwrap_or_else(|| "BEAST".into());
         widgets::badge(ui, &source, c.accent_dim, theme);
         let linked = inst
             .folder
@@ -302,9 +302,9 @@ fn header(ui: &mut Ui, core: &mut AppCore, inst: &HausInstrument, ch: ChannelId,
         );
     });
     ui.horizontal_wrapped(|ui| {
-        if btn(ui, "Save as Haus instrument…")
+        if btn(ui, "Save as Beast Sampler instrument…")
             .hint(
-                "Save as Haus instrument",
+                "Save as Beast Sampler instrument",
                 "",
                 "writes instrument.toml and its samples to a folder (sampler.save_native)",
             )
@@ -326,9 +326,9 @@ fn header(ui: &mut Ui, core: &mut AppCore, inst: &HausInstrument, ch: ChannelId,
         {
             core.send(ms::collect(inst.id));
         }
-        if btn(ui, "Load Haus instrument…")
+        if btn(ui, "Load Beast Sampler instrument…")
             .hint(
-                "Load Haus instrument",
+                "Load Beast Sampler instrument",
                 "",
                 "replaces this channel's instrument with a saved one (sampler.load)",
             )
@@ -2363,7 +2363,7 @@ fn import_report(ui: &mut Ui, inst: &HausInstrument, theme: &Theme) {
             ));
         }
         None => {
-            ui.label("Made in Patternhaus.");
+            ui.label("Made in Beast Studio.");
         }
     }
     if inst.import_notes.is_empty() && inst.extra.is_empty() {
@@ -2557,7 +2557,7 @@ pub fn has_samples(dir: &Path) -> bool {
     })
 }
 
-/// Starts importing `path` as a Haus Sampler channel: an instrument file goes straight to
+/// Starts importing `path` as a Beast Sampler channel: an instrument file goes straight to
 /// `sampler.import`, an SF2/SF3 with several presets asks which one first, and a folder of
 /// samples shows the auto-map preview first.
 pub fn import_path(core: &mut AppCore, path: &Path, channel: Option<ChannelId>) {
@@ -2680,7 +2680,7 @@ pub fn preset_dialog(ctx: &egui::Context, core: &mut AppCore, f: &mut PresetForm
 pub fn save_dialog(ctx: &egui::Context, core: &mut AppCore, f: &mut SaveForm) -> bool {
     let mut keep = true;
     let dim = core.theme.colors.dim;
-    crate::app::modal(ctx, "Save as Haus instrument", |ui| {
+    crate::app::modal(ctx, "Save as Beast Sampler instrument", |ui| {
         ui.label("Folder to write (instrument.toml and samples/), relative to the project:");
         ui.add(egui::TextEdit::singleline(&mut f.path).desired_width(420.0));
         ui.label(
@@ -2705,7 +2705,7 @@ pub fn save_dialog(ctx: &egui::Context, core: &mut AppCore, f: &mut SaveForm) ->
 pub fn load_dialog(ctx: &egui::Context, core: &mut AppCore, f: &mut LoadForm) -> bool {
     let mut keep = true;
     let dim = core.theme.colors.dim;
-    crate::app::modal(ctx, "Load Haus instrument", |ui| {
+    crate::app::modal(ctx, "Load Beast Sampler instrument", |ui| {
         ui.label("Instrument folder (holds instrument.toml), or its instrument.toml:");
         ui.add(egui::TextEdit::singleline(&mut f.path).desired_width(420.0));
         ui.label(
@@ -2805,7 +2805,7 @@ pub fn preview_audio(
     .map_err(|e| e.to_string())?;
     static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let tmp = std::env::temp_dir().join(format!(
-        "patternhaus-preview-{}-{}",
+        "beast-studio-preview-{}-{}",
         std::process::id(),
         N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));

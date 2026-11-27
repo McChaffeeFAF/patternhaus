@@ -14,7 +14,7 @@ cargo run --release -p ph-app -- C:\Users\you\beats\recording   # a new folder i
 ```
 
 Plug the interface and the keyboard in first. Keep the buffer at 256 frames (the default).
-Mappings you learn are saved in `%APPDATA%\patternhaus\midi-mappings.json` (or the `--config`
+Mappings you learn are saved in `%APPDATA%\Beast Studio\midi-mappings.json` (or the `--config`
 folder), not in the project.
 
 ## Part 1: audio inputs, monitoring and the latency readout
@@ -67,12 +67,12 @@ folder), not in the project.
 
 ## Part 3: MIDI keyboard
 
-1. Select a Haus Synth channel in the rack. Play the keyboard. Expected: sound at once, with no
+1. Select a Beast Synth channel in the rack. Play the keyboard. Expected: sound at once, with no
    noticeable lag; keys release cleanly. In IN, the **MIDI devices** list shows your keyboard
    with a filled dot; unplug it and replug it: it reconnects within about a second without
    restarting.
 2. Select another channel and play: the new channel sounds ("Keys play: ..." in IN).
-3. Move the **mod wheel** and **pitch bend** on a held note. Expected: the Haus Synth's bend
+3. Move the **mod wheel** and **pitch bend** on a held note. Expected: the Beast Synth's bend
    follows the wheel across its range (2 semitones by default) and returns to centre. The mod
    wheel moves whatever the patch routes to it (try a preset with a mod-wheel route).
    Aftertouch has no listener in the built-in instruments yet.
@@ -83,7 +83,7 @@ folder), not in the project.
 
 ## Part 4: MIDI learn
 
-1. Right-click any knob (a Haus Synth cutoff, the channel volume). Expected: the menu shows
+1. Right-click any knob (a Beast Synth cutoff, the channel volume). Expected: the menu shows
    **MIDI learn…** next to "Create automation clip". Click it: a toast asks you to move a
    control.
 2. Move a knob or slider on your controller. Expected: a toast `CC <n> on <device> now moves
@@ -91,7 +91,7 @@ folder), not in the project.
 3. Right-click the same knob: **Remove MIDI mapping (CC n)** is offered; **Cancel MIDI learn**
    appears while a learn is waiting.
 4. Close the app and reopen it: the mapping is still there (it lives in
-   `%APPDATA%\patternhaus\midi-mappings.json`, not in the project). Note the limit: a mapping
+   `%APPDATA%\Beast Studio\midi-mappings.json`, not in the project). Note the limit: a mapping
    names a project object (`channel/3/volume`), so in another project it moves whatever has
    that id (or nothing, if there is none).
 5. Click the red **automation record** button (the circle next to the metronome), play the

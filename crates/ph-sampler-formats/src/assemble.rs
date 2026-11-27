@@ -3,7 +3,7 @@
 //! The model keeps envelopes, filter, LFOs, voice limits, round-robin mode, output and
 //! effects per **group**, and modulation routes per instrument (optionally scoped to a
 //! group). Formats that set these per zone (SF2 instrument zones, DecentSampler samples)
-//! hand each zone a draft group; zones whose drafts agree share one Haus group, the others
+//! hand each zone a draft group; zones whose drafts agree share one Beast Sampler group, the others
 //! split into `Name (2)`, `Name (3)`, ... so nothing is averaged away. The SFZ mapper
 //! follows the same rule with its own buckets.
 

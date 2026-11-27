@@ -1,6 +1,6 @@
 [package]
 name = "ph-control"
-description = "Patternhaus control layer: the Studio core (session + engine), the engine-backed Host, and (T4) JSON-RPC/MCP/CLI front ends."
+description = "Beast Studio control layer: the Studio core (session + engine), the engine-backed Host, and (T4) JSON-RPC/MCP/CLI front ends."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

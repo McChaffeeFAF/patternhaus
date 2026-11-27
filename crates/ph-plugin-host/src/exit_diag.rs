@@ -1,6 +1,6 @@
 //! Opt-in crash diagnostics for process shutdown (Windows).
 //!
-//! Set `PATTERNHAUS_CRASH_LOG=<file>` and [`install`] adds a vectored exception handler that
+//! Set `BEAST_STUDIO_CRASH_LOG=<file>` (the older `PATTERNHAUS_CRASH_LOG` still works) and [`install`] adds a vectored exception handler that
 //! appends one line per hardware fault to that file: the exception code, the faulting address,
 //! the module that owns it, the thread, and the last [`stage`] the program reported. Nothing
 //! happens without the variable. It exists to find faults that happen while the process shuts
@@ -34,13 +34,13 @@ pub fn progress(n: u64) {
     PROGRESS.store(n, Ordering::Relaxed);
 }
 
-/// Installs the handler when `PATTERNHAUS_CRASH_LOG` is set (Windows only; a no-op elsewhere),
+/// Installs the handler when `BEAST_STUDIO_CRASH_LOG` is set (Windows only; a no-op elsewhere),
 /// and a watchdog thread that appends the current stage and progress counter to the same
 /// file every 30 s, so a hang leaves a trail of where it stopped.
 pub fn install() {
     #[cfg(windows)]
     win::install();
-    if let Some(p) = std::env::var_os("PATTERNHAUS_CRASH_LOG") {
+    if let Some(p) = ph_node::env::var_os("BEAST_STUDIO_CRASH_LOG") {
         let path = std::path::PathBuf::from(p);
         let start = std::time::Instant::now();
         let _ = std::thread::Builder::new()
@@ -84,7 +84,7 @@ mod win {
     static PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
 
     pub fn install() {
-        let Some(p) = std::env::var_os("PATTERNHAUS_CRASH_LOG") else {
+        let Some(p) = ph_node::env::var_os("BEAST_STUDIO_CRASH_LOG") else {
             return;
         };
         if PATH.set(p.into()).is_ok() {

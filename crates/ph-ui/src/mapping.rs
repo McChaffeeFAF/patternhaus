@@ -598,7 +598,7 @@ pub fn file_open(path: &str) -> Request {
 pub fn import_flp(path: &str) -> Request {
     import_flp_at(path, false)
 }
-/// As [`import_flp`], choosing the place: the Patternhaus projects folder, or beside the file.
+/// As [`import_flp`], choosing the place: the Beast Studio projects folder, or beside the file.
 pub fn import_flp_at(path: &str, next_to_flp: bool) -> Request {
     let placement = if next_to_flp {
         "next_to_flp"

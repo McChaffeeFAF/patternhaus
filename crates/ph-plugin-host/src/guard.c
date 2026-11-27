@@ -1,4 +1,4 @@
-/* Patternhaus crash guard (M2/T3; DESIGN §6 "crash isolation").
+/* Beast Studio crash guard (M2/T3; DESIGN §6 "crash isolation").
  *
  * ph_guard_call(f, ctx, &code) runs f(ctx). When native code inside it faults (access
  * violation, illegal instruction, divide by zero, bus error), the call returns 1 with the

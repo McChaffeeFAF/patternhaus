@@ -120,13 +120,13 @@ fn v1_to_v2(value: &mut Value) -> FormatResult<()> {
     Ok(())
 }
 
-/// 2 → 3 (M3): Haus Sampler instruments (`instruments`), the `instrument`/`group`/`zone` id
+/// 2 → 3 (M3): Beast Sampler instruments (`instruments`), the `instrument`/`group`/`zone` id
 /// counters and `MultiSampler.instrument` were added, all with serde defaults, so a version 2
 /// file is already a valid version 3 file. Checked: a version 2 file cannot hold instruments.
 fn v2_to_v3(value: &mut Value) -> FormatResult<()> {
     if value.get("instruments").is_some() {
         return Err(FormatError::Invalid(
-            "a version 2 project cannot hold Haus Sampler instruments".into(),
+            "a version 2 project cannot hold Beast Sampler instruments".into(),
         ));
     }
     let ids = value.get("next_ids").and_then(Value::as_object);
@@ -239,7 +239,7 @@ pub fn validate(p: &Project) -> FormatResult<()> {
     validate_instruments(p)
 }
 
-/// The Haus Sampler invariants of `ph_core::set`, for a loaded file.
+/// The Beast Sampler invariants of `ph_core::set`, for a loaded file.
 fn validate_instruments(p: &Project) -> FormatResult<()> {
     let bad = |m: String| Err(FormatError::Invalid(m));
     let mut groups = std::collections::BTreeSet::new();

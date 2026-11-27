@@ -1,8 +1,8 @@
-# Patternhaus dependency policy (cargo-deny). CI: `cargo deny check` (default features)
+# Beast Studio dependency policy (cargo-deny). CI: `cargo deny check` (default features)
 # and `cargo deny --features ph-app/asio check` (the GPL ASIO build, DESIGN §11).
 #
 # Licence policy, decided in M1/T7:
-# - Allowed everywhere: permissive licences compatible with shipping Patternhaus under
+# - Allowed everywhere: permissive licences compatible with shipping Beast Studio under
 #   MIT OR Apache-2.0 (the list below).
 # - MPL-2.0: allowed only for dependencies we use unmodified, named one by one below.
 #   MPL is file-level copyleft: using an unmodified MPL crate puts no obligation on our own
@@ -10,13 +10,16 @@
 #   take symphonia (sample decoding) from crates.io as is, and a patched copy would need its
 #   own review.
 # - Fonts: egui's default fonts (`epaint_default_fonts`: Hack, Ubuntu, emoji) are no longer
-#   used. Patternhaus bundles Barlow, Barlow Condensed and Share Tech Mono (SIL OFL 1.1) as
+#   used. Beast Studio bundles Barlow, Barlow Condensed and Share Tech Mono (SIL OFL 1.1) as
 #   files in `assets/fonts` (not crates); their provenance is in `assets/PROVENANCE.toml` and
 #   their licence texts are in THIRD_PARTY_NOTICES.md. No crate may use OFL or the Ubuntu
 #   Font Licence.
 # - GPL/LGPL/AGPL: denied. The only GPL code in a release is Steinberg's ASIO SDK in the
 #   optional `asio` build (not a crate; see docs/building-asio.md). A crate offered under
 #   "X OR GPL" is fine: we take X.
+# - `brand/` (logos, the mascot, theme art) is not a dependency and is not covered by this
+#   policy or by the repository's MIT OR Apache-2.0 licence: it is "All rights reserved" by
+#   Fluffy Beast Productions (`brand/LICENSE-BRAND.md`; `cargo xtask check` verifies the file).
 # Every exception is listed below with its reason, and the release notes list them too.
 
 [graph]

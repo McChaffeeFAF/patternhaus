@@ -1,6 +1,6 @@
 //! M3 acceptance criterion 1 (`docs/milestones/M3.md`), step by step.
 //!
-//! A scripted agent drives `patternhaus-cli mcp --headless` over stdio, **through MCP only**
+//! A scripted agent drives `beast-studio-cli mcp --headless` over stdio, **through MCP only**
 //! (tools and resources), and:
 //!
 //! 1. imports a generated multi-sample SFZ string patch (two velocity layers with two round
@@ -384,7 +384,7 @@ async fn m3_acceptance_agent_plays_a_haus_instrument_through_mcp_only() {
     }
 
     let listed = c.list_resources(None).await.unwrap();
-    let uri = format!("patternhaus://instrument/{str_inst}/report");
+    let uri = format!("beast-studio://instrument/{str_inst}/report");
     assert!(
         listed.resources.iter().any(|r| r.uri == uri),
         "{:?}",
@@ -393,12 +393,25 @@ async fn m3_acceptance_agent_plays_a_haus_instrument_through_mcp_only() {
     let templates = c.list_resource_templates(None).await.unwrap();
     assert_eq!(
         templates.resource_templates[0].uri_template,
-        "patternhaus://instrument/{id}/report"
+        "beast-studio://instrument/{id}/report"
     );
+    // the pre-rename scheme reads the same report
+    let legacy = c
+        .read_resource(ReadResourceRequestParams::new(
+            uri.replace("beast-studio://", "patternhaus://"),
+        ))
+        .await
+        .unwrap();
     let read = c
         .read_resource(ReadResourceRequestParams::new(uri))
         .await
         .unwrap();
+    assert_eq!(
+        serde_json::to_string(&legacy.contents).unwrap(),
+        serde_json::to_string(&read.contents)
+            .unwrap()
+            .replace("beast-studio://", "patternhaus://")
+    );
     let ResourceContents::TextResourceContents { text, .. } = &read.contents[0] else {
         panic!("a text resource");
     };

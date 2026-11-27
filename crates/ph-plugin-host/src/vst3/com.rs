@@ -53,7 +53,7 @@ impl Class for HostApp {
 impl IHostApplicationTrait for HostApp {
     unsafe fn getName(&self, name: *mut String128) -> tresult {
         // SAFETY: the plugin passes a String128
-        write_string128("Patternhaus", unsafe { &mut *name });
+        write_string128("Beast Studio", unsafe { &mut *name });
         kResultOk
     }
 
@@ -765,7 +765,7 @@ mod tests {
             assert_eq!(v, 42);
             let mut name: String128 = [0; 128];
             p.getName(&mut name);
-            assert_eq!(read_tchars(&name), "Patternhaus");
+            assert_eq!(read_tchars(&name), "Beast Studio");
         }
     }
 }

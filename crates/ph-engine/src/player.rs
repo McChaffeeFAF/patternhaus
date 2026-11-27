@@ -745,7 +745,7 @@ impl AudioCtx {
         o
     }
 
-    /// A stream cache for a Haus Sampler node (M3/T2): `streams` are its long files, `voices`
+    /// A stream cache for a Beast Sampler node (M3/T2): `streams` are its long files, `voices`
     /// its voice slots. Registered with the prefetch thread like an audio track's cache, under
     /// the same policy, and its underruns count in `EngineStats::underruns`. Control thread.
     pub fn sampler_cache(

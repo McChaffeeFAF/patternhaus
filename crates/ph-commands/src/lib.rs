@@ -1,4 +1,4 @@
-//! Commands: the single way anything happens in Patternhaus.
+//! Commands: the single way anything happens in Beast Studio.
 //!
 //! Menus, shortcuts, tools, the CLI, JSON-RPC and MCP all call commands from one
 //! [`Registry`] (DESIGN §3). A mutating command returns [`ph_core::PatchSet`]s built with

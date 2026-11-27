@@ -1,6 +1,6 @@
 //! `.phtxt`, a made-up text instrument format for tests of the importer hook (M3/T6): an
 //! importer that is not built in, registered at runtime (`Importers::register`). Never
-//! registered by Patternhaus itself.
+//! registered by Beast Studio itself.
 
 use crate::{
     ImportError, ImportInput, ImportReport, Imported, ImportedSample, Importer, SampleSource,

@@ -1,4 +1,4 @@
-//! Haus Sampler importers (M3): other samplers' instrument files to a [`HausInstrument`].
+//! Beast Sampler importers (M3): other samplers' instrument files to a [`HausInstrument`].
 //!
 //! Clean room (AGENTS.md, M3 plan): importers are written from the specs in `docs/formats/`
 //! only, never from third-party sampler code.
@@ -295,7 +295,7 @@ impl ImportReport {
 pub enum ImportError {
     /// Encrypted or licence-locked content. Never decrypted (DESIGN §8).
     #[error(
-        "{file} is an encrypted or licence-locked {format} instrument ({detail}); Patternhaus does not open protected libraries"
+        "{file} is an encrypted or licence-locked {format} instrument ({detail}); Beast Studio does not open protected libraries"
     )]
     Encrypted {
         format: String,

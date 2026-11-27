@@ -6,7 +6,7 @@
 //! file makes the choice unambiguous, and the import report says so otherwise.
 //!
 //! Pipeline: blocks and byte order ([`blocks`]) → zones, groups, samples, parameters →
-//! sample lookup (§5) → the Haus Sampler model (§7).
+//! sample lookup (§5) → the Beast Sampler model (§7).
 
 pub(crate) mod blocks;
 
@@ -856,7 +856,7 @@ pub fn import_bytes(bytes: &[u8], file: &str, dir: Option<&Path>) -> Result<Impo
         z.start = start;
         z.end = (end < len).then_some(end);
         // SPEC-GAP: exs.md §7 says to subtract 1 from the loop end "for our inclusive model";
-        // the Haus model's loop end is exclusive too, so the stored end is kept as is.
+        // the Beast Sampler model's loop end is exclusive too, so the stored end is kept as is.
         if zr.loop_options & 0x01 != 0 {
             let (ls, le) = (
                 (zr.loop_start as u64).clamp(start, end),

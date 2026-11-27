@@ -38,7 +38,7 @@ jobs:
           fi
           {
             echo
-            echo "Each zip holds ph-app, patternhaus-cli, the factory assets, THIRD_PARTY_NOTICES.md, the licences and a README."
+            echo "Each zip holds beast-studio, beast-studio-cli, the factory assets, THIRD_PARTY_NOTICES.md, the licences and a README."
             echo "These builds are MIT OR Apache-2.0. An archive marked asio-gpl3, if present, is the GPLv3 ASIO build."
           } >> notes.md
       - name: create the release
@@ -48,6 +48,6 @@ jobs:
           pre=""
           case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/*.zip $pre \
-            --title "Patternhaus $GITHUB_REF_NAME" \
+            --title "Beast Studio $GITHUB_REF_NAME" \
             --notes-file notes.md \
             --verify-tag

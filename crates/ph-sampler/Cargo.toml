@@ -1,6 +1,6 @@
 [package]
 name = "ph-sampler"
-description = "Patternhaus Haus Sampler engine (ph.haus_sampler): zone lookup, voices, round robin, streaming hand-off."
+description = "Beast Sampler engine (ph.haus_sampler): zone lookup, voices, round robin, streaming hand-off."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

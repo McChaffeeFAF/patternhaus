@@ -1,11 +1,11 @@
-# Haus Sampler instrument format
+# Beast Sampler instrument format
 
 Status: **contract, M3/T0 (2026-11-05).** File version 1. Model: `ph_core::HausInstrument`
 (`crates/ph-core/src/sampler.rs`); file code: `ph_formats::instrument`
 (`crates/ph-formats/src/instrument.rs`). Our own format: nothing here comes from another
 sampler's documentation or code.
 
-A Haus Sampler instrument is a multi-sample instrument: **zones** (one sample each, mapped to a
+A Beast Sampler instrument is a multi-sample instrument: **zones** (one sample each, mapped to a
 key and velocity range) collected in **groups** (shared envelopes, filter, LFOs, voices, round
 robin, output bus, effects), plus **articulations** (keyswitches), a **modulation matrix** and
 global **settings**. The same model lives in two places:
@@ -98,7 +98,7 @@ left out.
 | key | type | default | meaning | since |
 |---|---|---|---|---|
 | `format` | string | required | always `"patternhaus-instrument"` | 1 |
-| `version` | integer | required | file version; 1 now. Older versions are migrated on load; newer ones are refused ("update Patternhaus"). | 1 |
+| `version` | integer | required | file version; 1 now. Older versions are migrated on load; newer ones are refused ("update Beast Studio"). | 1 |
 | `name` | string | required | instrument name | 1 |
 | `[settings]` | table | all defaults | §4.1 | 1 |
 | `[source]` | table | absent | §4.2 | 1 |

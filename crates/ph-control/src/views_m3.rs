@@ -1,10 +1,10 @@
-//! Readable views of the M3 model for agents: `get_state { view: "zones" }`, the Haus Sampler
+//! Readable views of the M3 model for agents: `get_state { view: "zones" }`, the Beast Sampler
 //! zone maps, with a playing guide per instrument in the catalogue's shape (M3/T9), so an agent
-//! plays a Haus instrument and a catalogue plugin the same way. M3/T0 fixed the shape; M3/T7
+//! plays a Beast Sampler instrument and a catalogue plugin the same way. M3/T0 fixed the shape; M3/T7
 //! completed it (note names, layers, round robins, gaps, the guide, paging) without renaming
 //! any T0 key.
 //!
-//! Also here: what the analysis needs to know about Haus instruments ([`is_kit`],
+//! Also here: what the analysis needs to know about Beast Sampler instruments ([`is_kit`],
 //! [`keyswitch_keys`]): a kit's hits and an instrument's keyswitches are not pitches.
 
 use ph_commands::catalogue::{CcUse, Keyswitch, PlayingGuide, guide_text, note_name};
@@ -56,7 +56,7 @@ fn attack(i: &HausInstrument) -> impl Iterator<Item = &Zone> {
         .filter(|z| z.trigger == ZoneTrigger::Attack)
 }
 
-/// The Haus instrument a channel plays, if any.
+/// The Beast Sampler instrument a channel plays, if any.
 pub fn haus_of(p: &Project, ch: ChannelId) -> Option<&HausInstrument> {
     match &p.channels.get(&ch)?.instrument {
         InstrumentSpec::MultiSampler {
@@ -222,7 +222,7 @@ fn stem(s: &str) -> &str {
     s.rsplit_once('.').map_or(s, |(a, _)| a)
 }
 
-/// The playing guide of a Haus instrument, derived from its zone map, in the catalogue's
+/// The playing guide of a Beast Sampler instrument, derived from its zone map, in the catalogue's
 /// shape: playable range, keyswitches with names, controllers that do something, velocity
 /// layers, and notes (round robins, release samples, per-articulation ranges, a kit's keys).
 pub fn guide(p: &Project, i: &HausInstrument) -> PlayingGuide {

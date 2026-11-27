@@ -2,7 +2,7 @@
 //! elsewhere. One endpoint speaks both routes: a connection whose first message is the MCP
 //! `initialize` request is served as MCP; anything else is line-delimited JSON-RPC 2.0.
 //!
-//! The app calls [`serve_local`]`(&studio)`; `patternhaus-cli mcp --connect` is a stdio proxy
+//! The app calls [`serve_local`]`(&studio)`; `beast-studio-cli mcp --connect` is a stdio proxy
 //! to the same endpoint ([`proxy_stdio`]).
 
 use crate::agent::Agent;
@@ -10,6 +10,7 @@ use crate::connections::ConnectionInfo;
 use crate::grants::Grants;
 use crate::jsonrpc::serve_jsonrpc;
 use crate::mcp::PatternhausServer;
+use crate::userdirs;
 use crate::{Studio, StudioHandle};
 use rmcp::ServiceExt;
 use std::path::PathBuf;
@@ -17,32 +18,49 @@ use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, BufReader};
 use tokio::sync::Notify;
 
-/// Per-user endpoint name: `\\.\pipe\patternhaus-<user>` or `$XDG_RUNTIME_DIR/patternhaus.sock`.
+/// Per-user endpoint name: `\\.\pipe\beast-studio-<user>` or `$XDG_RUNTIME_DIR/beast-studio.sock`.
+/// A running app serves this one; [`legacy_endpoint`] is what a build from before the rename
+/// serves.
 pub fn default_endpoint() -> String {
+    endpoint_named(userdirs::SLUG)
+}
+
+/// The endpoint name before the rename (`patternhaus-<user>`, `patternhaus.sock`): clients
+/// fall back to it when nothing listens on [`default_endpoint`].
+pub fn legacy_endpoint() -> String {
+    endpoint_named(userdirs::LEGACY_SLUG)
+}
+
+fn endpoint_named(slug: &str) -> String {
     #[cfg(windows)]
     {
         let user = std::env::var("USERNAME").unwrap_or_else(|_| "user".into());
-        format!(r"\\.\pipe\patternhaus-{user}")
+        format!(r"\\.\pipe\{slug}-{user}")
     }
     #[cfg(not(windows))]
     {
         if let Ok(d) = std::env::var("XDG_RUNTIME_DIR") {
-            return format!("{d}/patternhaus.sock");
+            return format!("{d}/{slug}.sock");
         }
         let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
-        format!("/tmp/patternhaus-{user}.sock")
+        format!("/tmp/{slug}-{user}.sock")
     }
 }
 
-/// Where remembered per-client grants live: `<config dir>/patternhaus/agents.json`.
+/// The endpoints a client tries, in order: the one named, or else the default one and then
+/// the pre-rename one.
+pub fn endpoint_candidates(explicit: Option<&str>) -> Vec<String> {
+    match explicit {
+        Some(e) => vec![e.to_string()],
+        None => vec![default_endpoint(), legacy_endpoint()],
+    }
+}
+
+/// Where remembered per-client grants live: `agents.json` in the config folder
+/// (`%APPDATA%\Beast Studio`, `$XDG_CONFIG_HOME/beast-studio`; see [`userdirs`]).
 pub fn default_grants_file() -> Option<PathBuf> {
-    #[cfg(windows)]
-    let base = std::env::var_os("APPDATA").map(PathBuf::from);
-    #[cfg(not(windows))]
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-    base.map(|b| b.join("patternhaus").join("agents.json"))
+    userdirs::grants_dir_in(&userdirs::process_env, userdirs::Era::Current)
+        .map(|d| d.join("agents.json"))
 }
 
 /// A running endpoint. Dropping it closes the endpoint.
@@ -235,7 +253,7 @@ async fn accept_loop(
     let _ = std::fs::remove_file(&endpoint);
 }
 
-/// Serves MCP over this process's stdin/stdout (headless `patternhaus-cli mcp`).
+/// Serves MCP over this process's stdin/stdout (headless `beast-studio-cli mcp`).
 pub async fn serve_stdio(agent: Arc<Agent>) -> Result<(), String> {
     let server = PatternhausServer::new(agent)?;
     let running = server
@@ -252,14 +270,14 @@ pub async fn connect(
     endpoint: &str,
 ) -> Result<
     (
-        impl AsyncRead + Unpin + Send,
-        impl AsyncWrite + Unpin + Send,
+        impl AsyncRead + Unpin + Send + use<>,
+        impl AsyncWrite + Unpin + Send + use<>,
     ),
     String,
 > {
     let client = tokio::net::windows::named_pipe::ClientOptions::new()
         .open(endpoint)
-        .map_err(|e| format!("no running Patternhaus at {endpoint}: {e}"))?;
+        .map_err(|e| format!("no running Beast Studio at {endpoint}: {e}"))?;
     Ok(tokio::io::split(client))
 }
 
@@ -268,21 +286,45 @@ pub async fn connect(
     endpoint: &str,
 ) -> Result<
     (
-        impl AsyncRead + Unpin + Send,
-        impl AsyncWrite + Unpin + Send,
+        impl AsyncRead + Unpin + Send + use<>,
+        impl AsyncWrite + Unpin + Send + use<>,
     ),
     String,
 > {
     let s = tokio::net::UnixStream::connect(endpoint)
         .await
-        .map_err(|e| format!("no running Patternhaus at {endpoint}: {e}"))?;
+        .map_err(|e| format!("no running Beast Studio at {endpoint}: {e}"))?;
     Ok(tokio::io::split(s))
 }
 
-/// `patternhaus-cli mcp --connect`: copies stdin to the endpoint and the endpoint to stdout,
-/// so one stdio MCP registration attaches to the running app.
-pub async fn proxy_stdio(endpoint: &str) -> Result<(), String> {
-    let (mut r, mut w) = connect(endpoint).await?;
+/// A connection to the endpoint, with the stream types erased.
+pub type Connection = (
+    Box<dyn AsyncRead + Unpin + Send>,
+    Box<dyn AsyncWrite + Unpin + Send>,
+);
+
+/// Connects to the first of `endpoints` that has a running app behind it. The error names
+/// each endpoint tried.
+pub async fn connect_any(endpoints: &[String]) -> Result<Connection, String> {
+    let mut errors = Vec::new();
+    for ep in endpoints {
+        match connect(ep).await {
+            Ok((r, w)) => return Ok((Box::new(r), Box::new(w))),
+            Err(e) => errors.push(e),
+        }
+    }
+    Err(if errors.is_empty() {
+        "no endpoint to connect to".to_string()
+    } else {
+        errors.join("; ")
+    })
+}
+
+/// `beast-studio-cli mcp --connect`: copies stdin to the endpoint and the endpoint to stdout,
+/// so one stdio MCP registration attaches to the running app. Tries each endpoint in order
+/// ([`endpoint_candidates`]).
+pub async fn proxy_stdio(endpoints: &[String]) -> Result<(), String> {
+    let (mut r, mut w) = connect_any(endpoints).await?;
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
     let up = tokio::io::copy(&mut stdin, &mut w);

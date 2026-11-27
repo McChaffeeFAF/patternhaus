@@ -1,4 +1,4 @@
-//! The Haus Sampler zone map's geometry and gestures (M3/T5), without egui state: where each
+//! The Beast Sampler zone map's geometry and gestures (M3/T5), without egui state: where each
 //! zone is drawn, what a press hits, and which `sampler.*` requests a drag becomes.
 //!
 //! Keys run across (one column per key, `key0` at the left edge), velocity up (0 at the

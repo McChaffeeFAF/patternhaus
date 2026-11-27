@@ -76,7 +76,7 @@ pub fn show(ui: &mut Ui, core: &mut AppCore) {
                 );
                 ui.close();
             }
-            crate::widgets::menu_button(ui, "Haus Synth", |ui| {
+            crate::widgets::menu_button(ui, "Beast Synth", |ui| {
                 for cat in &core.browser.presets.clone() {
                     ui.menu_button(&cat.name, |ui| {
                         for p in &cat.children {

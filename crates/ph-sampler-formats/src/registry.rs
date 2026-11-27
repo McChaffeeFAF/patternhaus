@@ -93,7 +93,7 @@ fn valid_id(s: &str) -> bool {
 }
 
 impl Importers {
-    /// The importers built into Patternhaus (SFZ, SF2/SF3, DecentSampler, EXS24).
+    /// The importers built into Beast Studio (SFZ, SF2/SF3, DecentSampler, EXS24).
     pub fn builtin() -> Self {
         Self {
             list: importers()

@@ -289,15 +289,20 @@ fn harness(app: PhApp) -> H {
         let b = if gpu { b.wgpu() } else { b };
         b.build_ui_state(|ui, app: &mut PhApp| app.draw(ui), app)
     };
-    let gpu = std::panic::catch_unwind(|| {
-        Harness::builder()
-            .with_size(egui::vec2(64.0, 64.0))
-            .wgpu()
-            .build_ui(|ui| {
-                ui.label("probe");
-            })
-    })
-    .is_ok();
+    // The checks read the frame's shapes, not pixels: a GPU is only needed for the optional
+    // docs picture (`PH_SCREENSHOTS=1`). Skipping it otherwise keeps this test off the
+    // software Vulkan driver on Linux CI, where it intermittently crashed with SIGSEGV.
+    let want_picture = std::env::var_os("PH_SCREENSHOTS").is_some_and(|v| v == "1");
+    let gpu = want_picture
+        && std::panic::catch_unwind(|| {
+            Harness::builder()
+                .with_size(egui::vec2(64.0, 64.0))
+                .wgpu()
+                .build_ui(|ui| {
+                    ui.label("probe");
+                })
+        })
+        .is_ok();
     build(app, gpu)
 }
 
